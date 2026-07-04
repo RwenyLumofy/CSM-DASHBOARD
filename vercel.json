@@ -1,0 +1,17 @@
+{
+  "regions": ["bom1"],
+  "crons": [
+    {
+      "path": "/api/cron/sync",
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/cron/usage-sync",
+      "schedule": "15 */4 * * *"
+    },
+    {
+      "path": "/api/cron/profile-completeness",
+      "schedule": "0 6 * * *"
+    }
+  ]
+}

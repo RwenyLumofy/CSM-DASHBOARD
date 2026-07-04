@@ -1,0 +1,295 @@
+@import "tailwindcss";
+
+/* =========================================================================
+   Lumofy — Colors & Type
+   Ported from the Lumofy Design System handoff (colors_and_type.css).
+   "Discover our own mastery, and master our discovery."
+   ========================================================================= */
+
+/* ---------- Font faces ------------------------------------------------- */
+
+@font-face {
+  font-family: "Source Sans 3";
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/SourceSans3-VariableFont_wght.ttf") format("truetype-variations");
+}
+@font-face {
+  font-family: "Source Sans 3";
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
+  src: url("/fonts/SourceSans3-Italic-VariableFont_wght.ttf") format("truetype-variations");
+}
+
+@font-face { font-family: "IBM Plex Sans"; font-weight: 100; font-style: normal;
+  src: url("/fonts/IBMPlexSans-Thin.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 200; font-style: normal;
+  src: url("/fonts/IBMPlexSans-ExtraLight.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 300; font-style: normal;
+  src: url("/fonts/IBMPlexSans-Light.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-style: normal;
+  src: url("/fonts/IBMPlexSans-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-style: italic;
+  src: url("/fonts/IBMPlexSans-Italic.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; font-style: normal;
+  src: url("/fonts/IBMPlexSans-Medium.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; font-style: italic;
+  src: url("/fonts/IBMPlexSans-MediumItalic.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600; font-style: normal;
+  src: url("/fonts/IBMPlexSans-SemiBold.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 700; font-style: normal;
+  src: url("/fonts/IBMPlexSans-Bold.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 700; font-style: italic;
+  src: url("/fonts/IBMPlexSans-BoldItalic.ttf") format("truetype"); font-display: swap; }
+
+/* IBM Plex Sans Arabic — pairs with the Latin face for RTL / Arabic copy */
+@font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 100; font-style: normal;
+  src: url("/fonts/IBMPlexSansArabic-Thin.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 200; font-style: normal;
+  src: url("/fonts/IBMPlexSansArabic-ExtraLight.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 300; font-style: normal;
+  src: url("/fonts/IBMPlexSansArabic-Light.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 400; font-style: normal;
+  src: url("/fonts/IBMPlexSansArabic-Regular.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 500; font-style: normal;
+  src: url("/fonts/IBMPlexSansArabic-Medium.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 600; font-style: normal;
+  src: url("/fonts/IBMPlexSansArabic-SemiBold.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "IBM Plex Sans Arabic"; font-weight: 700; font-style: normal;
+  src: url("/fonts/IBMPlexSansArabic-Bold.ttf") format("truetype"); font-display: swap; }
+
+/* ---------- Tailwind theme tokens -------------------------------------
+   These become :root CSS variables AND generate utilities (bg-sirius,
+   text-cosmos, font-display, rounded-lg, shadow-md, …). Semantic tokens
+   (--color-bg, --color-fg, --color-accent, …) are re-themed for dark mode
+   in the [data-theme="dark"] block below; utilities reference them by var
+   so the override cascades automatically.
+   ----------------------------------------------------------------------- */
+@theme {
+  /* Brand — celestial palette */
+  --color-cosmos: #0C0C0C;
+  --color-halo: #EFEFEF;
+  --color-white: #FFFFFF;
+  --color-sirius: #215BEA;
+  --color-stellar: #E2E05A;
+  --color-aurora: #5AE29C;
+  --color-nova: #E05A90;
+  --color-eclipse: #A366FF;
+
+  /* Sirius scale */
+  --color-sirius-50: #EEF3FE;
+  --color-sirius-100: #D6E2FC;
+  --color-sirius-200: #ADC5F8;
+  --color-sirius-300: #7CA1F4;
+  --color-sirius-400: #4E80EF;
+  --color-sirius-500: #215BEA;
+  --color-sirius-600: #1A49BE;
+  --color-sirius-700: #143791;
+  --color-sirius-800: #0E2664;
+  --color-sirius-900: #081637;
+
+  /* Neutral scale (Cosmos → Halo) */
+  --color-neutral-0: #FFFFFF;
+  --color-neutral-50: #FAFAFA;
+  --color-neutral-100: #EFEFEF;
+  --color-neutral-200: #DCDCDC;
+  --color-neutral-300: #C2C2C2;
+  --color-neutral-400: #9A9A9A;
+  --color-neutral-500: #6E6E6E;
+  --color-neutral-600: #4A4A4A;
+  --color-neutral-700: #2E2E2E;
+  --color-neutral-800: #1A1A1A;
+  --color-neutral-900: #0C0C0C;
+
+  /* Semantic (light defaults; re-themed under [data-theme="dark"]) */
+  --color-bg: #FFFFFF;
+  --color-bg-subtle: #FAFAFA;
+  --color-bg-muted: #EFEFEF;
+  --color-bg-inverse: #0C0C0C;
+  --color-surface: #FFFFFF;
+  --color-surface-raised: #FFFFFF;
+  --color-surface-sunken: #FAFAFA;
+  --color-fg: #0C0C0C;
+  --color-fg-muted: #4A4A4A;
+  --color-fg-subtle: #6E6E6E;
+  --color-fg-on-accent: #FFFFFF;
+  --color-fg-on-dark: #FFFFFF;
+  --color-border: #DCDCDC;
+  --color-border-strong: #C2C2C2;
+  --color-border-subtle: #EFEFEF;
+  --color-accent: #215BEA;
+  --color-accent-hover: #1A49BE;
+  --color-accent-pressed: #143791;
+  --color-accent-soft: #EEF3FE;
+
+  /* Status */
+  --color-success: #2DB47A;
+  --color-success-bg: #E6F9EF;
+  --color-warning: #C99A14;
+  --color-warning-bg: #FBF6E0;
+  --color-danger: #D14B6B;
+  --color-danger-bg: #FBE7ED;
+  --color-info: #215BEA;
+  --color-info-bg: #EEF3FE;
+
+  /* Type families */
+  --font-display: "Source Sans 3", "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-arabic: "IBM Plex Sans Arabic", "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Radii */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-2xl: 32px;
+  --radius-pill: 999px;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(12, 12, 12, 0.04);
+  --shadow-sm: 0 1px 3px rgba(12, 12, 12, 0.06), 0 1px 2px rgba(12, 12, 12, 0.04);
+  --shadow-md: 0 4px 12px rgba(12, 12, 12, 0.08), 0 2px 4px rgba(12, 12, 12, 0.04);
+  --shadow-lg: 0 12px 32px rgba(12, 12, 12, 0.10), 0 4px 8px rgba(12, 12, 12, 0.04);
+  --shadow-xl: 0 24px 64px rgba(12, 12, 12, 0.16);
+  --shadow-glow-sirius: 0 0 0 6px rgba(33, 91, 234, 0.16);
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasis: cubic-bezier(0.2, 0, 0, 1.2);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* ---------- Type scale (Major Third 1.250) ----------------------------- */
+:root {
+  --fs-2xs: 0.694rem;
+  --fs-xs: 0.833rem;
+  --fs-sm: 0.9rem;
+  --fs-base: 1rem;
+  --fs-md: 1.125rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.563rem;
+  --fs-2xl: 1.953rem;
+  --fs-3xl: 2.441rem;
+  --fs-4xl: 3.052rem;
+  --fs-5xl: 3.815rem;
+  --fs-6xl: 4.768rem;
+
+  --lh-tight: 1.1;
+  --lh-snug: 1.25;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.65;
+
+  --tracking-tight: -0.02em;
+  --tracking-snug: -0.01em;
+  --tracking-wide: 0.04em;
+  --tracking-caps: 0.08em;
+
+  --duration-fast: 140ms;
+  --duration-base: 220ms;
+  --duration-slow: 360ms;
+
+  color-scheme: light;
+}
+
+/* ---------- Dark mode (Cosmos-first) ----------------------------------- */
+[data-theme="dark"] {
+  --color-bg: #0C0C0C;
+  --color-bg-subtle: #141414;
+  --color-bg-muted: #1C1C1C;
+  --color-bg-inverse: #FFFFFF;
+  --color-surface: #141414;
+  --color-surface-raised: #1F1F1F;
+  --color-surface-sunken: #0C0C0C;
+  --color-fg: #EFEFEF;
+  --color-fg-muted: #B5B5B5;
+  --color-fg-subtle: #8A8A8A;
+  --color-fg-on-accent: #FFFFFF;
+  --color-fg-on-dark: #FFFFFF;
+  --color-border: #2B2B2B;
+  --color-border-strong: #3D3D3D;
+  --color-border-subtle: #1C1C1C;
+  --color-accent: #4E80EF;
+  --color-accent-hover: #7CA1F4;
+  --color-accent-pressed: #ADC5F8;
+  --color-accent-soft: rgba(33, 91, 234, 0.16);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.7);
+
+  color-scheme: dark;
+}
+
+/* ---------- Base ------------------------------------------------------- */
+* { border-color: var(--color-border); }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
+  line-height: var(--lh-relaxed);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "tnum" 1; /* tabular numerals by default in body face */
+}
+
+[dir="rtl"] body { font-family: var(--font-arabic); }
+
+::selection { background: var(--color-sirius-100); color: var(--color-cosmos); }
+
+/* Numerals stay tabular in data contexts; proportional for display headings */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* ---------- Semantic type styles --------------------------------------- */
+.h-display, .h1 { font-family: var(--font-display); font-weight: 700;
+  font-size: var(--fs-5xl); line-height: var(--lh-tight); letter-spacing: var(--tracking-tight);
+  color: var(--color-fg); margin: 0; }
+.h2 { font-family: var(--font-display); font-weight: 700;
+  font-size: var(--fs-3xl); line-height: var(--lh-snug); letter-spacing: var(--tracking-snug);
+  color: var(--color-fg); margin: 0; }
+.h3 { font-family: var(--font-display); font-weight: 600;
+  font-size: var(--fs-2xl); line-height: var(--lh-snug); color: var(--color-fg); margin: 0; }
+.h4 { font-family: var(--font-display); font-weight: 600;
+  font-size: var(--fs-xl); line-height: var(--lh-snug); color: var(--color-fg); margin: 0; }
+.h5 { font-family: var(--font-display); font-weight: 600;
+  font-size: var(--fs-lg); line-height: var(--lh-snug); color: var(--color-fg); margin: 0; }
+.h6 { font-family: var(--font-display); font-weight: 600;
+  font-size: var(--fs-md); line-height: var(--lh-snug); color: var(--color-fg); margin: 0; }
+
+.eyebrow { font-family: var(--font-body); font-weight: 600;
+  font-size: var(--fs-xs); letter-spacing: var(--tracking-caps);
+  text-transform: uppercase; color: var(--color-fg-muted); }
+
+.p-lead { font-family: var(--font-body); font-weight: 400;
+  font-size: var(--fs-md); line-height: var(--lh-relaxed); color: var(--color-fg-muted); }
+.caption { font-family: var(--font-body); font-weight: 400;
+  font-size: var(--fs-xs); line-height: var(--lh-normal); color: var(--color-fg-subtle); }
+
+/* ---------- Focus ring ------------------------------------------------- */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow-sirius);
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- Scrollbars (subtle) ---------------------------------------- */
+* { scrollbar-width: thin; scrollbar-color: var(--color-border-strong) transparent; }
+
+/* ---------- Reduced motion --------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
