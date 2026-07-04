@@ -106,13 +106,7 @@ lib/
 
 ## Cron jobs
 
-Three scheduled jobs, defined in `vercel.json`, each guarded by `CRON_SECRET` (`Authorization: Bearer <CRON_SECRET>`):
-
-| Route | Intended cadence | Current cadence (Vercel Hobby) |
-|---|---|---|
-| `/api/cron/sync` | every 4 hours | daily, `0 6 * * *` |
-| `/api/cron/usage-sync` | every 4 hours | daily, `20 6 * * *` |
-| `/api/cron/profile-completeness` | daily (by design — see [[profile-completeness]]) | daily, `0 7 * * *` (after `sync`, so it reflects that day's fresh deal data) |
+Three scheduled jobs, defined in `vercel.json`, each guarded by `CRON_SECRET` (`Authorization: Bearer <CRON_SECRET>`): `/api/cron/sync` (HubSpot), `/api/cron/usage-sync` (Metabase), `/api/cron/profile-completeness` (daily by design). All three currently run once a day and every serverless function is capped at 300s — both are temporary constraints of the Vercel Hobby (free) plan, not the original design. See **[VERCEL-PLAN-CHANGES.md](./VERCEL-PLAN-CHANGES.md)** for the exact original values and the checklist to restore them when upgrading to Pro.
 
 **Why "current" ≠ "intended":** Vercel's Hobby (free) plan rejects the whole deploy if *any* cron in `vercel.json` runs more than once a day. `sync` and `usage-sync` were designed to run every 4 hours (fresh HubSpot data, fast CSM auto-assignment on new companies), but are throttled to once/day until one of:
 - **Upgrade to Vercel Pro** — restore `"0 */4 * * *"` / `"15 */4 * * *"` in `vercel.json` and redeploy. No other changes needed.

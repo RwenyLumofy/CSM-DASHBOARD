@@ -4,9 +4,9 @@ import { runSync } from "@/lib/integrations/sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// A full historical sync runs ~5 min. 800 is the fluid-compute ceiling; Vercel
-// auto-caps to the plan max if lower.
-export const maxDuration = 800;
+// Temporarily throttled for Vercel Hobby's 300s function ceiling — original
+// design value was 800. See VERCEL-PLAN-CHANGES.md for the revert checklist.
+export const maxDuration = 300;
 
 function authorized(req: Request): boolean {
   if (!env.syncSecret) return true; // open in dev when no secret is set
