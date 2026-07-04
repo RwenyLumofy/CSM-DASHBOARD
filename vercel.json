@@ -3,15 +3,15 @@
   "crons": [
     {
       "path": "/api/cron/sync",
-      "schedule": "0 */4 * * *"
+      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/cron/usage-sync",
-      "schedule": "15 */4 * * *"
+      "schedule": "20 6 * * *"
     },
     {
       "path": "/api/cron/profile-completeness",
-      "schedule": "0 6 * * *"
+      "schedule": "0 7 * * *"
     }
   ]
 }

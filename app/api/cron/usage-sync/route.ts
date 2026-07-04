@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncAllClientUsage } from "@/lib/usage/sync";
 
+// Intended cadence: every 4 hours ("15 */4 * * *" in vercel.json). Currently
+// throttled to once/day ("20 6 * * *") — see the matching note in
+// app/api/cron/sync/route.ts and README.md "Cron jobs" for why and how to revert.
 export const runtime = "nodejs";
 // Each client costs 3 Metabase queries; with ~5-way concurrency across the
 // whole portfolio this can take a few minutes. Same ceiling as /api/cron/sync.

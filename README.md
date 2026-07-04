@@ -102,7 +102,23 @@ lib/
 - **NRR/GRR history.** On first sync, `previousArr = arr` (NRR ≈ 100%). The `arr_snapshots` table accrues monthly history so period-over-period retention becomes real over time. Sample mode ships pre-built deltas so the reports are populated.
 - **Intercom NPS.** Not native to Intercom; if you run NPS via Intercom Surveys, point the sync at that export. CSAT is computed from conversation ratings (4–5 = satisfied).
 - **Metabase mapping.** `mapUsageRow` tolerates common column names; align it to your usage question’s columns (join key = domain or HubSpot id).
-- **Deployment.** Vercel-ready, but **not deployed yet** by request. Set the same env vars in Vercel and add a Cron Job hitting `POST /api/sync` (with `SYNC_SECRET`).
+- **Deployment.** Live on Vercel. Set the same env vars from `.env.local` in the Vercel project's Environment Variables — none of them ship in the repo.
+
+## Cron jobs
+
+Three scheduled jobs, defined in `vercel.json`, each guarded by `CRON_SECRET` (`Authorization: Bearer <CRON_SECRET>`):
+
+| Route | Intended cadence | Current cadence (Vercel Hobby) |
+|---|---|---|
+| `/api/cron/sync` | every 4 hours | daily, `0 6 * * *` |
+| `/api/cron/usage-sync` | every 4 hours | daily, `20 6 * * *` |
+| `/api/cron/profile-completeness` | daily (by design — see [[profile-completeness]]) | daily, `0 7 * * *` (after `sync`, so it reflects that day's fresh deal data) |
+
+**Why "current" ≠ "intended":** Vercel's Hobby (free) plan rejects the whole deploy if *any* cron in `vercel.json` runs more than once a day. `sync` and `usage-sync` were designed to run every 4 hours (fresh HubSpot data, fast CSM auto-assignment on new companies), but are throttled to once/day until one of:
+- **Upgrade to Vercel Pro** — restore `"0 */4 * * *"` / `"15 */4 * * *"` in `vercel.json` and redeploy. No other changes needed.
+- **Wire an external scheduler** (e.g. [Upstash QStash](https://upstash.com), free tier) to call these two routes every 4 hours directly, and remove them from `vercel.json`'s `crons` array (keep `profile-completeness`, which is fine on Hobby as-is). Configure each QStash schedule with the destination URL and the `Authorization: Bearer <CRON_SECRET>` header.
+
+Each route's file has a matching comment — start there when reverting.
 
 ## Design system
 
