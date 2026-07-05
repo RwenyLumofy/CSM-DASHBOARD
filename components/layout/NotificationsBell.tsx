@@ -26,9 +26,21 @@ export function NotificationsBell({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(initialUnread);
+  // Viewport coordinates for the fixed-position panel (see the panel's own
+  // comment below for why it can't just be `absolute left-0`).
+  const [panelPos, setPanelPos] = useState<{ left: number; bottom: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setUnread(initialUnread), [initialUnread]);
+
+  function toggleOpen() {
+    if (!open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setPanelPos({ left: rect.left, bottom: window.innerHeight - rect.top + 8 });
+    }
+    setOpen((o) => !o);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -61,8 +73,9 @@ export function NotificationsBell({
   return (
     <div className="relative" ref={ref}>
       <button
+        ref={buttonRef}
         aria-label="Notifications"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggleOpen}
         className="relative grid size-9 shrink-0 place-items-center rounded-md text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
       >
         <Bell size={18} strokeWidth={1.75} />
@@ -73,11 +86,21 @@ export function NotificationsBell({
         )}
       </button>
 
-      {open && (
-        // Anchored left so the panel opens up-and-right into the main content.
-        // right-0 would extend ~96px off the left edge of the narrow sidebar and
-        // get clipped by the app shell's overflow-hidden.
-        <div className="absolute bottom-11 left-0 z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-surface shadow-lg">
+      {open && panelPos && (
+        // `fixed` with coordinates from the button's own getBoundingClientRect()
+        // (computed in toggleOpen), not `absolute left-0`. AppShell's sidebar
+        // width-transition wrapper and its own root flex container both need
+        // overflow-hidden for their own layouts, and every ancestor between
+        // this button and the page root passes through one of them — so an
+        // absolutely-positioned panel here was always clipped down to a sliver
+        // of its true (still correctly laid out) 320px width, regardless of
+        // which edge it was anchored to. `fixed` escapes that clipping
+        // entirely, since no ancestor sets a transform/filter/will-change that
+        // would trap it.
+        <div
+          style={{ left: panelPos.left, bottom: panelPos.bottom }}
+          className="fixed z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-surface shadow-lg"
+        >
           <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2.5">
             <span className="font-body text-[13px] font-semibold text-fg">Notifications</span>
             {unread > 0 && (
