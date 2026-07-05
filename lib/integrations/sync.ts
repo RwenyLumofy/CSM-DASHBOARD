@@ -21,7 +21,7 @@ import { MetabaseClient } from "@/lib/integrations/metabase";
 import { deriveComponents } from "@/lib/metrics/derive";
 import { buildHealth } from "@/lib/metrics/health";
 import { arrAsOf, deriveClientArr, periodBounds, currentQuarter, withRunningBalance } from "@/lib/metrics/arr";
-import { integrations, hasDatabase } from "@/lib/config";
+import { env, integrations, hasDatabase } from "@/lib/config";
 
 export interface SyncResult {
   ok: boolean;
@@ -91,16 +91,20 @@ export async function buildUnifiedData(opts?: { sinceDate?: string }): Promise<{
   }
 
   // --- Metabase: usage keyed by domain / hubspot id -----------------------
+  // This is the OLD single-card usage fetch (METABASE_USAGE_CARD_ID), superseded
+  // by the per-client, per-environment pipeline in lib/usage/index.ts (native
+  // SQL against the real Metabase DBs — see the Usage tab), which needs no
+  // saved card at all. Kept only for backward compatibility if a card id is
+  // ever configured; skipped silently otherwise so it stops reporting a
+  // "failure" for a legacy field the app no longer depends on.
   const usageByKey = new Map<string, Partial<UsageMetrics> & { seats: number; activeUsers: number }>();
-  if (integrations.metabase()) {
+  if (integrations.metabase() && env.metabaseUsageCardId) {
     try {
       const mb = new MetabaseClient();
       for (const r of await mb.fetchUsageRows()) usageByKey.set(r.key.toLowerCase(), r.metrics);
     } catch (e) {
       warnings.push(`Metabase usage fetch failed: ${e}`);
     }
-  } else {
-    warnings.push("Metabase not configured — usage metrics default to empty.");
   }
 
   // --- Assemble clients + all associated objects ---------------------------

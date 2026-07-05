@@ -16,10 +16,16 @@ const isPublic = createRouteMatcher([
 ]);
 
 // Build the Clerk handler only when configured; otherwise run open (dev/sample).
+// clockSkewInMs is widened from Clerk's 5s default: a sign-in from a device whose
+// system clock has drifted trips "Clock skew detected" and loops on the sign-in
+// redirect. This absorbs normal device drift without weakening anything else.
 const handler = authConfigured
-  ? clerkMiddleware(async (auth, req) => {
-      if (!isPublic(req)) await auth.protect();
-    })
+  ? clerkMiddleware(
+      async (auth, req) => {
+        if (!isPublic(req)) await auth.protect();
+      },
+      { clockSkewInMs: 60_000 },
+    )
   : () => NextResponse.next();
 
 export default handler;

@@ -8,13 +8,18 @@ export const dynamic = "force-dynamic";
 // design value was 800. See VERCEL-PLAN-CHANGES.md for the revert checklist.
 export const maxDuration = 300;
 
+// Prefer a dedicated SYNC_SECRET, but fall back to CRON_SECRET (the secret
+// already required for /api/cron/*) so this endpoint — which includes a
+// destructive DELETE that wipes all HubSpot-sourced data — doesn't sit wide
+// open just because a second, separate secret was never configured.
 function authorized(req: Request): boolean {
-  if (!env.syncSecret) return true; // open in dev when no secret is set
+  const secret = env.syncSecret || env.cronSecret;
+  if (!secret) return true; // open only when NEITHER secret is set (local dev)
   const header = req.headers.get("authorization") ?? "";
   const bearer = header.replace(/^Bearer\s+/i, "");
   const url = new URL(req.url);
   const qp = url.searchParams.get("secret") ?? "";
-  return bearer === env.syncSecret || qp === env.syncSecret;
+  return bearer === secret || qp === secret;
 }
 
 /** Report which sources are configured and the current sync checkpoint. */

@@ -22,6 +22,7 @@ export const env = {
   metabaseUsageCardId: process.env.METABASE_USAGE_CARD_ID ?? "",
 
   syncSecret: process.env.SYNC_SECRET ?? "",
+  cronSecret: process.env.CRON_SECRET ?? "",
 
   // Supabase Storage — used to host manually-uploaded client attachments. The
   // project URL is derived from DATABASE_URL's `postgres.<project-ref>` user
