@@ -38,6 +38,7 @@ import { env, hasDatabase } from "@/lib/config";
 import { canSeeClient, getCurrentUserEmail, scopeClientsToUser } from "@/lib/auth";
 import { DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, teamForRole, type Role, type Team } from "@/lib/roles";
 import { dbHealthy, markDbHealthy, markDbUnhealthy } from "@/lib/db/health";
+import { withDbTimeout } from "@/lib/db/client";
 import { FIELD_OVERRIDES_KEY, RECOMPUTED_PROPERTY_FIELDS } from "@/lib/client-overrides";
 import {
   appendArrEvent,
@@ -61,7 +62,9 @@ const source = cache(loadSource);
 async function loadSource(): Promise<Source> {
   if (hasDatabase() && dbHealthy()) {
     try {
-      const [allClients, arrEvents] = await Promise.all([getClientsFromDb(), getArrEventsFromDb()]);
+      const [allClients, arrEvents] = await withDbTimeout(
+        Promise.all([getClientsFromDb(), getArrEventsFromDb()]),
+      );
       markDbHealthy();
       // Role-scope: CSM tiers see only their own clients; super-admins see all.
       // Applied here so every downstream read (list, dashboard, ARR, retention)
@@ -94,7 +97,7 @@ export const getClientById = cache(async (id: string): Promise<Client | null> =>
   if (hasDatabase() && dbHealthy()) {
     try {
       const { getClientByIdFromDb } = await import("@/lib/repo/drizzle");
-      const client = await getClientByIdFromDb(id);
+      const client = await withDbTimeout(getClientByIdFromDb(id));
       markDbHealthy();
       // Role-scope: a CSM can't open another CSM's client by guessing the URL.
       return (await canSeeClient(client)) ? client : null;
@@ -429,7 +432,7 @@ export const getCsmUsers = cache(async (): Promise<Csm[]> => {
   if (hasDatabase() && dbHealthy()) {
     try {
       const { getCsmUsersFromDb } = await import("@/lib/repo/drizzle");
-      const csms = await getCsmUsersFromDb();
+      const csms = await withDbTimeout(getCsmUsersFromDb());
       markDbHealthy();
       if (csms.length > 0) return csms;
     } catch (err) {
@@ -480,7 +483,7 @@ export async function getRoleLabels(): Promise<Record<string, string>> {
   if (hasDatabase() && dbHealthy()) {
     try {
       const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
-      const stored = await getWorkspaceConfigFromDb("role_labels");
+      const stored = await withDbTimeout(getWorkspaceConfigFromDb("role_labels"));
       if (stored && typeof stored === "object") {
         return { ...DEFAULT_ROLE_LABELS, ...(stored as Record<string, string>) };
       }
@@ -502,7 +505,7 @@ export const getAppUsers = cache(async (): Promise<AppUser[]> => {
   if (hasDatabase() && dbHealthy()) {
     try {
       const { getAppUsersFromDb } = await import("@/lib/repo/drizzle");
-      for (const r of await getAppUsersFromDb()) {
+      for (const r of await withDbTimeout(getAppUsersFromDb())) {
         if (byEmail.get(r.email)?.bootstrap) continue; // permanent super-admin wins
         byEmail.set(r.email, { email: r.email, name: r.name, role: isRole(r.role) ? r.role : DEFAULT_ROLE, bootstrap: false });
       }
@@ -535,7 +538,7 @@ export async function getMyNotifications(limit = 50): Promise<Notification[]> {
   if (!email) return [];
   try {
     const { getNotificationsForUserDb } = await import("@/lib/repo/drizzle");
-    return await getNotificationsForUserDb(email, limit);
+    return await withDbTimeout(getNotificationsForUserDb(email, limit));
   } catch (err) {
     console.warn("[data] getMyNotifications failed:", err);
     return [];
@@ -549,7 +552,7 @@ export async function getMyUnreadCount(): Promise<number> {
   if (!email) return 0;
   try {
     const { getUnreadCountForUserDb } = await import("@/lib/repo/drizzle");
-    return await getUnreadCountForUserDb(email);
+    return await withDbTimeout(getUnreadCountForUserDb(email));
   } catch {
     return 0;
   }
@@ -684,7 +687,7 @@ export const getPropertyDefinitions = cache(async (): Promise<PropertyDefinition
   if (hasDatabase() && dbHealthy()) {
     try {
       const { getPropertyDefinitionsFromDb } = await import("@/lib/repo/drizzle");
-      const defs = await getPropertyDefinitionsFromDb();
+      const defs = await withDbTimeout(getPropertyDefinitionsFromDb());
       markDbHealthy();
       if (defs.length > 0) return defs;
     } catch (err) {

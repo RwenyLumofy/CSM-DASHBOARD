@@ -2,6 +2,7 @@ import { ClientsTable } from "@/components/clients/ClientsTable";
 import { getClients, getCsms, getImplementationOwners, getPropertyDefinitions } from "@/lib/data";
 import { isSuperAdmin } from "@/lib/auth";
 import { getAllDealsFromDb } from "@/lib/repo/drizzle";
+import { withDbTimeout } from "@/lib/db/client";
 import { dealOverridesMap, applyDealOverrides, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
 import { computeProfileCompleteness, type ProfileCompleteness } from "@/lib/profile-completeness";
 import type { Deal } from "@/lib/types";
@@ -21,7 +22,11 @@ export default async function ClientsPage({
     getPropertyDefinitions(),
     searchParams,
     isSuperAdmin(),
-    getAllDealsFromDb(),
+    // Falls back to [] (just blanks out profile-completeness) instead of a
+    // timeout crashing the whole clients list — this call has no try/catch
+    // of its own, unlike everything else here that already goes through
+    // lib/data.ts's degrade-gracefully pattern.
+    withDbTimeout(getAllDealsFromDb()).catch(() => [] as Deal[]),
   ]);
 
   // Group already-scoped clients' deals only — getAllDealsFromDb is unscoped,

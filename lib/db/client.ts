@@ -34,18 +34,20 @@ export function getDb(): PostgresJsDatabase<typeof schema> {
     // failing fast (so pages fall back to sample instead of hanging). It only
     // covers the initial handshake though — once connected, a query with no
     // bound (a stuck lock, a stalled read on the cross-region link) can hang
-    // indefinitely and taken down the whole request until Vercel's own
+    // indefinitely and take down the whole request until Vercel's own
     // function-duration ceiling kills it (seen in prod: a plain /clients read
-    // hung 300s and 504'd). `statement_timeout` bounds each query itself so it
-    // throws — which every caller here already catches and falls back on —
-    // long before that.
+    // hung 300s and 504'd). A `connection: { statement_timeout }` option was
+    // tried here but does nothing over Supabase's transaction-mode pooler
+    // (6543): postgres.js sends it once as part of the StartupMessage, and
+    // pgbouncer in transaction mode hands out pooled backend connections that
+    // were never opened with it, so it's silently never in effect. Bounding
+    // reads instead happens at each call site via `withDbTimeout()` below.
     const sql = postgres(env.databaseUrl, {
       prepare: false,
       max,
       connect_timeout: 10,
       idle_timeout,
       max_lifetime: 60 * 30,
-      connection: { statement_timeout: 25_000 },
       // Don't let a transient idle-connection error become an unhandled
       // rejection that crashes the dev server; postgres.js will reconnect.
       onnotice: () => {},
@@ -53,6 +55,22 @@ export function getDb(): PostgresJsDatabase<typeof schema> {
     _db = drizzle(sql, { schema });
   }
   return _db;
+}
+
+/**
+ * Race a DB read against a timeout so a stuck query fails fast into the
+ * caller's existing try/catch fallback instead of hanging the whole request
+ * until Vercel's function-duration ceiling kills it. This only unblocks the
+ * *caller* — it doesn't send Postgres a CancelRequest, so the query may keep
+ * running server-side until the connection is torn down with the lambda. That
+ * tradeoff is fine here (small pool, short-lived lambdas) in exchange for not
+ * needing every call site to hold onto the raw postgres.js query object.
+ */
+export function withDbTimeout<T>(promise: Promise<T>, ms = 20_000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`DB read timed out after ${ms}ms`)), ms)),
+  ]);
 }
 
 export { schema };

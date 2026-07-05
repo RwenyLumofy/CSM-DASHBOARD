@@ -4,6 +4,7 @@
 import { cache } from "react";
 import { currentUser } from "@clerk/nextjs/server";
 import { authEnabled, env, hasDatabase } from "@/lib/config";
+import { withDbTimeout } from "@/lib/db/client";
 import { DEFAULT_ROLE, isRole, teamForRole, type Role, type Team } from "@/lib/roles";
 import type { Client } from "@/lib/types";
 
@@ -11,7 +12,17 @@ import type { Client } from "@/lib/types";
 export const getCurrentUserEmail = cache(async (): Promise<string | null> => {
   if (!authEnabled()) return null;
   try {
-    const u = await currentUser();
+    // currentUser() is a live call to Clerk's Backend API (unlike auth(), which
+    // just reads the already-verified session JWT) and has no built-in timeout.
+    // Seen hanging in prod right after a fresh OAuth/SSO sign-in — the exact
+    // moment Clerk's backend is doing the most extra work on that session —
+    // which froze the whole page for the full 300s Vercel ceiling. Racing it
+    // against a timeout turns that into a fast, already-handled fallback below
+    // instead of a multi-minute hang.
+    const u = await Promise.race([
+      currentUser(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Clerk currentUser() timed out")), 8_000)),
+    ]);
     const email = u?.primaryEmailAddress?.emailAddress ?? u?.emailAddresses?.[0]?.emailAddress;
     return email ? email.toLowerCase() : null;
   } catch {
@@ -35,7 +46,7 @@ export const getCurrentUserRole = cache(async (): Promise<Role | null> => {
   if (hasDatabase()) {
     try {
       const { getAppUserRoleFromDb } = await import("@/lib/repo/drizzle");
-      const r = await getAppUserRoleFromDb(email);
+      const r = await withDbTimeout(getAppUserRoleFromDb(email));
       if (isRole(r)) return r;
     } catch {
       /* app_users missing or DB down — fall through to the default tier */
