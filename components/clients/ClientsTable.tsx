@@ -72,11 +72,13 @@ function channelOf(c: Client): string | null {
 /** Fields available for bulk edit. kind drives the PATCH payload shape. */
 type BulkField =
   | { key: string; label: string; kind: "csm" }
+  | { key: string; label: string; kind: "impl" }
   | { key: string; label: string; kind: "core"; coreKey: string; text?: boolean; staticOptions?: { value: string; label: string }[] }
   | { key: string; label: string; kind: "prop"; propKey: string };
 
 const BULK_FIELDS: BulkField[] = [
   { key: "csm", label: "CSM", kind: "csm" },
+  { key: "impl", label: "Implementation", kind: "impl" },
   // Onboarding/Active/Renewal are auto-derived from deal activity (lib/status.ts)
   // and can't be bulk-set — Churn is the only manual lever, same as the profile page.
   { key: "status", label: "Status", kind: "core", coreKey: "status", staticOptions: [
@@ -230,6 +232,7 @@ export function ClientsTable({
     setBulkSaving(true);
     let body: unknown;
     if (currentBulk.kind === "csm") body = { csmId: bulkValue || null };
+    else if (currentBulk.kind === "impl") body = { implementationOwnerEmail: bulkValue || null };
     // Status is a special case: it's auto-computed, so "Churn" is applied as
     // the manual override property (recomputeClient re-derives it otherwise),
     // never as a direct core-field write — see lib/status.ts.
@@ -337,10 +340,10 @@ export function ClientsTable({
           <span className="caption">Set</span>
           <FilterSelect value={bulkField} onChange={(v) => { setBulkField(v); setBulkValue(""); }} label="Field">
             <option value="">field…</option>
-            {BULK_FIELDS.filter((f) => f.kind !== "csm" || canAssignOwners).map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+            {BULK_FIELDS.filter((f) => (f.kind !== "csm" && f.kind !== "impl") || canAssignOwners).map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
           </FilterSelect>
           {currentBulk && <span className="caption">to</span>}
-          {currentBulk && <BulkValueControl field={currentBulk} csms={csms} options={currentBulk.kind === "prop" ? propOptions(currentBulk.propKey) : undefined} value={bulkValue} onChange={setBulkValue} />}
+          {currentBulk && <BulkValueControl field={currentBulk} csms={csms} impls={impls} options={currentBulk.kind === "prop" ? propOptions(currentBulk.propKey) : undefined} value={bulkValue} onChange={setBulkValue} />}
           <button
             onClick={applyBulk}
             disabled={!currentBulk || bulkValue === "" || bulkSaving}
@@ -523,12 +526,14 @@ const ClientRow = memo(function ClientRow({
 function BulkValueControl({
   field,
   csms,
+  impls,
   options,
   value,
   onChange,
 }: {
   field: BulkField;
   csms: Csm[];
+  impls: Csm[];
   options?: string[];
   value: string;
   onChange: (v: string) => void;
@@ -539,6 +544,14 @@ function BulkValueControl({
       <select value={value} onChange={(e) => onChange(e.target.value)} className={cls}>
         <option value="">Unassigned</option>
         {csms.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+      </select>
+    );
+  }
+  if (field.kind === "impl") {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={cls}>
+        <option value="">Unassigned</option>
+        {impls.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
       </select>
     );
   }
