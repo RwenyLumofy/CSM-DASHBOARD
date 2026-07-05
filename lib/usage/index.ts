@@ -27,6 +27,7 @@ import type {
   UsageResult,
   UsageSnapshot,
   UsageSnapshotRow,
+  UsageTrendGrain,
   UsageUnavailable,
 } from "@/lib/usage/types";
 
@@ -44,13 +45,64 @@ interface ResolvedEnv {
 function withEnv(sql: string, envId: string): string {
   return sql.replaceAll(":ENV_ID", `'${envId}'`);
 }
+const TREND_GRAINS = new Set<UsageTrendGrain>(["day", "week", "month"]);
 /** Same substitution approach as withEnv — start/end are always caller-
  *  constructed "YYYY-MM-DD" strings from lib/metrics/arr.ts's periodBounds(),
  *  never raw user input, but validated here too before going anywhere near
- *  a native-SQL string. */
-function withRange(sql: string, envId: string, start: string, end: string): string {
+ *  a native-SQL string. `grain` (optional; only PERIOD_TREND_SQL uses :GRAIN)
+ *  is checked against a fixed allow-list, so it's as injection-safe as the
+ *  UUID-validated env id. */
+function withRange(sql: string, envId: string, start: string, end: string, grain?: UsageTrendGrain): string {
   if (!DATE_RE.test(start) || !DATE_RE.test(end)) throw new Error("Invalid date range for usage period query.");
-  return withEnv(sql, envId).replaceAll(":RANGE_START", `'${start}'`).replaceAll(":RANGE_END", `'${end}'`);
+  let out = withEnv(sql, envId).replaceAll(":RANGE_START", `'${start}'`).replaceAll(":RANGE_END", `'${end}'`);
+  if (grain !== undefined) {
+    if (!TREND_GRAINS.has(grain)) throw new Error(`Invalid trend grain: ${grain}`);
+    out = out.replaceAll(":GRAIN", `'${grain}'`);
+  }
+  return out;
+}
+/** Pick the trend bucket grain by period length: week/month show each day,
+ *  a quarter shows each week, a year shows each month — keeping the line chart
+ *  to a legible, hoverable ~7–31 points regardless of span. Derived from the
+ *  period label so the caller doesn't have to thread it through. */
+function grainForLabel(label: string): UsageTrendGrain {
+  if (/^\d{4}-Q[1-4]$/i.test(label)) return "week";
+  if (/^\d{4}$/.test(label)) return "month";
+  return "day"; // "YYYY-Www" (week) and "YYYY-MM" (month) periods
+}
+function addDaysIso(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function mondayOf(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  const iso = d.getUTCDay() || 7; // Mon=1..Sun=7
+  d.setUTCDate(d.getUTCDate() - (iso - 1));
+  return d.toISOString().slice(0, 10);
+}
+/** Every bucket in [start, end) at `grain` — the full x-axis, so the trend can
+ *  be zero-filled. Without this, date_trunc's GROUP BY only emits buckets that
+ *  HAD activity, which would (a) draw non-adjacent days as adjacent in the line
+ *  chart, hiding gaps, (b) make "N of M {grain}s" always read "N of N", and
+ *  (c) make the score's momentum ("did activity persist to the end") always
+ *  see the last bucket as active. Week buckets are ISO-week Mondays (matching
+ *  date_trunc('week')), which can start one bucket before `start`. */
+function enumerateBuckets(grain: UsageTrendGrain, start: string, end: string): string[] {
+  const out: string[] = [];
+  if (grain === "day") {
+    for (let d = start; d < end; d = addDaysIso(d, 1)) out.push(d);
+  } else if (grain === "week") {
+    for (let m = mondayOf(start); m < end; m = addDaysIso(m, 7)) out.push(m);
+  } else {
+    let y = Number(start.slice(0, 4));
+    let mo = Number(start.slice(5, 7));
+    for (let cur = `${y}-${String(mo).padStart(2, "0")}-01`; cur < end; cur = `${y}-${String(mo).padStart(2, "0")}-01`) {
+      out.push(cur);
+      if (++mo > 12) { mo = 1; y++; }
+    }
+  }
+  return out;
 }
 function pick(row: Record<string, unknown>, key: string): unknown {
   if (key in row) return row[key];
@@ -323,6 +375,7 @@ export async function getClientUsageForPeriod(
   const resolved = await resolveEnvironment(clientId);
   if ("error" in resolved) return resolved.error;
 
+  const grain = grainForLabel(range.label);
   const cacheKey = `${resolved.environmentId}:${range.start}:${range.end}:${range.seatBase}`;
   const hit = periodCache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
@@ -331,16 +384,26 @@ export async function getClientUsageForPeriod(
   try {
     const [snapRows, trendRows, learnRows] = await Promise.all([
       mb.runNativeQuery(DB_ID[resolved.region], withRange(PERIOD_SNAPSHOT_SQL, resolved.environmentId, range.start, range.end)),
-      mb.runNativeQuery(DB_ID[resolved.region], withRange(PERIOD_TREND_SQL, resolved.environmentId, range.start, range.end)),
+      mb.runNativeQuery(DB_ID[resolved.region], withRange(PERIOD_TREND_SQL, resolved.environmentId, range.start, range.end, grain)),
       mb.runNativeQuery(DB_ID[resolved.region], withRange(PERIOD_LEARNING_SPLIT_SQL, resolved.environmentId, range.start, range.end)),
     ]);
     const metrics = toPeriodMetricsRow(snapRows[0] ?? {});
-    const activeUsersTrend = trendRows.map((r) => ({ day: String(pick(r, "day") ?? "").slice(0, 10), value: num(pick(r, "value")) }));
+    // Zero-fill the full bucket set (the query only returns buckets with
+    // activity) so gaps are real gaps, not collapsed, everywhere downstream.
+    // Cap the trend at today for a still-running period, so the current
+    // year/month doesn't render a cliff-to-zero over its unelapsed future
+    // (which would also wrongly read as "momentum tapered off"). The headline
+    // active_users total is unaffected — future dates simply have no logins.
+    const trendEndCap = addDaysIso(new Date().toISOString().slice(0, 10), 1);
+    const trendEnd = range.end > trendEndCap ? trendEndCap : range.end;
+    const valueByBucket = new Map(trendRows.map((r) => [String(pick(r, "bucket") ?? "").slice(0, 10), num(pick(r, "value"))]));
+    const activeUsersTrend = enumerateBuckets(grain, range.start, trendEnd).map((bucket) => ({ bucket, value: valueByBucket.get(bucket) ?? 0 }));
     const data: UsagePeriodSnapshot = {
       status: "ok",
       start: range.start,
       end: range.end,
       label: range.label,
+      grain,
       activeUsersTrend,
       metrics,
       learning: toLearningBreakdown(learnRows),

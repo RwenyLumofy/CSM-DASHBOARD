@@ -609,14 +609,16 @@ SELECT 'provider', provider, count(*), count(*) FILTER (WHERE completed), count(
 ORDER BY 1, 3 DESC
 `.trim();
 
-/** Daily active-user series within [:RANGE_START, :RANGE_END) — the period
- *  filter's trend chart. Re-bucketed to week/month in the app layer for
- *  quarter/year views; each day's distinct-user count is exact as-is (unlike
- *  the scalar active_users total above, per-day counts are never summed to
- *  produce a period total — that would double-count anyone active on more
- *  than one day). */
+/** Active-user trend within [:RANGE_START, :RANGE_END), bucketed at :GRAIN
+ *  ('day' | 'week' | 'month' — chosen by period length in the app layer:
+ *  week/month → day, quarter → week, year → month, so the chart stays legible
+ *  and hoverable at any period). Each bucket's value is its OWN distinct-user
+ *  count — never a sum of finer buckets (that would double-count anyone active
+ *  on more than one day), exactly like the 12-month TREND_SQL. :GRAIN is
+ *  substituted with a validated literal ('day'/'week'/'month') — see index.ts,
+ *  same injection-safety contract as :ENV_ID/:RANGE_*. */
 export const PERIOD_TREND_SQL = `
-SELECT date_trunc('day', ul.date)::date AS day, count(DISTINCT ul.user_id) AS value
+SELECT date_trunc(:GRAIN, ul.date)::date AS bucket, count(DISTINCT ul.user_id) AS value
   FROM public.users_userlogin ul JOIN public.users_lumofyuser u ON ul.user_id = u.id
   WHERE u.environment_id = :ENV_ID AND ul.date >= :RANGE_START AND ul.date < :RANGE_END
     AND u.deleted_at IS NULL AND u.is_support = false AND u.is_integration_user = false

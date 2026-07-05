@@ -142,14 +142,21 @@ export interface UsagePeriodMetrics {
   pm_cycles_completed: number;
 }
 
+/** Trend bucketing grain — 'day' for week/month periods, 'week' for a quarter,
+ *  'month' for a year. Drives both the chart's x-axis labels and the
+ *  "active/peak {grain}" KPI wording. */
+export type UsageTrendGrain = "day" | "week" | "month";
+
 export interface UsagePeriodSnapshot {
   status: "ok";
   start: string; // "YYYY-MM-DD" inclusive
   end: string; // "YYYY-MM-DD" exclusive
   label: string; // e.g. "2026-Q2", "2026-W27"
-  /** Distinct active users per calendar day within [start, end) — for the
-   *  trend chart only; never sum these for a period total (see PERIOD_TREND_SQL). */
-  activeUsersTrend: { day: string; value: number }[];
+  grain: UsageTrendGrain;
+  /** Distinct active users per bucket (at `grain`) within [start, end) — for the
+   *  trend chart only; never sum these for a period total (see PERIOD_TREND_SQL).
+   *  `bucket` is the truncated "YYYY-MM-DD" (day / ISO-week-Monday / month-first). */
+  activeUsersTrend: { bucket: string; value: number }[];
   metrics: UsagePeriodMetrics;
   /** Same company/Lumofy/global split as UsageSnapshot.learning, bounded to
    *  enrollments created within [start, end). */

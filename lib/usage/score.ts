@@ -136,7 +136,7 @@ function verdictFor(
  *                 window, was the last sign of life" question
  *                 computeAdoptionScore() asks of "now", rebased to the
  *                 period's own end instead of today. */
-export function computePeriodAdoptionScore(p: UsagePeriodMetrics, trend: { day: string; value: number }[], seatBase: number, owned: OwnedModules): AdoptionScore {
+export function computePeriodAdoptionScore(p: UsagePeriodMetrics, trend: { bucket: string; value: number }[], seatBase: number, owned: OwnedModules): AdoptionScore {
   const activation = seatBase > 0 ? clampPct((100 * p.active_users) / seatBase) : 0;
 
   const hasCompetency = p.competencies_created > 0;

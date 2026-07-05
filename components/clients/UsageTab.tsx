@@ -46,6 +46,7 @@ import type {
   UsageSnapshot,
   UsageSnapshotRow,
   UsageTier,
+  UsageTrendGrain,
 } from "@/lib/usage/types";
 
 const TIER_COLOR: Record<UsageTier, string> = {
@@ -114,6 +115,29 @@ function granularityOf(key: string): Granularity {
   if (/^\d{4}-\d{2}$/.test(key)) return "month";
   return "year";
 }
+
+// Bucket-label formatters for the period trend LineChart (a "YYYY-MM-DD" key
+// truncated at the grain: a day, an ISO-week Monday, or a month's first).
+const MONTH_ABBR = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_FULL = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function bucketShortLabel(bucket: string, grain: UsageTrendGrain): string {
+  const mo = Number(bucket.slice(5, 7));
+  const d = Number(bucket.slice(8, 10));
+  if (grain === "month") return MONTH_ABBR[mo] ?? bucket.slice(0, 7);
+  return `${d} ${MONTH_ABBR[mo]}`; // day + week both key off a specific date
+}
+function bucketLongLabel(bucket: string, grain: UsageTrendGrain): string {
+  const y = bucket.slice(0, 4);
+  const mo = Number(bucket.slice(5, 7));
+  const d = Number(bucket.slice(8, 10));
+  if (grain === "month") return `${MONTH_FULL[mo]} ${y}`;
+  if (grain === "week") return `Week of ${d} ${MONTH_ABBR[mo]} ${y}`;
+  return `${d} ${MONTH_ABBR[mo]} ${y}`;
+}
+/** Singular noun for the trend grain, for the "active/peak {grain}" KPIs. */
+const GRAIN_NOUN: Record<UsageTrendGrain, string> = { day: "day", week: "week", month: "month" };
+/** Adverb form, for "{daily} logins" etc. */
+const GRAIN_ADVERB: Record<UsageTrendGrain, string> = { day: "daily", week: "weekly", month: "monthly" };
 
 /* ── first-time-viewer helpers ────────────────────────────────────────────── */
 
@@ -482,8 +506,11 @@ function UsageDashboard({
     return { dir: "up", text: <><span className="font-semibold text-fg">{formatNumber(m.mau)}</span> of {formatNumber(seatBase)} seats active this month (<span className="font-semibold text-fg">{mauPctSeats}%</span>), {formatNumber(m.wau)} this week — healthy activation with room to grow toward full seat coverage.</> };
   })();
 
-  const periodActiveDays = period ? period.activeUsersTrend.filter((d) => d.value > 0).length : 0;
-  const periodPeakDay = period ? Math.max(0, ...period.activeUsersTrend.map((d) => d.value)) : 0;
+  // Bucketed at the period's grain (day/week/month) — so these read "days" for
+  // a week/month, "weeks" for a quarter, "months" for a year.
+  const periodGrainNoun = period ? GRAIN_NOUN[period.grain] : "day";
+  const periodActiveBuckets = period ? period.activeUsersTrend.filter((d) => d.value > 0).length : 0;
+  const periodPeakBucket = period ? Math.max(0, ...period.activeUsersTrend.map((d) => d.value)) : 0;
   const periodActivationPct = period ? pct(p!.active_users, seatBase) : 0;
 
   return (
@@ -515,8 +542,8 @@ function UsageDashboard({
               </SectionHint>
               <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4 lg:grid-cols-5">
                 <Kpi label="Active users" value={formatNumber(p!.active_users)} sub={`${periodActivationPct}% of seats`} spark={period.activeUsersTrend.map((d) => d.value)} tip="Distinct users who logged in during this period, out of the account's current seats." />
-                <Kpi label="Days with activity" value={formatNumber(periodActiveDays)} sub={`of ${formatNumber(period.activeUsersTrend.length)} days`} tip="How many days in this period had at least one login." />
-                <Kpi label="Peak day" value={formatNumber(periodPeakDay)} sub="highest single day" tip="The most active single day within this period." />
+                <Kpi label={`Active ${periodGrainNoun}s`} value={formatNumber(periodActiveBuckets)} sub={`of ${formatNumber(period.activeUsersTrend.length)} ${periodGrainNoun}s`} tip={`How many ${periodGrainNoun}s in this period had at least one login.`} />
+                <Kpi label={`Peak ${periodGrainNoun}`} value={formatNumber(periodPeakBucket)} sub={`busiest ${periodGrainNoun}`} tip={`The most active single ${periodGrainNoun} within this period.`} />
                 <Kpi label="Total users" value={formatNumber(m.total_users)} sub="current roster" tip="All user accounts provisioned on the platform today — a current fact, not scoped to this period." />
                 <div className="flex flex-col items-center justify-center">
                   <Gauge value={periodActivationPct} label="Seat coverage" color={periodActivationPct > 100 ? "var(--color-nova)" : "var(--color-sirius)"} />
@@ -524,7 +551,7 @@ function UsageDashboard({
                 </div>
               </div>
               <Insight dir={p!.active_users > 0 ? "up" : "down"}>
-                <span className="font-semibold text-fg">{formatNumber(p!.active_users)}</span> of {formatNumber(seatBase)} seats ({periodActivationPct}%) were active during {period.label}, across {formatNumber(periodActiveDays)} of {formatNumber(period.activeUsersTrend.length)} days.
+                <span className="font-semibold text-fg">{formatNumber(p!.active_users)}</span> of {formatNumber(seatBase)} seats ({periodActivationPct}%) were active during {period.label}, across {formatNumber(periodActiveBuckets)} of {formatNumber(period.activeUsersTrend.length)} {periodGrainNoun}s.
               </Insight>
             </Card>
           ) : (
@@ -549,16 +576,22 @@ function UsageDashboard({
             </Card>
           )}
 
-          {/* Active users trend */}
+          {/* Active users trend — same LineChart as the Current view (hover
+              reveals the exact count), just fed period-bucketed data. */}
           {period ? (
             <Card>
               <div className="mb-1 flex items-center justify-between">
                 <CardEyebrow>Active users · {period.label}</CardEyebrow>
-                <span className="flex items-center gap-1.5 font-body text-[11.5px] text-fg-subtle"><Activity size={13} /> daily logins</span>
+                <span className="flex items-center gap-1.5 font-body text-[11.5px] text-fg-subtle"><Activity size={13} /> {GRAIN_ADVERB[period.grain]} logins</span>
               </div>
-              <SectionHint>Distinct users logging in each day within {period.label} ({periodRangeLabel}).</SectionHint>
-              <div className="mt-3 overflow-x-auto">
-                <Sparkline data={period.activeUsersTrend.map((d) => d.value)} width={680} height={140} />
+              <SectionHint>Distinct users logging in each {periodGrainNoun} within {period.label} ({periodRangeLabel}) — hover any point for the exact count.</SectionHint>
+              <div className="mt-3">
+                <LineChart
+                  months={period.activeUsersTrend.map((d) => d.bucket)}
+                  series={[{ label: "Active users", color: C.dev, points: period.activeUsersTrend.map((d) => ({ month: d.bucket, value: d.value })) }]}
+                  formatShort={(k) => bucketShortLabel(k, period.grain)}
+                  formatLong={(k) => bucketLongLabel(k, period.grain)}
+                />
               </div>
             </Card>
           ) : (

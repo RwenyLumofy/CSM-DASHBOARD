@@ -61,9 +61,25 @@ export interface LineSeries {
   points: { month: string; value: number }[];
 }
 
-/** Multi-series monthly line chart with a hover cursor + tooltip and an area
- *  gradient under a single series. */
-export function LineChart({ series, months, height = 200 }: { series: LineSeries[]; months: string[]; height?: number }) {
+/** Multi-series line chart with a hover cursor + tooltip and an area gradient
+ *  under a single series. `months` is really an ordered list of x-axis keys —
+ *  monthly by default (hence the name + the shortMonth/longMonth formatters),
+ *  but any granularity works: pass `formatShort`/`formatLong` to label daily,
+ *  weekly, etc. keys. Callers that pass nothing keep the original month
+ *  behavior untouched. */
+export function LineChart({
+  series,
+  months,
+  height = 200,
+  formatShort = shortMonth,
+  formatLong = longMonth,
+}: {
+  series: LineSeries[];
+  months: string[];
+  height?: number;
+  formatShort?: (key: string) => string;
+  formatLong?: (key: string) => string;
+}) {
   const [hover, setHover] = useState<number | null>(null);
   const W = 720;
   const H = height;
@@ -81,6 +97,10 @@ export function LineChart({ series, months, height = 200 }: { series: LineSeries
   const yFor = (v: number) => padT + innerH - (v / max) * innerH;
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(max * f));
   const band = months.length > 1 ? innerW / (months.length - 1) : innerW;
+  // Thin x-labels to ~8 max so they stay legible at any point count (a 30-day
+  // period, a 90-day quarter, etc.). For the 12-month default this is step 2 —
+  // exactly the labels the old `i % 2 === 0` rule produced.
+  const labelStep = Math.max(1, Math.ceil(months.length / 8));
 
   const valueAt = (s: LineSeries, i: number) => s.points.find((p) => p.month === months[i])?.value ?? 0;
   const single = series.length === 1;
@@ -107,8 +127,8 @@ export function LineChart({ series, months, height = 200 }: { series: LineSeries
         })}
         {/* x labels */}
         {months.map((ym, i) =>
-          i % 2 === 0 || months.length <= 6 ? (
-            <text key={ym} x={xFor(i)} y={H - 8} textAnchor="middle" fontSize={10} fill={LABEL} className="font-body">{shortMonth(ym)}</text>
+          i % labelStep === 0 ? (
+            <text key={ym} x={xFor(i)} y={H - 8} textAnchor="middle" fontSize={10} fill={LABEL} className="font-body">{formatShort(ym)}</text>
           ) : null,
         )}
         {/* area fill (single-series only) */}
@@ -146,7 +166,7 @@ export function LineChart({ series, months, height = 200 }: { series: LineSeries
       </svg>
       {hover != null && (
         <Tooltip left={(xFor(hover) / W) * 100} top={(Math.min(...series.map((s) => yFor(valueAt(s, hover)))) / H) * 100}>
-          <div className="mb-1 text-[11px] font-semibold text-fg">{longMonth(months[hover])}</div>
+          <div className="mb-1 text-[11px] font-semibold text-fg">{formatLong(months[hover])}</div>
           <div className="flex flex-col gap-0.5">
             {series.map((s) => <TipRow key={s.label} color={s.color} label={s.label} value={fmt(valueAt(s, hover))} />)}
           </div>
