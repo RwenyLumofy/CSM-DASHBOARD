@@ -8,10 +8,10 @@
    which page renders the component that normally calls it, so relying on "the
    page already checked" isn't a real guard. */
 
-import { getClientUsage } from "@/lib/usage";
+import { getClientUsage, getClientUsageForPeriod } from "@/lib/usage";
 import { getClientById } from "@/lib/data";
 import { canSeeClient } from "@/lib/auth";
-import type { UsageResult } from "@/lib/usage/types";
+import type { UsagePeriodResult, UsageResult } from "@/lib/usage/types";
 
 export async function loadClientUsageAction(clientId: string, opts?: { forceRefresh?: boolean }): Promise<UsageResult> {
   const client = await getClientById(clientId);
@@ -19,4 +19,17 @@ export async function loadClientUsageAction(clientId: string, opts?: { forceRefr
     return { status: "error", message: "Not authorized for this client." };
   }
   return getClientUsage(clientId, opts);
+}
+
+/** The timeline filter's data — a live period-bounded snapshot (never cached
+ *  server-side beyond the short in-process memo; see getClientUsageForPeriod). */
+export async function loadClientUsagePeriodAction(
+  clientId: string,
+  range: { start: string; end: string; label: string },
+): Promise<UsagePeriodResult> {
+  const client = await getClientById(clientId);
+  if (!(await canSeeClient(client))) {
+    return { status: "error", message: "Not authorized for this client." };
+  }
+  return getClientUsageForPeriod(clientId, range);
 }

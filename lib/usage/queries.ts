@@ -386,3 +386,169 @@ ORDER BY 1, 3 DESC
 
 /** Existence/region probe for an environment id (run per DB). */
 export const ENV_EXISTS_SQL = `SELECT count(*) AS n FROM public.environments_environment WHERE id = :ENV_ID`;
+
+/* =========================================================================
+   Usage-timeline filter — arbitrary [:RANGE_START, :RANGE_END) window queries
+   (the Usage tab's week/month/quarter/year/custom filter). Every measure here
+   mirrors its SNAPSHOT_SQL/TREND_SQL counterpart's exact join and exclusion
+   logic verbatim, substituting the date bound for "trailing N days"/"all
+   time" — so a query with RANGE == the trailing-7/30-day window it replaces
+   reproduces WAU/MAU exactly (verified against live data during rollout).
+
+   Deliberately NOT period-scoped here (left as "Current" in the UI instead):
+   seats/used_licenses/total_users/active_users(flag)/job structure — no
+   history is tracked for these, they're current config/state, not events;
+   competencies_total — total framework size reads more naturally as current;
+   pm_cycles_configured/completed, enps_cycles, survey_cycles — the "cycle"
+   entities' own date columns (or, for pm_cycles_completed, the legacy/newer
+   table branching) weren't in the audited TREND_SQL and weren't indepen-
+   dently re-verified here, so they're left alone rather than guessed at.
+   Every field included below has a confirmed, schema-verified date column
+   (verified live against Metabase 2026-07-05, in addition to what TREND_SQL
+   already established).
+   ========================================================================= */
+
+/** One row of period-bounded totals — the "snapshot of this time" numbers. */
+export const PERIOD_SNAPSHOT_SQL = `
+SELECT
+  (SELECT count(DISTINCT ul.user_id) FROM public.users_userlogin ul
+     JOIN public.users_lumofyuser u ON ul.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND ul.date >= :RANGE_START AND ul.date < :RANGE_END
+       AND u.deleted_at IS NULL AND u.is_support = false AND u.is_integration_user = false) AS active_users,
+  (SELECT count(*) FROM (
+     SELECT e.id FROM public.learning_items_enrollment e
+       JOIN public.users_lumofyuser u ON e.user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND e.is_active = true
+         AND e.created_at >= :RANGE_START AND e.created_at < :RANGE_END
+     UNION
+     SELECT ce.id FROM public.learning_contentitemenrollment ce
+       JOIN public.users_lumofyuser u ON ce.user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND ce.created_at >= :RANGE_START AND ce.created_at < :RANGE_END
+   ) x) AS learning_enrollments,
+  (SELECT count(*) FROM (
+     SELECT e.id FROM public.learning_items_enrollment e
+       JOIN public.users_lumofyuser u ON e.user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND e.is_active = true AND e.status = 'COMPLETED'
+         AND e.completed_at >= :RANGE_START AND e.completed_at < :RANGE_END
+     UNION
+     SELECT ce.id FROM public.learning_contentitemenrollment ce
+       JOIN public.users_lumofyuser u ON ce.user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND ce.status = 'COMPLETED'
+         AND ce.completed_at >= :RANGE_START AND ce.completed_at < :RANGE_END
+   ) x) AS learning_completions,
+  -- Distinct items with at least one enrollment CREATED within the period.
+  (SELECT count(*) FROM (
+     SELECT DISTINCT ce.content_item_id::text AS item FROM public.learning_contentitemenrollment ce
+       JOIN public.users_lumofyuser u ON ce.user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND ce.created_at >= :RANGE_START AND ce.created_at < :RANGE_END
+     UNION
+     SELECT DISTINCT e.learning_item_id::text FROM public.learning_items_enrollment e
+       JOIN public.users_lumofyuser u ON e.user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND e.is_active = true
+         AND e.created_at >= :RANGE_START AND e.created_at < :RANGE_END
+   ) x) AS learning_items_count,
+  (SELECT count(DISTINCT e.development_pathway_id) FROM public.development_pathways_developmentpathwayenrollment e
+     JOIN public.users_lumofyuser u ON e.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND e.assigned_at >= :RANGE_START AND e.assigned_at < :RANGE_END) AS pathways_count,
+  (SELECT count(*) FROM public.development_pathways_developmentpathwayenrollment e
+     JOIN public.users_lumofyuser u ON e.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND e.assigned_at >= :RANGE_START AND e.assigned_at < :RANGE_END) AS pathway_enrollments,
+  (SELECT count(*) FROM public.development_pathways_developmentpathwayenrollment e
+     JOIN public.users_lumofyuser u ON e.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND e.completed_at IS NOT NULL
+       AND e.completed_at >= :RANGE_START AND e.completed_at < :RANGE_END) AS pathway_completions,
+  (SELECT count(*) FROM public.development_pathways_developmentpathwayenrollment e
+     JOIN public.users_lumofyuser u ON e.user_id = u.id
+     JOIN public.development_pathways_developmentpath p ON e.development_pathway_id = p.id
+     WHERE u.environment_id = :ENV_ID AND p.environment_id = :ENV_ID
+       AND e.assigned_at >= :RANGE_START AND e.assigned_at < :RANGE_END) AS pathway_company_enrollments,
+  (SELECT count(*) FROM public.development_pathways_developmentpathwayenrollment e
+     JOIN public.users_lumofyuser u ON e.user_id = u.id
+     JOIN public.development_pathways_developmentpath p ON e.development_pathway_id = p.id
+     WHERE u.environment_id = :ENV_ID AND p.environment_id = :ENV_ID AND e.completed_at IS NOT NULL
+       AND e.completed_at >= :RANGE_START AND e.completed_at < :RANGE_END) AS pathway_company_completions,
+  (SELECT count(*) FROM public.development_pathways_developmentpathwayenrollment e
+     JOIN public.users_lumofyuser u ON e.user_id = u.id
+     JOIN public.development_pathways_developmentpath p ON e.development_pathway_id = p.id
+     WHERE u.environment_id = :ENV_ID AND p.environment_id IS DISTINCT FROM :ENV_ID
+       AND e.assigned_at >= :RANGE_START AND e.assigned_at < :RANGE_END) AS pathway_lumofy_enrollments,
+  (SELECT count(*) FROM public.development_pathways_developmentpathwayenrollment e
+     JOIN public.users_lumofyuser u ON e.user_id = u.id
+     JOIN public.development_pathways_developmentpath p ON e.development_pathway_id = p.id
+     WHERE u.environment_id = :ENV_ID AND p.environment_id IS DISTINCT FROM :ENV_ID AND e.completed_at IS NOT NULL
+       AND e.completed_at >= :RANGE_START AND e.completed_at < :RANGE_END) AS pathway_lumofy_completions,
+  (SELECT count(*) FROM public.quiz_maker_quiz
+     WHERE environment_id = :ENV_ID AND created_at >= :RANGE_START AND created_at < :RANGE_END) AS quizzes_generated,
+  (
+    (SELECT count(*) FROM public.quiz_maker_quizenrollment e
+       JOIN public.users_lumofyuser u ON e.user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND e.created_at >= :RANGE_START AND e.created_at < :RANGE_END)
+    + (SELECT count(*) FROM public.development_pathways_developmentpathwayquizenrollment d
+       JOIN public.users_lumofyuser u ON d.user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND d.created_at >= :RANGE_START AND d.created_at < :RANGE_END)
+  ) AS quiz_enrollments,
+  (
+    (SELECT count(*) FROM public.quiz_maker_quizenrollment e
+       JOIN public.users_lumofyuser u ON e.user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND e.status = 'COMPLETED'
+         AND e.completed_at >= :RANGE_START AND e.completed_at < :RANGE_END)
+    + (SELECT count(*) FROM public.development_pathways_developmentpathwayquizenrollment d
+       JOIN public.users_lumofyuser u ON d.user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND d.status = 'COMPLETED'
+         AND d.completed_at >= :RANGE_START AND d.completed_at < :RANGE_END)
+  ) AS quiz_completions,
+  (SELECT count(*) FROM public.live_sessions_livesession
+     WHERE environment_id = :ENV_ID AND created_at >= :RANGE_START AND created_at < :RANGE_END) AS sessions_created,
+  (
+    (SELECT count(*) FROM public.talent_assessments_assessmentenrollment e
+       JOIN public.users_lumofyuser u ON e.internal_user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND e.created_at >= :RANGE_START AND e.created_at < :RANGE_END)
+    + (SELECT count(*) FROM public.talent_assessments_assessmentenrollment e
+       JOIN public.talent_assessments_assessmentexternaluser x ON e.external_user_id = x.id
+       WHERE x.environment_id = :ENV_ID AND e.created_at >= :RANGE_START AND e.created_at < :RANGE_END)
+  ) AS talent_assessment_enrollments,
+  (
+    (SELECT count(*) FROM public.talent_assessments_assessmentenrollment e
+       JOIN public.users_lumofyuser u ON e.internal_user_id = u.id
+       WHERE u.environment_id = :ENV_ID AND e.status = 'COMPLETED'
+         AND e.completed_at >= :RANGE_START AND e.completed_at < :RANGE_END)
+    + (SELECT count(*) FROM public.talent_assessments_assessmentenrollment e
+       JOIN public.talent_assessments_assessmentexternaluser x ON e.external_user_id = x.id
+       WHERE x.environment_id = :ENV_ID AND e.status = 'COMPLETED'
+         AND e.completed_at >= :RANGE_START AND e.completed_at < :RANGE_END)
+  ) AS talent_assessment_completed,
+  (SELECT count(*) FROM public.skills_system_competencyassessment ca
+     JOIN public.users_lumofyuser u ON ca.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND ca.created_at >= :RANGE_START AND ca.created_at < :RANGE_END) AS ai_assessment_enrollments,
+  (SELECT count(*) FROM public.skills_system_competencyassessment ca
+     JOIN public.users_lumofyuser u ON ca.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND ca.status = 'EVALUATED'
+       AND ca.completed_at >= :RANGE_START AND ca.completed_at < :RANGE_END) AS ai_assessment_completed,
+  (SELECT count(*) FROM public.mappings_competence
+     WHERE environment_id = :ENV_ID AND deleted_at IS NULL
+       AND created_at >= :RANGE_START AND created_at < :RANGE_END
+       AND ( (ai_generation_info #>> array['description']::text[])::boolean IS TRUE
+          OR (ai_generation_info #>> array['levels']::text[])::boolean IS TRUE
+          OR (ai_generation_info #>> array['synonyms']::text[])::boolean IS TRUE )) AS competencies_ai_generated,
+  (SELECT count(*) FROM public.reviews_enpsreviewresponse rr
+     JOIN public.users_lumofyuser u ON rr.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND rr.created_at >= :RANGE_START AND rr.created_at < :RANGE_END) AS enps_responses,
+  (SELECT count(*) FROM public.reviews_customreviewresponse rr
+     JOIN public.users_lumofyuser u ON rr.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND rr.created_at >= :RANGE_START AND rr.created_at < :RANGE_END) AS survey_responses
+`.trim();
+
+/** Daily active-user series within [:RANGE_START, :RANGE_END) — the period
+ *  filter's trend chart. Re-bucketed to week/month in the app layer for
+ *  quarter/year views; each day's distinct-user count is exact as-is (unlike
+ *  the scalar active_users total above, per-day counts are never summed to
+ *  produce a period total — that would double-count anyone active on more
+ *  than one day). */
+export const PERIOD_TREND_SQL = `
+SELECT date_trunc('day', ul.date)::date AS day, count(DISTINCT ul.user_id) AS value
+  FROM public.users_userlogin ul JOIN public.users_lumofyuser u ON ul.user_id = u.id
+  WHERE u.environment_id = :ENV_ID AND ul.date >= :RANGE_START AND ul.date < :RANGE_END
+    AND u.deleted_at IS NULL AND u.is_support = false AND u.is_integration_user = false
+  GROUP BY 1
+  ORDER BY 1
+`.trim();

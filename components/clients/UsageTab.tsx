@@ -14,6 +14,8 @@ import {
   BarChart3,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   GraduationCap,
   Info,
   Link2Off,
@@ -31,9 +33,20 @@ import { Badge } from "@/components/ui/Badge";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { LineChart, Donut, Gauge, GroupedBars } from "@/components/ui/charts";
 import { cn } from "@/lib/cn";
-import { formatNumber } from "@/lib/format";
-import { loadClientUsageAction } from "@/app/(app)/clients/[id]/usage-actions";
-import type { AdoptionScore, LearningBreakdown, TrendMap, UsageResult, UsageSnapshot, UsageSnapshotRow, UsageTier } from "@/lib/usage/types";
+import { formatDate, formatNumber } from "@/lib/format";
+import { currentQuarter, currentWeek, periodBounds, shiftPeriod } from "@/lib/metrics/arr";
+import { loadClientUsageAction, loadClientUsagePeriodAction } from "@/app/(app)/clients/[id]/usage-actions";
+import type {
+  AdoptionScore,
+  LearningBreakdown,
+  TrendMap,
+  UsagePeriodMetrics,
+  UsagePeriodResult,
+  UsageResult,
+  UsageSnapshot,
+  UsageSnapshotRow,
+  UsageTier,
+} from "@/lib/usage/types";
 
 const TIER_COLOR: Record<UsageTier, string> = {
   thriving: "var(--color-aurora)",
@@ -79,6 +92,27 @@ function trendDelta(points: { month: string; value: number }[], win = 3): { pctC
   if (prior === 0) return { pctChange: 100, dir: "up" };
   const pctChange = Math.round(((recent - prior) / prior) * 100);
   return { pctChange, dir: pctChange > 8 ? "up" : pctChange < -8 ? "down" : "flat" };
+}
+
+/* ── timeline filter (week/month/quarter/year snapshot) ──────────────────── */
+
+type Granularity = "week" | "month" | "quarter" | "year";
+
+/** The current period's key string for a given granularity — what the filter
+ *  starts on the first time a granularity is picked. */
+function defaultPeriodKey(g: Granularity, now: Date = new Date()): string {
+  switch (g) {
+    case "week": return currentWeek(now);
+    case "month": return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    case "quarter": return currentQuarter(now);
+    case "year": return String(now.getUTCFullYear());
+  }
+}
+function granularityOf(key: string): Granularity {
+  if (/^\d{4}-W\d{1,2}$/i.test(key)) return "week";
+  if (/^\d{4}-Q[1-4]$/i.test(key)) return "quarter";
+  if (/^\d{4}-\d{2}$/.test(key)) return "month";
+  return "year";
 }
 
 /* ── first-time-viewer helpers ────────────────────────────────────────────── */
@@ -194,11 +228,37 @@ export function UsageTab({ clientId }: { clientId: string }) {
     setReloadKey((k) => k + 1);
   };
 
+  // null = "Current" (the always-on cards above, unchanged). Any other value
+  // is a periodBounds()-compatible key ("YYYY-Www"/"YYYY-MM"/"YYYY-Qn"/"YYYY").
+  const [periodKey, setPeriodKey] = useState<string | null>(null);
+  const [periodState, setPeriodState] = useState<{ phase: "loading" | "done"; data?: UsagePeriodResult }>({ phase: "loading" });
+
+  useEffect(() => {
+    if (!periodKey) return;
+    let cancelled = false;
+    const { start, end, label } = periodBounds(periodKey);
+    setPeriodState({ phase: "loading" });
+    loadClientUsagePeriodAction(clientId, { start, end, label })
+      .then((data) => !cancelled && setPeriodState({ phase: "done", data }))
+      .catch((e) => !cancelled && setPeriodState({ phase: "done", data: { status: "error", message: String(e) } }));
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, periodKey]);
+
   if (state.phase === "loading") return <UsageSkeleton />;
   const data = state.data!;
   if (data.status !== "ok") return <UsageUnavailableCard result={data} onRetry={() => reload(true)} />;
 
-  return <UsageDashboard snap={data} onRefresh={() => reload(true)} />;
+  return (
+    <UsageDashboard
+      snap={data}
+      onRefresh={() => reload(true)}
+      periodKey={periodKey}
+      onPeriodChange={setPeriodKey}
+      periodState={periodKey ? periodState : null}
+    />
+  );
 }
 
 /* ── states ─────────────────────────────────────────────────────────────── */
@@ -249,7 +309,19 @@ function UsageUnavailableCard({ result, onRetry }: { result: Exclude<UsageResult
 
 /* ── the dashboard ──────────────────────────────────────────────────────── */
 
-function UsageDashboard({ snap, onRefresh }: { snap: UsageSnapshot; onRefresh: () => void }) {
+function UsageDashboard({
+  snap,
+  onRefresh,
+  periodKey,
+  onPeriodChange,
+  periodState,
+}: {
+  snap: UsageSnapshot;
+  onRefresh: () => void;
+  periodKey: string | null;
+  onPeriodChange: (key: string | null) => void;
+  periodState: { phase: "loading" | "done"; data?: UsagePeriodResult } | null;
+}) {
   const m = snap.metrics;
   const lb = snap.learning;
   const months = last12Months();
@@ -293,6 +365,17 @@ function UsageDashboard({ snap, onRefresh }: { snap: UsageSnapshot; onRefresh: (
   return (
     <div className="flex flex-col gap-5">
       <HowToRead environmentName={snap.environmentName} />
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardEyebrow>Timeline</CardEyebrow>
+            <SectionHint>See a snapshot of usage bounded to one week, month, quarter, or year, instead of the always-current numbers below.</SectionHint>
+          </div>
+          <UsageTimelineFilter periodKey={periodKey} onChange={onPeriodChange} />
+        </div>
+        {periodKey && periodState && <UsageTimelinePanel periodState={periodState} />}
+      </Card>
 
       <HealthBanner snap={snap} onRefresh={onRefresh} />
 
@@ -574,6 +657,128 @@ function UsageDashboard({ snap, onRefresh }: { snap: UsageSnapshot; onRefresh: (
 
       <p className="px-1 font-body text-[11px] text-fg-subtle">
         Source: Metabase · {snap.region.toUpperCase()} · environment {snap.environmentName ?? snap.environmentId.slice(0, 8)} · as of {new Date(snap.fetchedAt).toLocaleString()}
+      </p>
+    </div>
+  );
+}
+
+function UsageTimelineFilter({ periodKey, onChange }: { periodKey: string | null; onChange: (key: string | null) => void }) {
+  const granularity = periodKey ? granularityOf(periodKey) : null;
+  const label = periodKey ? periodBounds(periodKey).label : null;
+
+  function selectGranularity(value: string) {
+    if (value === "current") onChange(null);
+    else onChange(defaultPeriodKey(value as Granularity));
+  }
+  function shift(delta: number) {
+    if (periodKey) onChange(shiftPeriod(periodKey, delta));
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        aria-label="Timeline granularity"
+        value={granularity ?? "current"}
+        onChange={(e) => selectGranularity(e.target.value)}
+        className="rounded-lg border border-border bg-surface px-2.5 py-1.5 font-body text-[12.5px] font-medium text-fg outline-none transition-colors focus:border-sirius-200"
+      >
+        <option value="current">Current</option>
+        <option value="week">Week</option>
+        <option value="month">Month</option>
+        <option value="quarter">Quarter</option>
+        <option value="year">Year</option>
+      </select>
+      {periodKey && (
+        <span className="flex items-center gap-0.5 rounded-lg border border-border bg-surface pl-1 pr-1">
+          <button onClick={() => shift(-1)} aria-label="Previous period" className="rounded-md p-1 text-fg-subtle hover:bg-bg-muted hover:text-fg">
+            <ChevronLeft size={14} />
+          </button>
+          <span className="min-w-[84px] text-center font-body text-[12.5px] font-semibold text-fg">{label}</span>
+          <button onClick={() => shift(1)} aria-label="Next period" className="rounded-md p-1 text-fg-subtle hover:bg-bg-muted hover:text-fg">
+            <ChevronRight size={14} />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** end is exclusive (the day after the period) — shift back one day for a
+ *  human-readable inclusive end date. */
+function inclusiveEndDate(endExclusive: string): string {
+  const d = new Date(`${endExclusive}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+const PERIOD_ROWS: { label: string; value: (m: UsagePeriodMetrics) => number }[] = [
+  { label: "Course enrollments", value: (m) => m.learning_enrollments },
+  { label: "Course completions", value: (m) => m.learning_completions },
+  { label: "Distinct courses touched", value: (m) => m.learning_items_count },
+  { label: "Pathway enrollments", value: (m) => m.pathway_enrollments },
+  { label: "Pathway completions", value: (m) => m.pathway_completions },
+  { label: "Distinct pathways touched", value: (m) => m.pathways_count },
+  { label: "Quizzes created", value: (m) => m.quizzes_generated },
+  { label: "Quiz enrollments", value: (m) => m.quiz_enrollments },
+  { label: "Quiz completions", value: (m) => m.quiz_completions },
+  { label: "Live sessions created", value: (m) => m.sessions_created },
+  { label: "Talent assessment enrollments", value: (m) => m.talent_assessment_enrollments },
+  { label: "Talent assessment completed", value: (m) => m.talent_assessment_completed },
+  { label: "AI assessment enrollments", value: (m) => m.ai_assessment_enrollments },
+  { label: "AI assessment completed", value: (m) => m.ai_assessment_completed },
+  { label: "AI-generated competencies", value: (m) => m.competencies_ai_generated },
+  { label: "eNPS responses", value: (m) => m.enps_responses },
+  { label: "Custom survey responses", value: (m) => m.survey_responses },
+];
+
+function UsageTimelinePanel({ periodState }: { periodState: { phase: "loading" | "done"; data?: UsagePeriodResult } }) {
+  if (periodState.phase === "loading") {
+    return (
+      <div className="mt-4 flex items-center gap-2 border-t border-border-subtle pt-4 text-fg-subtle">
+        <Loader2 size={14} className="animate-spin" />
+        <span className="font-body text-[12.5px]">Loading this period from Metabase…</span>
+      </div>
+    );
+  }
+  const data = periodState.data;
+  if (!data || data.status !== "ok") {
+    return (
+      <div className="mt-4 border-t border-border-subtle pt-4">
+        <p className="font-body text-[12.5px] text-fg-subtle">{data?.message ?? "Couldn't load this period."}</p>
+      </div>
+    );
+  }
+  const p = data.metrics;
+  const trend = data.activeUsersTrend.map((d) => d.value);
+  const rows = PERIOD_ROWS.map((r) => ({ label: r.label, value: r.value(p) })).filter((r) => r.value > 0);
+
+  return (
+    <div className="mt-4 flex flex-col gap-4 border-t border-border-subtle pt-4">
+      <div className="flex flex-wrap items-center gap-6">
+        <div className="flex flex-col gap-1">
+          <span className="font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Active users · {data.label}</span>
+          <span className="tabular font-display text-2xl font-bold leading-none text-fg">{formatNumber(p.active_users)}</span>
+          <span className="font-body text-[11px] text-fg-subtle">
+            {formatDate(data.start)} – {formatDate(inclusiveEndDate(data.end))}
+          </span>
+        </div>
+        {trend.some((v) => v > 0) && <Sparkline data={trend} width={220} height={48} />}
+      </div>
+      {rows.length > 0 ? (
+        <div className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-3">
+          {rows.map((r) => (
+            <span key={r.label} className="flex items-baseline justify-between gap-2 font-body text-[12.5px]">
+              <span className="text-fg-muted">{r.label}</span>
+              <span className="tabular shrink-0 font-semibold text-fg">{formatNumber(r.value)}</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="font-body text-[12.5px] text-fg-subtle">No recorded activity in this period.</p>
+      )}
+      <p className="font-body text-[11px] text-fg-subtle">
+        Seats, total users, and org structure aren&rsquo;t shown here — those reflect the account&rsquo;s current state, not a point in
+        the past, so they stay in the &ldquo;Current&rdquo; cards below.
       </p>
     </div>
   );

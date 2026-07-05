@@ -108,3 +108,46 @@ export interface UsageUnavailable {
 }
 
 export type UsageResult = UsageSnapshot | UsageUnavailable;
+
+/** Period-bounded totals for the Usage tab's timeline filter — everything
+ *  here has a real event date, unlike the point-in-time fields on
+ *  UsageSnapshotRow (seats, total_users, org structure, competencies_total,
+ *  PM cycles, eNPS/survey cycle counts), which have no history to
+ *  reconstruct and stay "Current" regardless of the selected period. */
+export interface UsagePeriodMetrics {
+  active_users: number;
+  learning_enrollments: number;
+  learning_completions: number;
+  learning_items_count: number;
+  pathways_count: number;
+  pathway_enrollments: number;
+  pathway_completions: number;
+  pathway_company_enrollments: number;
+  pathway_company_completions: number;
+  pathway_lumofy_enrollments: number;
+  pathway_lumofy_completions: number;
+  quizzes_generated: number;
+  quiz_enrollments: number;
+  quiz_completions: number;
+  sessions_created: number;
+  talent_assessment_enrollments: number;
+  talent_assessment_completed: number;
+  ai_assessment_enrollments: number;
+  ai_assessment_completed: number;
+  competencies_ai_generated: number;
+  enps_responses: number;
+  survey_responses: number;
+}
+
+export interface UsagePeriodSnapshot {
+  status: "ok";
+  start: string; // "YYYY-MM-DD" inclusive
+  end: string; // "YYYY-MM-DD" exclusive
+  label: string; // e.g. "2026-Q2", "2026-W27"
+  /** Distinct active users per calendar day within [start, end) — for the
+   *  trend chart only; never sum these for a period total (see PERIOD_TREND_SQL). */
+  activeUsersTrend: { day: string; value: number }[];
+  metrics: UsagePeriodMetrics;
+}
+
+export type UsagePeriodResult = UsagePeriodSnapshot | UsageUnavailable;

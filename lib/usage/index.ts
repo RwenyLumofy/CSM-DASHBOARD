@@ -16,10 +16,22 @@ import { withDbTimeout } from "@/lib/db/client";
 import { HubSpotClient } from "@/lib/integrations/hubspot";
 import { MetabaseClient } from "@/lib/integrations/metabase";
 import { computeAdoptionScore, ownedModulesFromPackage, type OwnedModules } from "@/lib/usage/score";
-import { SNAPSHOT_SQL, TREND_SQL, LEARNING_SPLIT_SQL } from "@/lib/usage/queries";
-import type { LearningBreakdown, LearningBucket, TrendMap, UsageResult, UsageSnapshot, UsageSnapshotRow, UsageUnavailable } from "@/lib/usage/types";
+import { SNAPSHOT_SQL, TREND_SQL, LEARNING_SPLIT_SQL, PERIOD_SNAPSHOT_SQL, PERIOD_TREND_SQL } from "@/lib/usage/queries";
+import type {
+  LearningBreakdown,
+  LearningBucket,
+  TrendMap,
+  UsagePeriodMetrics,
+  UsagePeriodResult,
+  UsagePeriodSnapshot,
+  UsageResult,
+  UsageSnapshot,
+  UsageSnapshotRow,
+  UsageUnavailable,
+} from "@/lib/usage/types";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DB_ID: Record<"aws" | "ksa", number> = { aws: 4, ksa: 5 };
 const USAGE_ENV_KEY = "__usage_env";
 
@@ -31,6 +43,14 @@ interface ResolvedEnv {
 
 function withEnv(sql: string, envId: string): string {
   return sql.replaceAll(":ENV_ID", `'${envId}'`);
+}
+/** Same substitution approach as withEnv — start/end are always caller-
+ *  constructed "YYYY-MM-DD" strings from lib/metrics/arr.ts's periodBounds(),
+ *  never raw user input, but validated here too before going anywhere near
+ *  a native-SQL string. */
+function withRange(sql: string, envId: string, start: string, end: string): string {
+  if (!DATE_RE.test(start) || !DATE_RE.test(end)) throw new Error("Invalid date range for usage period query.");
+  return withEnv(sql, envId).replaceAll(":RANGE_START", `'${start}'`).replaceAll(":RANGE_END", `'${end}'`);
 }
 function pick(row: Record<string, unknown>, key: string): unknown {
   if (key in row) return row[key];
@@ -131,6 +151,24 @@ function toSnapshotRow(row: Record<string, unknown>): UsageSnapshotRow {
     pm_cycles_configured: g("pm_cycles_configured"), pm_cycles_completed: g("pm_cycles_completed"),
     competencies_total: g("competencies_total"), competencies_ai_generated: g("competencies_ai_generated"),
     ai_generation_runs: g("ai_generation_runs"),
+  };
+}
+
+function toPeriodMetricsRow(row: Record<string, unknown>): UsagePeriodMetrics {
+  const g = (k: string) => num(pick(row, k));
+  return {
+    active_users: g("active_users"),
+    learning_enrollments: g("learning_enrollments"), learning_completions: g("learning_completions"),
+    learning_items_count: g("learning_items_count"), pathways_count: g("pathways_count"),
+    pathway_enrollments: g("pathway_enrollments"), pathway_completions: g("pathway_completions"),
+    pathway_company_enrollments: g("pathway_company_enrollments"), pathway_company_completions: g("pathway_company_completions"),
+    pathway_lumofy_enrollments: g("pathway_lumofy_enrollments"), pathway_lumofy_completions: g("pathway_lumofy_completions"),
+    quizzes_generated: g("quizzes_generated"), quiz_enrollments: g("quiz_enrollments"), quiz_completions: g("quiz_completions"),
+    sessions_created: g("sessions_created"),
+    talent_assessment_enrollments: g("talent_assessment_enrollments"), talent_assessment_completed: g("talent_assessment_completed"),
+    ai_assessment_enrollments: g("ai_assessment_enrollments"), ai_assessment_completed: g("ai_assessment_completed"),
+    competencies_ai_generated: g("competencies_ai_generated"),
+    enps_responses: g("enps_responses"), survey_responses: g("survey_responses"),
   };
 }
 
@@ -254,6 +292,54 @@ export async function getClientUsage(clientId: string, opts?: { forceRefresh?: b
   }
 
   return fetchAndPersist(clientId, resolved, owned);
+}
+
+// A short in-process memo, same TTL as the "current" cache above — cheap
+// insurance against a burst of repeat requests for the same period (e.g. the
+// tab re-rendering) without holding a persisted copy: unlike the "current"
+// snapshot, an arbitrary historical period has no single canonical value that
+// the 4-hourly cron needs to keep warm, so there's no Postgres tier here.
+const periodCache = new Map<string, { at: number; data: UsagePeriodResult }>();
+
+/** The Usage tab's timeline-filter payload: period-bounded totals + a daily
+ *  active-user trend for an arbitrary [start, end) window, always fetched
+ *  live from Metabase (no 5h "fresh enough" cache — a CSM picking a specific
+ *  quarter expects that quarter's real numbers, not whatever happened to be
+ *  cached for a different window). `start`/`end` must be "YYYY-MM-DD" from
+ *  lib/metrics/arr.ts's periodBounds(). */
+export async function getClientUsageForPeriod(
+  clientId: string,
+  range: { start: string; end: string; label: string },
+): Promise<UsagePeriodResult> {
+  if (!DATE_RE.test(range.start) || !DATE_RE.test(range.end)) {
+    return { status: "error", message: "Invalid date range." };
+  }
+  const resolved = await resolveEnvironment(clientId);
+  if ("error" in resolved) return resolved.error;
+
+  const cacheKey = `${resolved.environmentId}:${range.start}:${range.end}`;
+  const hit = periodCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
+
+  const mb = new MetabaseClient();
+  try {
+    const [snapRows, trendRows] = await Promise.all([
+      mb.runNativeQuery(DB_ID[resolved.region], withRange(PERIOD_SNAPSHOT_SQL, resolved.environmentId, range.start, range.end)),
+      mb.runNativeQuery(DB_ID[resolved.region], withRange(PERIOD_TREND_SQL, resolved.environmentId, range.start, range.end)),
+    ]);
+    const data: UsagePeriodSnapshot = {
+      status: "ok",
+      start: range.start,
+      end: range.end,
+      label: range.label,
+      activeUsersTrend: trendRows.map((r) => ({ day: String(pick(r, "day") ?? "").slice(0, 10), value: num(pick(r, "value")) })),
+      metrics: toPeriodMetricsRow(snapRows[0] ?? {}),
+    };
+    periodCache.set(cacheKey, { at: Date.now(), data });
+    return data;
+  } catch (e) {
+    return { status: "error", message: `Usage period query failed: ${e}` };
+  }
 }
 
 /** The 3 modules a company owns — drives the score's Module-adoption signal.

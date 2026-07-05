@@ -147,12 +147,33 @@ function addMonths(y: number, m1: number, delta: number): { y: number; m1: numbe
   return { y: Math.floor(zero / 12), m1: (zero % 12) + 1 };
 }
 
+/** [Monday, next Monday) for ISO week `week` of `year` (week 1 = the week
+ *  containing the year's first Thursday, per ISO 8601 — weeks run Mon-Sun). */
+function isoWeekBounds(year: number, week: number): { start: string; end: string } {
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Weekday = jan4.getUTCDay() || 7; // ISO weekday: Mon=1..Sun=7
+  const week1Monday = new Date(Date.UTC(year, 0, 4 - (jan4Weekday - 1)));
+  const start = new Date(week1Monday);
+  start.setUTCDate(start.getUTCDate() + (week - 1) * 7);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 7);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  return { start: iso(start), end: iso(end) };
+}
+
 /**
  * Parse a period string into [start, end) date bounds.
- * Supports "YYYY-Qn" (quarter), "YYYY-MM" (month), and "YYYY" (year).
- * Falls back to the calendar year of an unrecognized string.
+ * Supports "YYYY-Www" (ISO week), "YYYY-Qn" (quarter), "YYYY-MM" (month), and
+ * "YYYY" (year). Falls back to the calendar year of an unrecognized string.
  */
 export function periodBounds(period: string): PeriodBounds {
+  const w = period.match(/^(\d{4})-W(\d{1,2})$/i);
+  if (w) {
+    const y = Number(w[1]);
+    const wk = Number(w[2]);
+    const { start, end } = isoWeekBounds(y, wk);
+    return { start, end, label: `${y}-W${pad(wk)}` };
+  }
   const q = period.match(/^(\d{4})-Q([1-4])$/i);
   if (q) {
     const y = Number(q[1]);
@@ -177,4 +198,43 @@ export function currentQuarter(now: Date = new Date()): string {
   const y = now.getUTCFullYear();
   const qn = Math.floor(now.getUTCMonth() / 3) + 1;
   return `${y}-Q${qn}`;
+}
+
+/** The current ISO week as a "YYYY-Www" string (ISO week-numbering year, which
+ *  can differ from the calendar year for the first/last few days of January). */
+export function currentWeek(now: Date = new Date()): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum); // move to this week's Thursday
+  const isoYear = d.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+  return `${isoYear}-W${pad(weekNo)}`;
+}
+
+/** Shift a period string by `delta` units of its own granularity — e.g.
+ *  shiftPeriod("2026-Q2", 1) -> "2026-Q3", shiftPeriod("2026-W01", -1) ->
+ *  "2025-W52". Powers the timeline filter's prev/next navigation. */
+export function shiftPeriod(period: string, delta: number): string {
+  const w = period.match(/^(\d{4})-W(\d{1,2})$/i);
+  if (w) {
+    const { start } = isoWeekBounds(Number(w[1]), Number(w[2]));
+    const d = new Date(`${start}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + delta * 7);
+    return currentWeek(d);
+  }
+  const mo = period.match(/^(\d{4})-(\d{2})$/);
+  if (mo) {
+    const e = addMonths(Number(mo[1]), Number(mo[2]), delta);
+    return `${e.y}-${pad(e.m1)}`;
+  }
+  const q = period.match(/^(\d{4})-Q([1-4])$/i);
+  if (q) {
+    const startM = (Number(q[2]) - 1) * 3 + 1;
+    const e = addMonths(Number(q[1]), startM, delta * 3);
+    return `${e.y}-Q${Math.floor((e.m1 - 1) / 3) + 1}`;
+  }
+  const yr = period.match(/^(\d{4})$/);
+  if (yr) return String(Number(yr[1]) + delta);
+  return period;
 }
