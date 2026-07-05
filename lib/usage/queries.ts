@@ -399,10 +399,9 @@ export const ENV_EXISTS_SQL = `SELECT count(*) AS n FROM public.environments_env
    seats/used_licenses/total_users/active_users(flag)/job structure — no
    history is tracked for these, they're current config/state, not events;
    competencies_total — total framework size reads more naturally as current;
-   pm_cycles_configured/completed, enps_cycles, survey_cycles — the "cycle"
-   entities' own date columns (or, for pm_cycles_completed, the legacy/newer
-   table branching) weren't in the audited TREND_SQL and weren't indepen-
-   dently re-verified here, so they're left alone rather than guessed at.
+   enps_cycles, survey_cycles — the cycle-to-user junction tables have no date
+   column of their own (only the response tables do, which ARE period-scoped
+   below as enps_responses/survey_responses).
    Every field included below has a confirmed, schema-verified date column
    (verified live against Metabase 2026-07-05, in addition to what TREND_SQL
    already established).
@@ -526,6 +525,9 @@ SELECT
        AND ca.completed_at >= :RANGE_START AND ca.completed_at < :RANGE_END) AS ai_assessment_completed,
   (SELECT count(*) FROM public.mappings_competence
      WHERE environment_id = :ENV_ID AND deleted_at IS NULL
+       AND created_at >= :RANGE_START AND created_at < :RANGE_END) AS competencies_created,
+  (SELECT count(*) FROM public.mappings_competence
+     WHERE environment_id = :ENV_ID AND deleted_at IS NULL
        AND created_at >= :RANGE_START AND created_at < :RANGE_END
        AND ( (ai_generation_info #>> array['description']::text[])::boolean IS TRUE
           OR (ai_generation_info #>> array['levels']::text[])::boolean IS TRUE
@@ -535,7 +537,76 @@ SELECT
      WHERE u.environment_id = :ENV_ID AND rr.created_at >= :RANGE_START AND rr.created_at < :RANGE_END) AS enps_responses,
   (SELECT count(*) FROM public.reviews_customreviewresponse rr
      JOIN public.users_lumofyuser u ON rr.user_id = u.id
-     WHERE u.environment_id = :ENV_ID AND rr.created_at >= :RANGE_START AND rr.created_at < :RANGE_END) AS survey_responses
+     WHERE u.environment_id = :ENV_ID AND rr.created_at >= :RANGE_START AND rr.created_at < :RANGE_END) AS survey_responses,
+  -- PM cycles: same newer/legacy branch-selector as SNAPSHOT_SQL (an account-
+  -- level, not period-level, fact — whichever system has ANY rows lifetime is
+  -- the one in use), but each branch's own COUNT is period-bound. "Completed"
+  -- is reinterpreted from "already past today" to "ends within this period"
+  -- (newer: performance_cycles_cycleend.end_date) or the legacy table's own
+  -- ended_at, both schema-verified.
+  (SELECT CASE
+     WHEN (SELECT count(*) FROM public.performance_cycles_cycle WHERE environment_id = :ENV_ID) > 0
+       THEN (SELECT count(*) FROM public.performance_cycles_cycle
+               WHERE environment_id = :ENV_ID AND created_at >= :RANGE_START AND created_at < :RANGE_END)
+     ELSE (SELECT count(*) FROM public.performance_management_cycle
+             WHERE environment_id = :ENV_ID AND created_at >= :RANGE_START AND created_at < :RANGE_END)
+   END) AS pm_cycles_configured,
+  (SELECT CASE
+     WHEN (SELECT count(*) FROM public.performance_cycles_cycle WHERE environment_id = :ENV_ID) > 0
+       THEN (SELECT count(DISTINCT c.id)
+               FROM public.performance_cycles_cycle c
+               JOIN public.performance_cycles_step s ON s.cycle_id = c.id
+               JOIN public.performance_cycles_cycleend ce ON ce.step_ptr_id = s.id
+              WHERE c.environment_id = :ENV_ID
+                AND c.creation_status = 'PUBLISHED'
+                AND ce.end_date >= :RANGE_START AND ce.end_date < :RANGE_END)
+     ELSE (SELECT count(*) FROM public.performance_management_cycle
+             WHERE environment_id = :ENV_ID AND status IN ('ENDED', 'RELEASED')
+               AND ended_at >= :RANGE_START AND ended_at < :RANGE_END)
+   END) AS pm_cycles_completed
+`.trim();
+
+/** Same category/provider split as LEARNING_SPLIT_SQL, bounded to enrollments
+ *  CREATED within [:RANGE_START, :RANGE_END) — added at each source branch,
+ *  before the dedup CTE, so the same-id dedup/classification logic is
+ *  untouched. */
+export const PERIOD_LEARNING_SPLIT_SQL = `
+WITH learn AS MATERIALIZED (
+  SELECT id,
+    CASE WHEN bool_or(is_global) THEN 'global' WHEN bool_or(is_lumofy) THEN 'lumofy' ELSE 'company' END AS category,
+    COALESCE(max(provider) FILTER (WHERE from_content AND provider IS NOT NULL), max(provider)) AS provider,
+    max(item_id::text) AS item_id,
+    bool_or(completed) AS completed
+  FROM (
+    SELECT ce.id, true AS from_content, ce.content_item_id AS item_id,
+      (ci.content_type NOT IN ('COURSE_BUILDER','DOCEBO')) AS is_global,
+      (ci.content_type = 'DOCEBO' OR (ci.content_type = 'COURSE_BUILDER' AND ci.environment_id IS DISTINCT FROM :ENV_ID)) AS is_lumofy,
+      CASE WHEN ci.content_type NOT IN ('COURSE_BUILDER','DOCEBO') THEN ci.content_type END AS provider,
+      (ce.status = 'COMPLETED') AS completed
+    FROM public.learning_contentitemenrollment ce
+      JOIN public.users_lumofyuser u ON ce.user_id = u.id
+      JOIN public.learning_contentitem ci ON ce.content_item_id = ci.id
+    WHERE u.environment_id = :ENV_ID AND ce.created_at >= :RANGE_START AND ce.created_at < :RANGE_END
+    UNION ALL
+    SELECT e.id, false AS from_content, e.learning_item_id AS item_id,
+      (ev.name_en_us ILIKE '%Go1%' OR li.environment_id IS NULL) AS is_global,
+      (li.environment_id IS DISTINCT FROM :ENV_ID AND NOT (ev.name_en_us ILIKE '%Go1%' OR li.environment_id IS NULL)) AS is_lumofy,
+      CASE WHEN (ev.name_en_us ILIKE '%Go1%' OR li.environment_id IS NULL) THEN 'GO1' END AS provider,
+      (e.status = 'COMPLETED') AS completed
+    FROM public.learning_items_enrollment e
+      JOIN public.users_lumofyuser u ON e.user_id = u.id
+      JOIN public.learning_items_learningitem li ON e.learning_item_id = li.id
+      LEFT JOIN public.environments_environment ev ON li.environment_id = ev.id
+    WHERE u.environment_id = :ENV_ID AND e.is_active = true
+      AND e.created_at >= :RANGE_START AND e.created_at < :RANGE_END
+  ) rows GROUP BY id
+)
+SELECT 'category' AS kind, category AS label, count(*) AS enrollments, count(*) FILTER (WHERE completed) AS completions, count(DISTINCT item_id) AS items
+  FROM learn GROUP BY category
+UNION ALL
+SELECT 'provider', provider, count(*), count(*) FILTER (WHERE completed), count(DISTINCT item_id)
+  FROM learn WHERE category = 'global' AND provider IS NOT NULL GROUP BY provider
+ORDER BY 1, 3 DESC
 `.trim();
 
 /** Daily active-user series within [:RANGE_START, :RANGE_END) — the period

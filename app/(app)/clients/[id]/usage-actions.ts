@@ -25,7 +25,7 @@ export async function loadClientUsageAction(clientId: string, opts?: { forceRefr
  *  server-side beyond the short in-process memo; see getClientUsageForPeriod). */
 export async function loadClientUsagePeriodAction(
   clientId: string,
-  range: { start: string; end: string; label: string },
+  range: { start: string; end: string; label: string; seatBase: number },
 ): Promise<UsagePeriodResult> {
   const client = await getClientById(clientId);
   if (!(await canSeeClient(client))) {

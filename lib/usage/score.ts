@@ -14,7 +14,7 @@
    The Competency Framework is a SHARED feature: its usage counts toward whichever
    of Develop / Perform the company owns (per the account Module property). */
 
-import type { AdoptionScore, ModuleKey, UsageSnapshotRow, UsageTier } from "@/lib/usage/types";
+import type { AdoptionScore, ModuleKey, UsagePeriodMetrics, UsageSnapshotRow, UsageTier } from "@/lib/usage/types";
 
 function clampPct(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
@@ -120,4 +120,86 @@ function verdictFor(
     ? `but ${ownedUnused.join(" and ")} ${ownedUnused.length === 1 ? "is" : "are"} not being used yet`
     : `using every module they own (${ownedKeys.map((k) => MODULE_LABEL[k]).join(", ")}) — the lever now is getting more seats active`;
   return `${activationPhrase} — ${strength}, ${gap}. Activation opportunity.`;
+}
+
+/** The Adoption Score for the Usage tab's timeline filter — same 45/35/20
+ *  weighting and module-ownership rules as computeAdoptionScore(), but every
+ *  input is rebounded to the selected period instead of "now":
+ *
+ *    activation = period active users ÷ CURRENT seats (seats have no history
+ *                 to reconstruct, so the denominator stays "as of today" —
+ *                 only the numerator, real usage, is period-scoped)
+ *    breadth    = of the modules they own, how many had ANY activity in THIS
+ *                 period (not lifetime)
+ *    momentum   = did activity persist into the period's closing days, or
+ *                 taper off earlier — the same "how recently, within the
+ *                 window, was the last sign of life" question
+ *                 computeAdoptionScore() asks of "now", rebased to the
+ *                 period's own end instead of today. */
+export function computePeriodAdoptionScore(p: UsagePeriodMetrics, trend: { day: string; value: number }[], seatBase: number, owned: OwnedModules): AdoptionScore {
+  const activation = seatBase > 0 ? clampPct((100 * p.active_users) / seatBase) : 0;
+
+  const hasCompetency = p.competencies_created > 0;
+  const developUsed =
+    p.learning_enrollments > 0 || p.pathway_enrollments > 0 || p.quiz_enrollments > 0 ||
+    p.talent_assessment_enrollments > 0 || p.ai_assessment_enrollments > 0 || p.sessions_created > 0 ||
+    (hasCompetency && owned.develop);
+  const performUsed = p.pm_cycles_configured > 0 || (hasCompetency && owned.perform);
+  // Response counts (not cycle counts, unlike computeAdoptionScore) — cycle
+  // configuration has no schema-verified date to bound; a response IS the
+  // real usage signal for "did Engage get used in this window".
+  const engageUsed = p.enps_responses > 0 || p.survey_responses > 0;
+
+  const used: Record<ModuleKey, boolean> = { develop: developUsed, perform: performUsed, engage: engageUsed };
+  const modules: AdoptionScore["modules"] = {
+    develop: { owned: owned.develop, used: developUsed },
+    perform: { owned: owned.perform, used: performUsed },
+    engage: { owned: owned.engage, used: engageUsed },
+  };
+
+  const ownedKeys = (Object.keys(modules) as ModuleKey[]).filter((k) => modules[k].owned);
+  const usedOwned = ownedKeys.filter((k) => used[k]);
+  const breadth = ownedKeys.length > 0 ? clampPct((usedOwned.length / ownedKeys.length) * 100) : 0;
+
+  const lastActiveIndex = trend.reduce((last, d, i) => (d.value > 0 ? i : last), -1);
+  const closingSliceStart = Math.floor(trend.length * 0.75);
+  const recency = lastActiveIndex < 0 ? 0 : lastActiveIndex >= closingSliceStart ? 100 : 55;
+
+  const score = clampPct(0.45 * activation + 0.35 * breadth + 0.2 * recency);
+  const tier: UsageTier = score >= 75 ? "thriving" : score >= 50 ? "growing" : score >= 25 ? "at_risk" : "dormant";
+
+  return {
+    score,
+    tier,
+    verdict: periodVerdictFor(p, { activation }, modules, ownedKeys, usedOwned, tier, seatBase),
+    parts: { activation, breadth, recency },
+    modules,
+  };
+}
+
+function periodVerdictFor(
+  p: UsagePeriodMetrics,
+  parts: { activation: number },
+  modules: AdoptionScore["modules"],
+  ownedKeys: ModuleKey[],
+  usedOwned: ModuleKey[],
+  tier: UsageTier,
+  seatBase: number,
+): string {
+  if (p.active_users === 0) {
+    return "No activity recorded in this period.";
+  }
+  const activationPhrase = `${p.active_users.toLocaleString()} of ${seatBase.toLocaleString()} seats active this period (${parts.activation}%)`;
+  const ownedUnused = ownedKeys.filter((k) => !modules[k].used).map((k) => MODULE_LABEL[k]);
+
+  if (tier === "thriving") {
+    return `Healthy adoption this period — ${activationPhrase}, and all ${ownedKeys.length} purchased module${ownedKeys.length === 1 ? "" : "s"} (${ownedKeys.map((k) => MODULE_LABEL[k]).join(", ")}) saw use.`;
+  }
+  if (tier === "dormant") {
+    return `Very low adoption this period — ${activationPhrase}${ownedUnused.length ? `; ${ownedUnused.join(" and ")} unused` : ""}.`;
+  }
+  const gap = ownedUnused.length
+    ? `but ${ownedUnused.join(" and ")} ${ownedUnused.length === 1 ? "wasn't" : "weren't"} used this period`
+    : `using every module they own (${ownedKeys.map((k) => MODULE_LABEL[k]).join(", ")}) this period`;
+  return `${activationPhrase} — ${gap}.`;
 }

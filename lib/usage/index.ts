@@ -15,8 +15,8 @@ import { integrations } from "@/lib/config";
 import { withDbTimeout } from "@/lib/db/client";
 import { HubSpotClient } from "@/lib/integrations/hubspot";
 import { MetabaseClient } from "@/lib/integrations/metabase";
-import { computeAdoptionScore, ownedModulesFromPackage, type OwnedModules } from "@/lib/usage/score";
-import { SNAPSHOT_SQL, TREND_SQL, LEARNING_SPLIT_SQL, PERIOD_SNAPSHOT_SQL, PERIOD_TREND_SQL } from "@/lib/usage/queries";
+import { computeAdoptionScore, computePeriodAdoptionScore, ownedModulesFromPackage, type OwnedModules } from "@/lib/usage/score";
+import { SNAPSHOT_SQL, TREND_SQL, LEARNING_SPLIT_SQL, PERIOD_SNAPSHOT_SQL, PERIOD_TREND_SQL, PERIOD_LEARNING_SPLIT_SQL } from "@/lib/usage/queries";
 import type {
   LearningBreakdown,
   LearningBucket,
@@ -167,8 +167,9 @@ function toPeriodMetricsRow(row: Record<string, unknown>): UsagePeriodMetrics {
     sessions_created: g("sessions_created"),
     talent_assessment_enrollments: g("talent_assessment_enrollments"), talent_assessment_completed: g("talent_assessment_completed"),
     ai_assessment_enrollments: g("ai_assessment_enrollments"), ai_assessment_completed: g("ai_assessment_completed"),
-    competencies_ai_generated: g("competencies_ai_generated"),
+    competencies_created: g("competencies_created"), competencies_ai_generated: g("competencies_ai_generated"),
     enps_responses: g("enps_responses"), survey_responses: g("survey_responses"),
+    pm_cycles_configured: g("pm_cycles_configured"), pm_cycles_completed: g("pm_cycles_completed"),
   };
 }
 
@@ -301,15 +302,20 @@ export async function getClientUsage(clientId: string, opts?: { forceRefresh?: b
 // the 4-hourly cron needs to keep warm, so there's no Postgres tier here.
 const periodCache = new Map<string, { at: number; data: UsagePeriodResult }>();
 
-/** The Usage tab's timeline-filter payload: period-bounded totals + a daily
- *  active-user trend for an arbitrary [start, end) window, always fetched
- *  live from Metabase (no 5h "fresh enough" cache — a CSM picking a specific
- *  quarter expects that quarter's real numbers, not whatever happened to be
- *  cached for a different window). `start`/`end` must be "YYYY-MM-DD" from
- *  lib/metrics/arr.ts's periodBounds(). */
+/** The Usage tab's timeline-filter payload: a period-bounded snapshot — score,
+ *  activation, module usage, content split, and a daily active-user trend —
+ *  for an arbitrary [start, end) window. Always fetched live from Metabase (no
+ *  5h "fresh enough" cache — a CSM picking a specific quarter expects that
+ *  quarter's real numbers, not whatever happened to be cached for a different
+ *  window). `start`/`end` must be "YYYY-MM-DD" from lib/metrics/arr.ts's
+ *  periodBounds(). `seatBase` is the CURRENT seats-or-total-users count (seats
+ *  have no history to reconstruct, so the score's activation denominator is
+ *  "as of today" even though its numerator is period-scoped) — pass the same
+ *  value the "Current" dashboard already computed, to avoid a second
+ *  Metabase round trip just to re-read it. */
 export async function getClientUsageForPeriod(
   clientId: string,
-  range: { start: string; end: string; label: string },
+  range: { start: string; end: string; label: string; seatBase: number },
 ): Promise<UsagePeriodResult> {
   if (!DATE_RE.test(range.start) || !DATE_RE.test(range.end)) {
     return { status: "error", message: "Invalid date range." };
@@ -317,23 +323,28 @@ export async function getClientUsageForPeriod(
   const resolved = await resolveEnvironment(clientId);
   if ("error" in resolved) return resolved.error;
 
-  const cacheKey = `${resolved.environmentId}:${range.start}:${range.end}`;
+  const cacheKey = `${resolved.environmentId}:${range.start}:${range.end}:${range.seatBase}`;
   const hit = periodCache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
 
-  const mb = new MetabaseClient();
+  const [owned, mb] = [await resolveOwnedModules(clientId), new MetabaseClient()];
   try {
-    const [snapRows, trendRows] = await Promise.all([
+    const [snapRows, trendRows, learnRows] = await Promise.all([
       mb.runNativeQuery(DB_ID[resolved.region], withRange(PERIOD_SNAPSHOT_SQL, resolved.environmentId, range.start, range.end)),
       mb.runNativeQuery(DB_ID[resolved.region], withRange(PERIOD_TREND_SQL, resolved.environmentId, range.start, range.end)),
+      mb.runNativeQuery(DB_ID[resolved.region], withRange(PERIOD_LEARNING_SPLIT_SQL, resolved.environmentId, range.start, range.end)),
     ]);
+    const metrics = toPeriodMetricsRow(snapRows[0] ?? {});
+    const activeUsersTrend = trendRows.map((r) => ({ day: String(pick(r, "day") ?? "").slice(0, 10), value: num(pick(r, "value")) }));
     const data: UsagePeriodSnapshot = {
       status: "ok",
       start: range.start,
       end: range.end,
       label: range.label,
-      activeUsersTrend: trendRows.map((r) => ({ day: String(pick(r, "day") ?? "").slice(0, 10), value: num(pick(r, "value")) })),
-      metrics: toPeriodMetricsRow(snapRows[0] ?? {}),
+      activeUsersTrend,
+      metrics,
+      learning: toLearningBreakdown(learnRows),
+      score: computePeriodAdoptionScore(metrics, activeUsersTrend, range.seatBase, owned),
     };
     periodCache.set(cacheKey, { at: Date.now(), data });
     return data;

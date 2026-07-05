@@ -233,18 +233,24 @@ export function UsageTab({ clientId }: { clientId: string }) {
   const [periodKey, setPeriodKey] = useState<string | null>(null);
   const [periodState, setPeriodState] = useState<{ phase: "loading" | "done"; data?: UsagePeriodResult }>({ phase: "loading" });
 
+  // The period score's activation denominator is the CURRENT seat count (no
+  // history to reconstruct it from) — read off the already-fetched "Current"
+  // snapshot so the period fetch doesn't need a second Metabase round trip.
+  const currentSnap = state.phase === "done" && state.data?.status === "ok" ? state.data : null;
+  const seatBase = currentSnap ? (currentSnap.metrics.seats > 0 ? currentSnap.metrics.seats : currentSnap.metrics.total_users) : null;
+
   useEffect(() => {
-    if (!periodKey) return;
+    if (!periodKey || seatBase === null) return;
     let cancelled = false;
     const { start, end, label } = periodBounds(periodKey);
     setPeriodState({ phase: "loading" });
-    loadClientUsagePeriodAction(clientId, { start, end, label })
+    loadClientUsagePeriodAction(clientId, { start, end, label, seatBase })
       .then((data) => !cancelled && setPeriodState({ phase: "done", data }))
       .catch((e) => !cancelled && setPeriodState({ phase: "done", data: { status: "error", message: String(e) } }));
     return () => {
       cancelled = true;
     };
-  }, [clientId, periodKey]);
+  }, [clientId, periodKey, seatBase]);
 
   if (state.phase === "loading") return <UsageSkeleton />;
   const data = state.data!;
@@ -325,20 +331,134 @@ function UsageDashboard({
   const m = snap.metrics;
   const lb = snap.learning;
   const months = last12Months();
+  // Current-state only — seats have no history to reconstruct, so this stays
+  // "as of today" even inside period mode (see HealthBanner's activation note).
   const seatBase = m.seats > 0 ? m.seats : m.total_users;
   const utilization = pct(m.used_licenses > 0 ? m.used_licenses : m.active_users, seatBase);
   const stickiness = pct(m.wau, m.mau);
   const activePoints = fill(snap.trends, "active_users", months);
   const activeDelta = trendDelta(activePoints);
-  const ownedModuleKeys = (["develop", "perform", "engage"] as const).filter((k) => snap.score.modules[k].owned);
 
-  // Unified "Content by source" rows: company-built + Lumofy library + one row
-  // per external provider (Go1/Coursera/…). Only sources with any activity show.
-  const contentRows = [
-    { label: "Company-built", sub: "Courses your team built in the course builder", color: C.perf, items: lb.company.items, enrollments: lb.company.enrollments, completions: lb.company.completions },
-    { label: "Lumofy library", sub: "Lumofy-curated catalogue (Docebo + shared course builder)", color: C.dev, items: lb.lumofy.items, enrollments: lb.lumofy.enrollments, completions: lb.lumofy.completions },
-    ...lb.providers.map((p) => ({ label: p.provider, sub: "Global library · external marketplace", color: C.ai, items: p.items, enrollments: p.enrollments, completions: p.completions })),
+  const periodLoading = periodKey !== null && periodState?.phase === "loading";
+  const periodResult = periodKey !== null && periodState?.phase === "done" ? periodState.data : undefined;
+  const period = periodResult?.status === "ok" ? periodResult : null;
+  const periodErrorMessage = periodResult && periodResult.status !== "ok" ? periodResult.message : null;
+
+  const filterBar = (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <CardEyebrow>Timeline</CardEyebrow>
+          <SectionHint>See a snapshot of usage bounded to one week, month, quarter, or year — every section below recomputes for it, not just the totals.</SectionHint>
+        </div>
+        <UsageTimelineFilter periodKey={periodKey} onChange={onPeriodChange} />
+      </div>
+    </Card>
+  );
+
+  if (periodKey && periodLoading) {
+    return (
+      <div className="flex flex-col gap-5">
+        <HowToRead environmentName={snap.environmentName} />
+        {filterBar}
+        <Card>
+          <div className="flex items-center gap-2 py-8 text-fg-subtle">
+            <Loader2 size={15} className="animate-spin" />
+            <span className="font-body text-[13px]">Loading this period from Metabase…</span>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+  if (periodKey && periodErrorMessage) {
+    return (
+      <div className="flex flex-col gap-5">
+        <HowToRead environmentName={snap.environmentName} />
+        {filterBar}
+        <Card><p className="py-8 text-center font-body text-[13px] text-fg-subtle">{periodErrorMessage}</p></Card>
+      </div>
+    );
+  }
+
+  const p = period?.metrics ?? null;
+  const plb = period?.learning ?? null;
+  const hasPeriodActivity = p ? Object.values(p).some((v) => v > 0) : false;
+  const periodRangeLabel = period ? `${formatDate(period.start)} – ${formatDate(inclusiveEndDate(period.end))}` : "";
+
+  // Score, module ownership, content mix, engagement funnel, and AI leverage
+  // all read from the period when one's selected — only WAU/MAU/stickiness
+  // (inherently "now"-relative concepts) and current-state-only fields
+  // (seats, total users, org structure) stay on the always-current snapshot.
+  const score = period ? period.score : snap.score;
+  const ownedModuleKeys = (["develop", "perform", "engage"] as const).filter((k) => score.modules[k].owned);
+
+  const buildContentRows = (learning: LearningBreakdown) => [
+    { label: "Company-built", sub: "Courses your team built in the course builder", color: C.perf, items: learning.company.items, enrollments: learning.company.enrollments, completions: learning.company.completions },
+    { label: "Lumofy library", sub: "Lumofy-curated catalogue (Docebo + shared course builder)", color: C.dev, items: learning.lumofy.items, enrollments: learning.lumofy.enrollments, completions: learning.lumofy.completions },
+    ...learning.providers.map((pv) => ({ label: pv.provider, sub: "Global library · external marketplace", color: C.ai, items: pv.items, enrollments: pv.enrollments, completions: pv.completions })),
   ].filter((r) => r.enrollments > 0 || r.items > 0);
+  const contentRows = buildContentRows(period ? plb! : lb);
+  const contentTotals = period
+    ? { items: p!.learning_items_count, enrollments: p!.learning_enrollments, completions: p!.learning_completions }
+    : { items: m.learning_items_count, enrollments: m.learning_enrollments, completions: m.learning_completions };
+
+  const engagementGroups = period
+    ? [
+        { label: "Company", values: [plb!.company.enrollments, plb!.company.completions] as [number, number] },
+        { label: "Lumofy", values: [plb!.lumofy.enrollments, plb!.lumofy.completions] as [number, number] },
+        { label: "Global lib.", values: [plb!.global.enrollments, plb!.global.completions] as [number, number] },
+        { label: "Co. paths", values: [p!.pathway_company_enrollments, p!.pathway_company_completions] as [number, number] },
+        { label: "Lumofy paths", values: [p!.pathway_lumofy_enrollments, p!.pathway_lumofy_completions] as [number, number] },
+        { label: "Quizzes", values: [p!.quiz_enrollments, p!.quiz_completions] as [number, number] },
+        { label: "Talent assess.", values: [p!.talent_assessment_enrollments, p!.talent_assessment_completed] as [number, number] },
+        { label: "AI assess.", values: [p!.ai_assessment_enrollments, p!.ai_assessment_completed] as [number, number] },
+      ]
+    : [
+        { label: "Company", values: [lb.company.enrollments, lb.company.completions] as [number, number] },
+        { label: "Lumofy", values: [lb.lumofy.enrollments, lb.lumofy.completions] as [number, number] },
+        { label: "Global lib.", values: [lb.global.enrollments, lb.global.completions] as [number, number] },
+        { label: "Co. paths", values: [m.pathway_company_enrollments, m.pathway_company_completions] as [number, number] },
+        { label: "Lumofy paths", values: [m.pathway_lumofy_enrollments, m.pathway_lumofy_completions] as [number, number] },
+        { label: "Quizzes", values: [m.quiz_enrollments, m.quiz_completions] as [number, number] },
+        { label: "Talent assess.", values: [m.talent_assessment_enrollments, m.talent_assessment_completed] as [number, number] },
+        { label: "AI assess.", values: [m.ai_assessment_enrollments, m.ai_assessment_completed] as [number, number] },
+      ];
+  const engagementHasAny = engagementGroups.some((g) => g.values[0] > 0 || g.values[1] > 0);
+
+  const aiLeverage = period
+    ? { total: p!.competencies_created, aiGenerated: p!.competencies_ai_generated, extraLabel: "AI generation runs logged" }
+    : { total: m.competencies_total, aiGenerated: m.competencies_ai_generated, extraLabel: `${formatNumber(m.ai_generation_runs)} AI generation runs logged` };
+
+  const developRows: ModuleRow[] = period
+    ? [
+        ["Courses (learning)", p!.learning_enrollments, p!.learning_completions],
+        ["Pathways", p!.pathway_enrollments, p!.pathway_completions],
+        ["Quizzes", p!.quiz_enrollments, p!.quiz_completions],
+        ["Talent assessments", p!.talent_assessment_enrollments, p!.talent_assessment_completed],
+        ["AI assessments", p!.ai_assessment_enrollments, p!.ai_assessment_completed],
+      ]
+    : [
+        ["Courses (learning)", m.learning_enrollments, m.learning_completions],
+        ["Pathways", m.pathway_enrollments, m.pathway_completions],
+        ["Quizzes", m.quiz_enrollments, m.quiz_completions],
+        ["Talent assessments", m.talent_assessment_enrollments, m.talent_assessment_completed],
+        ["AI assessments", m.ai_assessment_enrollments, m.ai_assessment_completed],
+      ];
+  const developExtras: [string, number][] = period
+    ? [["Distinct courses used", p!.learning_items_count], ["Distinct pathways used", p!.pathways_count], ["Live sessions", p!.sessions_created], ["Competencies touched", p!.competencies_created]]
+    : [["Distinct courses used", m.learning_items_count], ["Distinct pathways used", m.pathways_count], ["Live sessions", m.sessions_created], ["Competencies built", m.competencies_total]];
+  const performRows: ModuleRow[] = period
+    ? [["PM cycles", p!.pm_cycles_configured, p!.pm_cycles_completed, "completed"]]
+    : [["PM cycles", m.pm_cycles_configured, m.pm_cycles_completed, "completed"]];
+  const performExtras: [string, number][] = period
+    ? [["Competencies", p!.competencies_created], ["AI-generated", p!.competencies_ai_generated]]
+    : [["Competencies", m.competencies_total], ["AI-generated", m.competencies_ai_generated]];
+  // Period mode only has response counts (no schema-verified date on the
+  // cycle-to-user junction table), not the cycle+response pair current mode
+  // shows — ModuleRow's secondary is optional for exactly this case.
+  const engageRows: ModuleRow[] = period
+    ? [["eNPS responses", p!.enps_responses], ["Custom survey responses", p!.survey_responses]]
+    : [["eNPS surveys", m.enps_cycles, m.enps_responses, "responses"], ["Custom surveys", m.survey_cycles, m.survey_responses, "responses"]];
 
   // ── data-driven insights (dynamic, not static copy) ────────────────────
   const mauPctSeats = pct(m.mau, seatBase);
@@ -362,276 +482,289 @@ function UsageDashboard({
     return { dir: "up", text: <><span className="font-semibold text-fg">{formatNumber(m.mau)}</span> of {formatNumber(seatBase)} seats active this month (<span className="font-semibold text-fg">{mauPctSeats}%</span>), {formatNumber(m.wau)} this week — healthy activation with room to grow toward full seat coverage.</> };
   })();
 
+  const periodActiveDays = period ? period.activeUsersTrend.filter((d) => d.value > 0).length : 0;
+  const periodPeakDay = period ? Math.max(0, ...period.activeUsersTrend.map((d) => d.value)) : 0;
+  const periodActivationPct = period ? pct(p!.active_users, seatBase) : 0;
+
   return (
     <div className="flex flex-col gap-5">
       <HowToRead environmentName={snap.environmentName} />
 
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <CardEyebrow>Timeline</CardEyebrow>
-            <SectionHint>See a snapshot of usage bounded to one week, month, quarter, or year, instead of the always-current numbers below.</SectionHint>
+      {filterBar}
+
+      <HealthBanner score={score} environmentName={snap.environmentName} periodLabel={period?.label ?? null} onRefresh={onRefresh} />
+
+      {period && !hasPeriodActivity ? (
+        <Card>
+          <div className="flex flex-col items-center gap-2 py-10 text-center">
+            <span className="grid size-11 place-items-center rounded-full bg-bg-muted text-fg-subtle">
+              <Activity size={20} strokeWidth={1.75} />
+            </span>
+            <p className="font-body text-sm font-semibold text-fg">No data for this period</p>
+            <p className="caption max-w-md leading-relaxed">No usage was recorded between {periodRangeLabel}. Try a different period, or switch back to Current.</p>
           </div>
-          <UsageTimelineFilter periodKey={periodKey} onChange={onPeriodChange} />
-        </div>
-        {periodKey && periodState && <UsageTimelinePanel periodState={periodState} />}
-      </Card>
+        </Card>
+      ) : (
+        <>
+          {/* Activation strip */}
+          {period ? (
+            <Card>
+              <CardEyebrow>Activation · {period.label}</CardEyebrow>
+              <SectionHint>
+                <span className="font-semibold text-fg-muted">Active users</span> = distinct people who logged in during {period.label} ({periodRangeLabel}), out of the account&rsquo;s current seats.
+              </SectionHint>
+              <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4 lg:grid-cols-5">
+                <Kpi label="Active users" value={formatNumber(p!.active_users)} sub={`${periodActivationPct}% of seats`} spark={period.activeUsersTrend.map((d) => d.value)} tip="Distinct users who logged in during this period, out of the account's current seats." />
+                <Kpi label="Days with activity" value={formatNumber(periodActiveDays)} sub={`of ${formatNumber(period.activeUsersTrend.length)} days`} tip="How many days in this period had at least one login." />
+                <Kpi label="Peak day" value={formatNumber(periodPeakDay)} sub="highest single day" tip="The most active single day within this period." />
+                <Kpi label="Total users" value={formatNumber(m.total_users)} sub="current roster" tip="All user accounts provisioned on the platform today — a current fact, not scoped to this period." />
+                <div className="flex flex-col items-center justify-center">
+                  <Gauge value={periodActivationPct} label="Seat coverage" color={periodActivationPct > 100 ? "var(--color-nova)" : "var(--color-sirius)"} />
+                  <span className="font-body text-[11px] text-fg-subtle">{formatNumber(p!.active_users)} / {formatNumber(seatBase)} seats</span>
+                </div>
+              </div>
+              <Insight dir={p!.active_users > 0 ? "up" : "down"}>
+                <span className="font-semibold text-fg">{formatNumber(p!.active_users)}</span> of {formatNumber(seatBase)} seats ({periodActivationPct}%) were active during {period.label}, across {formatNumber(periodActiveDays)} of {formatNumber(period.activeUsersTrend.length)} days.
+              </Insight>
+            </Card>
+          ) : (
+            <Card>
+              <CardEyebrow>Activation · who&rsquo;s actually using it</CardEyebrow>
+              <SectionHint>
+                <span className="font-semibold text-fg-muted">WAU</span> = distinct people who logged in the last <span className="font-semibold text-fg-muted">7 days</span>.{" "}
+                <span className="font-semibold text-fg-muted">MAU</span> = distinct people who logged in the last <span className="font-semibold text-fg-muted">30 days</span>.{" "}
+                <span className="font-semibold text-fg-muted">Stickiness = WAU ÷ MAU</span> — of this month&rsquo;s users, how many came back this week (a habit vs a one-off visit).
+              </SectionHint>
+              <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4 lg:grid-cols-5">
+                <Kpi label="Weekly active (WAU)" value={formatNumber(m.wau)} sub={`${pct(m.wau, seatBase)}% of seats`} spark={fill(snap.trends, "active_users", months).map((pt) => pt.value)} tip="Distinct users who logged in during the last 7 days, out of the account's seats." />
+                <Kpi label="Monthly active (MAU)" value={formatNumber(m.mau)} sub={`${pct(m.mau, seatBase)}% of seats`} spark={fill(snap.trends, "active_users", months).map((pt) => pt.value)} tip="Distinct users who logged in during the last 30 days, out of the account's seats." />
+                <Kpi label="Total users" value={formatNumber(m.total_users)} sub={`${formatNumber(m.active_users)} active`} tip="All user accounts provisioned on the platform, however long ago they were added." />
+                <Kpi label="Stickiness" value={`${stickiness}%`} sub={`${formatNumber(m.wau)} WAU ÷ ${formatNumber(m.mau)} MAU`} tip="WAU ÷ MAU. High (>30%) = a weekly habit. Low (<15%) = people log in about once a month and leave." />
+                <div className="flex flex-col items-center justify-center">
+                  <Gauge value={utilization} label="Seat utilization" color={utilization > 100 ? "var(--color-nova)" : "var(--color-sirius)"} />
+                  <span className="font-body text-[11px] text-fg-subtle">{formatNumber(m.used_licenses || m.active_users)} / {formatNumber(m.seats)} seats</span>
+                </div>
+              </div>
+              <Insight dir={activationInsight.dir}>{activationInsight.text}</Insight>
+            </Card>
+          )}
 
-      <HealthBanner snap={snap} onRefresh={onRefresh} />
+          {/* Active users trend */}
+          {period ? (
+            <Card>
+              <div className="mb-1 flex items-center justify-between">
+                <CardEyebrow>Active users · {period.label}</CardEyebrow>
+                <span className="flex items-center gap-1.5 font-body text-[11.5px] text-fg-subtle"><Activity size={13} /> daily logins</span>
+              </div>
+              <SectionHint>Distinct users logging in each day within {period.label} ({periodRangeLabel}).</SectionHint>
+              <div className="mt-3 overflow-x-auto">
+                <Sparkline data={period.activeUsersTrend.map((d) => d.value)} width={680} height={140} />
+              </div>
+            </Card>
+          ) : (
+            <Card>
+              <div className="mb-1 flex items-center justify-between">
+                <CardEyebrow>Active users · last 12 months</CardEyebrow>
+                <span className="flex items-center gap-1.5 font-body text-[11.5px] text-fg-subtle"><Activity size={13} /> monthly logins</span>
+              </div>
+              <SectionHint>Distinct users logging in each month over the past year. The direction matters more than any single month — hover any point for the exact count.</SectionHint>
+              <div className="mt-3">
+                <LineChart months={months} series={[{ label: "Monthly active users", color: C.dev, points: activePoints }]} />
+              </div>
+              {activeDelta && (
+                <Insight dir={activeDelta.dir}>
+                  {activeDelta.dir === "up" && <>Logins are climbing — the last 3 months average <span className="font-semibold text-fg">{activeDelta.pctChange}%</span> above the prior 3. Momentum is building.</>}
+                  {activeDelta.dir === "down" && <>Logins are slipping — down <span className="font-semibold text-fg">{Math.abs(activeDelta.pctChange)}%</span> vs the prior quarter. Worth a proactive check-in before it compounds.</>}
+                  {activeDelta.dir === "flat" && <>Logins are holding steady over the last quarter (<span className="font-semibold text-fg">{activeDelta.pctChange >= 0 ? "+" : ""}{activeDelta.pctChange}%</span>) — stable, but no growth to lean on yet.</>}
+                </Insight>
+              )}
+            </Card>
+          )}
 
-      {/* Activation strip */}
-      <Card>
-        <CardEyebrow>Activation · who&rsquo;s actually using it</CardEyebrow>
-        <SectionHint>
-          <span className="font-semibold text-fg-muted">WAU</span> = distinct people who logged in the last <span className="font-semibold text-fg-muted">7 days</span>.{" "}
-          <span className="font-semibold text-fg-muted">MAU</span> = distinct people who logged in the last <span className="font-semibold text-fg-muted">30 days</span>.{" "}
-          <span className="font-semibold text-fg-muted">Stickiness = WAU ÷ MAU</span> — of this month&rsquo;s users, how many came back this week (a habit vs a one-off visit).
-        </SectionHint>
-        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4 lg:grid-cols-5">
-          <Kpi label="Weekly active (WAU)" value={formatNumber(m.wau)} sub={`${pct(m.wau, seatBase)}% of seats`} spark={fill(snap.trends, "active_users", months).map((p) => p.value)} tip="Distinct users who logged in during the last 7 days, out of the account's seats." />
-          <Kpi label="Monthly active (MAU)" value={formatNumber(m.mau)} sub={`${pct(m.mau, seatBase)}% of seats`} spark={fill(snap.trends, "active_users", months).map((p) => p.value)} tip="Distinct users who logged in during the last 30 days, out of the account's seats." />
-          <Kpi label="Total users" value={formatNumber(m.total_users)} sub={`${formatNumber(m.active_users)} active`} tip="All user accounts provisioned on the platform, however long ago they were added." />
-          <Kpi label="Stickiness" value={`${stickiness}%`} sub={`${formatNumber(m.wau)} WAU ÷ ${formatNumber(m.mau)} MAU`} tip="WAU ÷ MAU. High (>30%) = a weekly habit. Low (<15%) = people log in about once a month and leave." />
-          <div className="flex flex-col items-center justify-center">
-            <Gauge value={utilization} label="Seat utilization" color={utilization > 100 ? "var(--color-nova)" : "var(--color-sirius)"} />
-            <span className="font-body text-[11px] text-fg-subtle">{formatNumber(m.used_licenses || m.active_users)} / {formatNumber(m.seats)} seats</span>
-          </div>
-        </div>
-        <Insight dir={activationInsight.dir}>{activationInsight.text}</Insight>
-      </Card>
-
-      {/* Active users trend */}
-      <Card>
-        <div className="mb-1 flex items-center justify-between">
-          <CardEyebrow>Active users · last 12 months</CardEyebrow>
-          <span className="flex items-center gap-1.5 font-body text-[11.5px] text-fg-subtle"><Activity size={13} /> monthly logins</span>
-        </div>
-        <SectionHint>Distinct users logging in each month over the past year. The direction matters more than any single month — hover any point for the exact count.</SectionHint>
-        <div className="mt-3">
-          <LineChart months={months} series={[{ label: "Monthly active users", color: C.dev, points: activePoints }]} />
-        </div>
-        {activeDelta && (
-          <Insight dir={activeDelta.dir}>
-            {activeDelta.dir === "up" && <>Logins are climbing — the last 3 months average <span className="font-semibold text-fg">{activeDelta.pctChange}%</span> above the prior 3. Momentum is building.</>}
-            {activeDelta.dir === "down" && <>Logins are slipping — down <span className="font-semibold text-fg">{Math.abs(activeDelta.pctChange)}%</span> vs the prior quarter. Worth a proactive check-in before it compounds.</>}
-            {activeDelta.dir === "flat" && <>Logins are holding steady over the last quarter (<span className="font-semibold text-fg">{activeDelta.pctChange >= 0 ? "+" : ""}{activeDelta.pctChange}%</span>) — stable, but no growth to lean on yet.</>}
-          </Insight>
-        )}
-      </Card>
-
-      {/* Modules — only the ones this account has in its plan (Module property) */}
-      <div className="flex flex-col gap-3">
-        <div>
-          <CardEyebrow>Modules in plan</CardEyebrow>
-          <SectionHint>
-            Only the modules this account actually has (from its <span className="font-semibold text-fg-muted">Module</span> field on the deal).{" "}
-            <span className="font-semibold text-fg-muted">Active</span> = real usage; <span className="font-semibold text-fg-muted">Owned · not used</span> = they have it but haven&rsquo;t started —
-            the clearest enablement target. The Competency framework is shared, so it counts under whichever of Develop/Perform they have.
-          </SectionHint>
-        </div>
-        {ownedModuleKeys.length === 0 ? (
-          <Card><p className="py-4 text-center font-body text-[13px] text-fg-subtle">No modules set for this account — add them on the deal&rsquo;s <span className="font-semibold text-fg-muted">Module</span> field to track adoption.</p></Card>
-        ) : (
-          <div className="flex flex-col gap-5">
-            {snap.score.modules.develop.owned && (
-              <ModuleCard
-                icon={GraduationCap}
-                title="Develop"
-                status={moduleStatus(snap.score.modules.develop)}
-                color={C.dev}
-                wide
-                rowsCaption="Each row: people enrolled · of those, how many finished."
-                rows={[
-                  ["Courses (learning)", m.learning_enrollments, m.learning_completions],
-                  ["Pathways", m.pathway_enrollments, m.pathway_completions],
-                  ["Quizzes", m.quiz_enrollments, m.quiz_completions],
-                  ["Talent assessments", m.talent_assessment_enrollments, m.talent_assessment_completed],
-                  ["AI assessments", m.ai_assessment_enrollments, m.ai_assessment_completed],
-                ]}
-                extras={[
-                  ["Distinct courses used", m.learning_items_count],
-                  ["Distinct pathways used", m.pathways_count],
-                  ["Live sessions", m.sessions_created],
-                  ["Competencies built", m.competencies_total],
-                ]}
-              />
-            )}
-            {(snap.score.modules.perform.owned || snap.score.modules.engage.owned) && (
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                {snap.score.modules.perform.owned && (
+          {/* Modules — only the ones this account has in its plan (Module property) */}
+          <div className="flex flex-col gap-3">
+            <div>
+              <CardEyebrow>Modules in plan{period && ` · ${period.label}`}</CardEyebrow>
+              <SectionHint>
+                Only the modules this account actually has (from its <span className="font-semibold text-fg-muted">Module</span> field on the deal).{" "}
+                <span className="font-semibold text-fg-muted">Active</span> = {period ? "used during this period" : "real usage"}; <span className="font-semibold text-fg-muted">Owned · not used</span> = they have it but haven&rsquo;t started{period ? " in this window" : ""} —
+                the clearest enablement target. The Competency framework is shared, so it counts under whichever of Develop/Perform they have.
+              </SectionHint>
+            </div>
+            {ownedModuleKeys.length === 0 ? (
+              <Card><p className="py-4 text-center font-body text-[13px] text-fg-subtle">No modules set for this account — add them on the deal&rsquo;s <span className="font-semibold text-fg-muted">Module</span> field to track adoption.</p></Card>
+            ) : (
+              <div className="flex flex-col gap-5">
+                {score.modules.develop.owned && (
                   <ModuleCard
-                    icon={BarChart3}
-                    title="Perform"
-                    status={moduleStatus(snap.score.modules.perform)}
-                    color={C.perf}
-                    rows={[["PM cycles", m.pm_cycles_configured, m.pm_cycles_completed, "completed"]]}
-                    extras={[["Competencies", m.competencies_total], ["AI-generated", m.competencies_ai_generated]]}
+                    icon={GraduationCap}
+                    title="Develop"
+                    status={moduleStatus(score.modules.develop)}
+                    color={C.dev}
+                    wide
+                    rowsCaption="Each row: people enrolled · of those, how many finished."
+                    rows={developRows}
+                    extras={developExtras}
                   />
                 )}
-                {snap.score.modules.engage.owned && (
-                  <ModuleCard
-                    icon={MessagesSquare}
-                    title="Engage"
-                    status={moduleStatus(snap.score.modules.engage)}
-                    color={C.talent}
-                    showBars={false}
-                    rows={[
-                      ["eNPS surveys", m.enps_cycles, m.enps_responses, "responses"],
-                      ["Custom surveys", m.survey_cycles, m.survey_responses, "responses"],
-                    ]}
-                  />
+                {(score.modules.perform.owned || score.modules.engage.owned) && (
+                  <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                    {score.modules.perform.owned && (
+                      <ModuleCard icon={BarChart3} title="Perform" status={moduleStatus(score.modules.perform)} color={C.perf} rows={performRows} extras={performExtras} />
+                    )}
+                    {score.modules.engage.owned && (
+                      <ModuleCard icon={MessagesSquare} title="Engage" status={moduleStatus(score.modules.engage)} color={C.talent} showBars={false} rows={engageRows} />
+                    )}
+                  </div>
                 )}
               </div>
             )}
           </div>
-        )}
-      </div>
 
-      {/* Content by source — one clear table across all 3 content categories */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <Card>
-          <CardEyebrow>Content mix</CardEyebrow>
-          <SectionHint>How the {formatNumber(m.learning_enrollments)} course enrollments split across your three content sources.</SectionHint>
-          <div className="mt-4">
-            <Donut
-              size={132}
-              centerLabel={formatNumber(m.learning_enrollments)}
-              centerSub="enrollments"
-              segments={[
-                { label: "Company-built", value: lb.company.enrollments, color: C.perf },
-                { label: "Lumofy library", value: lb.lumofy.enrollments, color: C.dev },
-                { label: "Global library", value: lb.global.enrollments, color: C.ai },
-              ]}
-            />
+          {/* Content by source — one clear table across all 3 content categories */}
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            <Card>
+              <CardEyebrow>Content mix{period && ` · ${period.label}`}</CardEyebrow>
+              <SectionHint>How the {formatNumber(contentTotals.enrollments)} course enrollments split across your three content sources.</SectionHint>
+              <div className="mt-4">
+                {contentTotals.enrollments > 0 ? (
+                  <Donut
+                    size={132}
+                    centerLabel={formatNumber(contentTotals.enrollments)}
+                    centerSub="enrollments"
+                    segments={[
+                      { label: "Company-built", value: period ? plb!.company.enrollments : lb.company.enrollments, color: C.perf },
+                      { label: "Lumofy library", value: period ? plb!.lumofy.enrollments : lb.lumofy.enrollments, color: C.dev },
+                      { label: "Global library", value: period ? plb!.global.enrollments : lb.global.enrollments, color: C.ai },
+                    ]}
+                  />
+                ) : (
+                  <p className="py-8 text-center font-body text-[13px] text-fg-subtle">{period ? "No data for this period." : "No enrollments yet."}</p>
+                )}
+              </div>
+            </Card>
+            <Card className="lg:col-span-2">
+              <CardEyebrow>Content by source{period && ` · ${period.label}`}</CardEyebrow>
+              <SectionHint>
+                <span className="font-semibold text-fg-muted">Courses</span> = how many distinct titles they&rsquo;ve touched ·{" "}
+                <span className="font-semibold text-fg-muted">Enrolled</span> = total sign-ups (one learner can take many courses) ·{" "}
+                <span className="font-semibold text-fg-muted">Completed</span> = of those sign-ups, how many finished.
+              </SectionHint>
+              {contentRows.length > 0 ? (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b border-border-subtle">
+                        <th className="pb-2 pr-4 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Source</th>
+                        <th className="pb-2 pr-4 text-right font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Courses</th>
+                        <th className="pb-2 pr-4 text-right font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Enrolled</th>
+                        <th className="pb-2 pr-4 text-right font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Completed</th>
+                        <th className="pb-2 text-right font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Completion</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {contentRows.map((r) => (
+                        <tr key={r.label} className="border-b border-border-subtle last:border-0">
+                          <td className="py-2 pr-4 font-body text-[13px]">
+                            <span className="inline-flex items-center gap-2">
+                              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: r.color }} />
+                              <span className="font-semibold text-fg">{r.label}</span>
+                            </span>
+                            <span className="mt-0.5 block pl-4 font-body text-[11px] text-fg-subtle">{r.sub}</span>
+                          </td>
+                          <td className="tabular py-2 pr-4 text-right font-body text-[13px] text-fg">{formatNumber(r.items)}</td>
+                          <td className="tabular py-2 pr-4 text-right font-body text-[13px] text-fg">{formatNumber(r.enrollments)}</td>
+                          <td className="tabular py-2 pr-4 text-right font-body text-[13px] text-fg-muted">{formatNumber(r.completions)}</td>
+                          <td className="tabular py-2 text-right font-body text-[13px] text-fg-muted">{pct(r.completions, r.enrollments)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-border">
+                        <td className="py-2 pr-4 font-body text-[13px] font-semibold text-fg">All sources</td>
+                        <td className="tabular py-2 pr-4 text-right font-body text-[13px] font-semibold text-fg">{formatNumber(contentTotals.items)}</td>
+                        <td className="tabular py-2 pr-4 text-right font-body text-[13px] font-semibold text-fg">{formatNumber(contentTotals.enrollments)}</td>
+                        <td className="tabular py-2 pr-4 text-right font-body text-[13px] font-semibold text-fg">{formatNumber(contentTotals.completions)}</td>
+                        <td className="tabular py-2 text-right font-body text-[13px] font-semibold text-fg">{pct(contentTotals.completions, contentTotals.enrollments)}%</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ) : (
+                <p className="py-8 text-center font-body text-[13px] text-fg-subtle">{period ? "No data for this period." : "No enrollments yet."}</p>
+              )}
+            </Card>
           </div>
-        </Card>
-        <Card className="lg:col-span-2">
-          <CardEyebrow>Content by source</CardEyebrow>
-          <SectionHint>
-            <span className="font-semibold text-fg-muted">Courses</span> = how many distinct titles they&rsquo;ve touched ·{" "}
-            <span className="font-semibold text-fg-muted">Enrolled</span> = total sign-ups (one learner can take many courses) ·{" "}
-            <span className="font-semibold text-fg-muted">Completed</span> = of those sign-ups, how many finished.
-          </SectionHint>
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-border-subtle">
-                  <th className="pb-2 pr-4 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Source</th>
-                  <th className="pb-2 pr-4 text-right font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Courses</th>
-                  <th className="pb-2 pr-4 text-right font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Enrolled</th>
-                  <th className="pb-2 pr-4 text-right font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Completed</th>
-                  <th className="pb-2 text-right font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Completion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {contentRows.map((r) => (
-                  <tr key={r.label} className="border-b border-border-subtle last:border-0">
-                    <td className="py-2 pr-4 font-body text-[13px]">
-                      <span className="inline-flex items-center gap-2">
-                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: r.color }} />
-                        <span className="font-semibold text-fg">{r.label}</span>
-                      </span>
-                      <span className="mt-0.5 block pl-4 font-body text-[11px] text-fg-subtle">{r.sub}</span>
-                    </td>
-                    <td className="tabular py-2 pr-4 text-right font-body text-[13px] text-fg">{formatNumber(r.items)}</td>
-                    <td className="tabular py-2 pr-4 text-right font-body text-[13px] text-fg">{formatNumber(r.enrollments)}</td>
-                    <td className="tabular py-2 pr-4 text-right font-body text-[13px] text-fg-muted">{formatNumber(r.completions)}</td>
-                    <td className="tabular py-2 text-right font-body text-[13px] text-fg-muted">{pct(r.completions, r.enrollments)}%</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-border">
-                  <td className="py-2 pr-4 font-body text-[13px] font-semibold text-fg">All sources</td>
-                  <td className="tabular py-2 pr-4 text-right font-body text-[13px] font-semibold text-fg">{formatNumber(m.learning_items_count)}</td>
-                  <td className="tabular py-2 pr-4 text-right font-body text-[13px] font-semibold text-fg">{formatNumber(m.learning_enrollments)}</td>
-                  <td className="tabular py-2 pr-4 text-right font-body text-[13px] font-semibold text-fg">{formatNumber(m.learning_completions)}</td>
-                  <td className="tabular py-2 text-right font-body text-[13px] font-semibold text-fg">{pct(m.learning_completions, m.learning_enrollments)}%</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </Card>
-      </div>
 
-      {/* Engagement funnel */}
-      {(m.learning_enrollments > 0 || m.pathway_enrollments > 0 || m.quiz_enrollments > 0) && (
-        <Card>
-          <CardEyebrow>Engagement funnel · enrolled → completed</CardEyebrow>
-          <SectionHint>Each activity shows how many people <span className="font-semibold text-fg-muted">enrolled</span> vs actually <span className="font-semibold text-fg-muted">completed</span> it. The taller the gap between the two bars, the bigger the drop-off — a signal to nudge learners or simplify the content.</SectionHint>
-          <div className="mt-3">
-            <GroupedBars
-              series={[{ label: "Enrolled", color: C.dev }, { label: "Completed", color: C.perf }]}
-              groups={[
-                { label: "Company", values: [lb.company.enrollments, lb.company.completions] },
-                { label: "Lumofy", values: [lb.lumofy.enrollments, lb.lumofy.completions] },
-                { label: "Global lib.", values: [lb.global.enrollments, lb.global.completions] },
-                { label: "Co. paths", values: [m.pathway_company_enrollments, m.pathway_company_completions] },
-                { label: "Lumofy paths", values: [m.pathway_lumofy_enrollments, m.pathway_lumofy_completions] },
-                { label: "Quizzes", values: [m.quiz_enrollments, m.quiz_completions] },
-                { label: "Talent assess.", values: [m.talent_assessment_enrollments, m.talent_assessment_completed] },
-                { label: "AI assess.", values: [m.ai_assessment_enrollments, m.ai_assessment_completed] },
-              ]}
-            />
-          </div>
-        </Card>
+          {/* Engagement funnel */}
+          {engagementHasAny && (
+            <Card>
+              <CardEyebrow>Engagement funnel · enrolled → completed{period && ` · ${period.label}`}</CardEyebrow>
+              <SectionHint>Each activity shows how many people <span className="font-semibold text-fg-muted">enrolled</span> vs actually <span className="font-semibold text-fg-muted">completed</span> it. The taller the gap between the two bars, the bigger the drop-off — a signal to nudge learners or simplify the content.</SectionHint>
+              <div className="mt-3">
+                <GroupedBars series={[{ label: "Enrolled", color: C.dev }, { label: "Completed", color: C.perf }]} groups={engagementGroups} />
+              </div>
+            </Card>
+          )}
+
+          {/* AI leverage */}
+          <Card>
+            <CardEyebrow>AI leverage · competencies{period && ` · ${period.label}`}</CardEyebrow>
+            <SectionHint>Of the competencies {period ? "touched in this period" : "in their framework"}, the share built with Lumofy&rsquo;s AI vs entered by hand. A high AI share means they leaned on the platform to stand the framework up fast.</SectionHint>
+            <div className="mt-4">
+              {aiLeverage.total > 0 ? (
+                <Donut
+                  size={132}
+                  centerLabel={`${pct(aiLeverage.aiGenerated, aiLeverage.total)}%`}
+                  centerSub="AI-built"
+                  segments={[
+                    { label: "AI-generated", value: aiLeverage.aiGenerated, color: C.ai },
+                    { label: "Manual", value: Math.max(0, aiLeverage.total - aiLeverage.aiGenerated), color: C.muted },
+                  ]}
+                />
+              ) : (
+                <p className="py-8 text-center font-body text-[13px] text-fg-subtle">{period ? "No data for this period." : "No competencies built yet."}</p>
+              )}
+            </div>
+            <p className="caption mt-3 leading-relaxed">
+              {formatNumber(aiLeverage.total)} competencies {period ? "touched" : "on the platform"}, {formatNumber(aiLeverage.aiGenerated)} generated by AI. {aiLeverage.extraLabel}.
+            </p>
+          </Card>
+        </>
       )}
 
-      {/* AI leverage */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Card>
-          <CardEyebrow>AI leverage · competencies</CardEyebrow>
-          <SectionHint>Of all competencies in their framework, the share built with Lumofy&rsquo;s AI vs entered by hand. A high AI share means they leaned on the platform to stand the framework up fast.</SectionHint>
-          <div className="mt-4">
-            <Donut
-              size={132}
-              centerLabel={`${pct(m.competencies_ai_generated, m.competencies_total)}%`}
-              centerSub="AI-built"
-              segments={[
-                { label: "AI-generated", value: m.competencies_ai_generated, color: C.ai },
-                { label: "Manual", value: Math.max(0, m.competencies_total - m.competencies_ai_generated), color: C.muted },
-              ]}
-            />
-          </div>
-          <p className="caption mt-3 leading-relaxed">
-            {formatNumber(m.competencies_total)} competencies on the platform, {formatNumber(m.competencies_ai_generated)} generated by AI. {formatNumber(m.ai_generation_runs)} AI generation runs logged.
-          </p>
-        </Card>
-        <Card>
-          <CardEyebrow>Setup checklist</CardEyebrow>
-          <SectionHint>The onboarding milestones for this account&rsquo;s modules, in order. A green check means that step has real data; grey means it&rsquo;s still pending — the first grey item is usually the next thing to drive.</SectionHint>
-          <ul className="mt-3 flex flex-col gap-2.5">
-            {/* Foundational — every account */}
-            <Check ok={m.total_users > 0} label={`Users provisioned (${formatNumber(m.total_users)})`} />
-            <Check ok={m.job_roles > 0 || m.departments > 0} label={`Org structure (${formatNumber(m.job_roles)} roles · ${formatNumber(m.departments)} departments)`} />
-            <Check ok={m.mau > 0} label="Users logging in" />
-            {/* Competency framework — shared between Develop & Perform */}
-            {(snap.score.modules.develop.owned || snap.score.modules.perform.owned) && (
-              <Check ok={m.competencies_total > 0} label={`Competency framework (${formatNumber(m.competencies_total)})`} />
-            )}
-            {/* Develop-only milestones */}
-            {snap.score.modules.develop.owned && (
-              <>
-                <Check ok={m.learning_items_count > 0 || m.pathways_count > 0} label={`Content published${m.learning_items_count > 0 ? ` (${formatNumber(m.learning_items_count)} courses)` : ""}`} />
-                <Check ok={m.learning_enrollments > 0 || m.pathway_enrollments > 0} label="Learners enrolled" />
-                <Check ok={m.talent_assessment_enrollments > 0 || m.ai_assessment_enrollments > 0} label="Assessments running" />
-              </>
-            )}
-            {/* Perform-only */}
-            {snap.score.modules.perform.owned && (
-              <Check ok={m.pm_cycles_configured > 0} label="Performance cycles configured" />
-            )}
-            {/* Engage-only */}
-            {snap.score.modules.engage.owned && (
-              <Check ok={m.enps_cycles > 0 || m.survey_cycles > 0} label="Surveys running" />
-            )}
-          </ul>
-        </Card>
-      </div>
+      {/* Setup checklist — lifetime onboarding milestones, not period-scoped */}
+      <Card>
+        <CardEyebrow>Setup checklist</CardEyebrow>
+        <SectionHint>
+          The onboarding milestones for this account&rsquo;s modules, in order — reflects the account&rsquo;s current state{period && ", not the selected period"}. A green check means that step has real data; grey means it&rsquo;s still pending.
+        </SectionHint>
+        <ul className="mt-3 flex flex-col gap-2.5">
+          <Check ok={m.total_users > 0} label={`Users provisioned (${formatNumber(m.total_users)})`} />
+          <Check ok={m.job_roles > 0 || m.departments > 0} label={`Org structure (${formatNumber(m.job_roles)} roles · ${formatNumber(m.departments)} departments)`} />
+          <Check ok={m.mau > 0} label="Users logging in" />
+          {(snap.score.modules.develop.owned || snap.score.modules.perform.owned) && (
+            <Check ok={m.competencies_total > 0} label={`Competency framework (${formatNumber(m.competencies_total)})`} />
+          )}
+          {snap.score.modules.develop.owned && (
+            <>
+              <Check ok={m.learning_items_count > 0 || m.pathways_count > 0} label={`Content published${m.learning_items_count > 0 ? ` (${formatNumber(m.learning_items_count)} courses)` : ""}`} />
+              <Check ok={m.learning_enrollments > 0 || m.pathway_enrollments > 0} label="Learners enrolled" />
+              <Check ok={m.talent_assessment_enrollments > 0 || m.ai_assessment_enrollments > 0} label="Assessments running" />
+            </>
+          )}
+          {snap.score.modules.perform.owned && (
+            <Check ok={m.pm_cycles_configured > 0} label="Performance cycles configured" />
+          )}
+          {snap.score.modules.engage.owned && (
+            <Check ok={m.enps_cycles > 0 || m.survey_cycles > 0} label="Surveys running" />
+          )}
+        </ul>
+      </Card>
 
       {/* Detail table */}
       <Card>
-        <CardEyebrow>All metrics</CardEyebrow>
+        <CardEyebrow>All metrics{period && ` · ${period.label}`}</CardEyebrow>
         <SectionHint>Every raw number behind the charts above, grouped by module — the reference for when someone asks &ldquo;where did that figure come from?&rdquo;</SectionHint>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full border-collapse">
@@ -643,7 +776,7 @@ function UsageDashboard({
               </tr>
             </thead>
             <tbody>
-              {detailRows(m, lb).map((r) => (
+              {(period ? periodDetailRows(p!, plb!) : detailRows(m, lb)).map((r) => (
                 <tr key={r.label} className="border-b border-border-subtle last:border-0">
                   <td className="py-2 pr-4 font-body text-[13px] text-fg">{r.label}</td>
                   <td className="py-2 pr-4 font-body text-[12px] text-fg-subtle">{r.module}</td>
@@ -656,7 +789,8 @@ function UsageDashboard({
       </Card>
 
       <p className="px-1 font-body text-[11px] text-fg-subtle">
-        Source: Metabase · {snap.region.toUpperCase()} · environment {snap.environmentName ?? snap.environmentId.slice(0, 8)} · as of {new Date(snap.fetchedAt).toLocaleString()}
+        Source: Metabase · {snap.region.toUpperCase()} · environment {snap.environmentName ?? snap.environmentId.slice(0, 8)} ·{" "}
+        {period ? `period ${period.label} (${periodRangeLabel})` : `as of ${new Date(snap.fetchedAt).toLocaleString()}`}
       </p>
     </div>
   );
@@ -711,81 +845,20 @@ function inclusiveEndDate(endExclusive: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-const PERIOD_ROWS: { label: string; value: (m: UsagePeriodMetrics) => number }[] = [
-  { label: "Course enrollments", value: (m) => m.learning_enrollments },
-  { label: "Course completions", value: (m) => m.learning_completions },
-  { label: "Distinct courses touched", value: (m) => m.learning_items_count },
-  { label: "Pathway enrollments", value: (m) => m.pathway_enrollments },
-  { label: "Pathway completions", value: (m) => m.pathway_completions },
-  { label: "Distinct pathways touched", value: (m) => m.pathways_count },
-  { label: "Quizzes created", value: (m) => m.quizzes_generated },
-  { label: "Quiz enrollments", value: (m) => m.quiz_enrollments },
-  { label: "Quiz completions", value: (m) => m.quiz_completions },
-  { label: "Live sessions created", value: (m) => m.sessions_created },
-  { label: "Talent assessment enrollments", value: (m) => m.talent_assessment_enrollments },
-  { label: "Talent assessment completed", value: (m) => m.talent_assessment_completed },
-  { label: "AI assessment enrollments", value: (m) => m.ai_assessment_enrollments },
-  { label: "AI assessment completed", value: (m) => m.ai_assessment_completed },
-  { label: "AI-generated competencies", value: (m) => m.competencies_ai_generated },
-  { label: "eNPS responses", value: (m) => m.enps_responses },
-  { label: "Custom survey responses", value: (m) => m.survey_responses },
-];
 
-function UsageTimelinePanel({ periodState }: { periodState: { phase: "loading" | "done"; data?: UsagePeriodResult } }) {
-  if (periodState.phase === "loading") {
-    return (
-      <div className="mt-4 flex items-center gap-2 border-t border-border-subtle pt-4 text-fg-subtle">
-        <Loader2 size={14} className="animate-spin" />
-        <span className="font-body text-[12.5px]">Loading this period from Metabase…</span>
-      </div>
-    );
-  }
-  const data = periodState.data;
-  if (!data || data.status !== "ok") {
-    return (
-      <div className="mt-4 border-t border-border-subtle pt-4">
-        <p className="font-body text-[12.5px] text-fg-subtle">{data?.message ?? "Couldn't load this period."}</p>
-      </div>
-    );
-  }
-  const p = data.metrics;
-  const trend = data.activeUsersTrend.map((d) => d.value);
-  const rows = PERIOD_ROWS.map((r) => ({ label: r.label, value: r.value(p) })).filter((r) => r.value > 0);
-
-  return (
-    <div className="mt-4 flex flex-col gap-4 border-t border-border-subtle pt-4">
-      <div className="flex flex-wrap items-center gap-6">
-        <div className="flex flex-col gap-1">
-          <span className="font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Active users · {data.label}</span>
-          <span className="tabular font-display text-2xl font-bold leading-none text-fg">{formatNumber(p.active_users)}</span>
-          <span className="font-body text-[11px] text-fg-subtle">
-            {formatDate(data.start)} – {formatDate(inclusiveEndDate(data.end))}
-          </span>
-        </div>
-        {trend.some((v) => v > 0) && <Sparkline data={trend} width={220} height={48} />}
-      </div>
-      {rows.length > 0 ? (
-        <div className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-3">
-          {rows.map((r) => (
-            <span key={r.label} className="flex items-baseline justify-between gap-2 font-body text-[12.5px]">
-              <span className="text-fg-muted">{r.label}</span>
-              <span className="tabular shrink-0 font-semibold text-fg">{formatNumber(r.value)}</span>
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p className="font-body text-[12.5px] text-fg-subtle">No recorded activity in this period.</p>
-      )}
-      <p className="font-body text-[11px] text-fg-subtle">
-        Seats, total users, and org structure aren&rsquo;t shown here — those reflect the account&rsquo;s current state, not a point in
-        the past, so they stay in the &ldquo;Current&rdquo; cards below.
-      </p>
-    </div>
-  );
-}
-
-function HealthBanner({ snap, onRefresh }: { snap: UsageSnapshot; onRefresh: () => void }) {
-  const s: AdoptionScore = snap.score;
+function HealthBanner({
+  score: s,
+  environmentName,
+  periodLabel,
+  onRefresh,
+}: {
+  score: AdoptionScore;
+  environmentName: string | null;
+  /** Non-null in period mode — swaps the part-bar tips to describe the
+   *  period-rebased definitions instead of "now"/"the last 30 days". */
+  periodLabel: string | null;
+  onRefresh: () => void;
+}) {
   const color = TIER_COLOR[s.tier];
   return (
     <Card>
@@ -797,15 +870,25 @@ function HealthBanner({ snap, onRefresh }: { snap: UsageSnapshot; onRefresh: () 
               <Sparkles size={12} /> {TIER_LABEL[s.tier]}
             </span>
             <h3 className="mt-2 font-display text-[15px] font-bold text-fg">
-              {snap.environmentName ?? "Platform environment"}
+              {environmentName ?? "Platform environment"}{periodLabel && <span className="font-body text-[12px] font-medium text-fg-subtle"> · {periodLabel}</span>}
             </h3>
             <p className="caption mt-0.5 max-w-lg leading-relaxed">{s.verdict}</p>
           </div>
         </div>
         <div className="flex flex-1 flex-col gap-2.5 sm:border-l sm:border-border-subtle sm:pl-6">
-          <PartBar label="Activation" value={s.parts.activation} weight="45%" tip="Share of seats that logged in over the last 30 days. The biggest driver of the score." />
-          <PartBar label="Module adoption" value={s.parts.breadth} weight="35%" tip="Of the modules this account bought (Develop / Perform / Engage), how many are actually being used." />
-          <PartBar label="Momentum" value={s.parts.recency} weight="20%" tip="Is the account active right now — people logging in this week (100), only this month (55), or not at all (0)." />
+          <PartBar
+            label="Activation"
+            value={s.parts.activation}
+            weight="45%"
+            tip={periodLabel ? "Share of current seats that logged in during this period." : "Share of seats that logged in over the last 30 days. The biggest driver of the score."}
+          />
+          <PartBar label="Module adoption" value={s.parts.breadth} weight="35%" tip={`Of the modules this account bought (Develop / Perform / Engage), how many saw real use${periodLabel ? " during this period" : ""}.`} />
+          <PartBar
+            label="Momentum"
+            value={s.parts.recency}
+            weight="20%"
+            tip={periodLabel ? "Did activity persist into this period's closing days (100), taper off earlier in the period (55), or never show up at all (0)." : "Is the account active right now — people logging in this week (100), only this month (55), or not at all (0)."}
+          />
         </div>
         <button
           onClick={onRefresh}
@@ -850,8 +933,11 @@ function Kpi({ label, value, sub, spark, tip }: { label: string; value: string; 
 }
 
 type ModuleStatus = "active" | "unused" | "not_owned";
-/** A module row: [label, primary count, secondary count, verb for the secondary]. */
-type ModuleRow = [string, number, number, string?];
+/** A module row: [label, primary count, secondary count, verb for the
+ *  secondary]. Secondary is optional — a period-mode row that only has one
+ *  meaningful number (e.g. survey responses, with no period-scoped cycle
+ *  count to pair it with) omits it and renders just the primary value. */
+type ModuleRow = [string, number, number?, string?];
 
 const MODULE_BADGE: Record<ModuleStatus, { tone: "sirius" | "neutral"; label: string }> = {
   active: { tone: "sirius", label: "Active" },
@@ -904,10 +990,10 @@ function ModuleCard({
               <span className="truncate font-body text-[12.5px] text-fg-muted">{label}</span>
               <span className="tabular shrink-0 whitespace-nowrap font-body text-[13px] font-semibold text-fg">
                 {formatNumber(primary)}
-                <span className="font-normal text-fg-subtle"> · {formatNumber(secondary)} {verb ?? rowVerb}</span>
+                {secondary !== undefined && <span className="font-normal text-fg-subtle"> · {formatNumber(secondary)} {verb ?? rowVerb}</span>}
               </span>
             </div>
-            {showBars && (
+            {showBars && secondary !== undefined && (
               <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-bg-muted">
                 <span className="block h-full rounded-full transition-[width] duration-500" style={{ width: `${pct(secondary, primary)}%`, background: color }} />
               </span>
@@ -983,5 +1069,48 @@ function detailRows(m: UsageSnapshotRow, lb: LearningBreakdown): { label: string
     { label: "Competencies on platform", module: "Develop / Perform", value: m.competencies_total },
     { label: "AI-generated competencies", module: "Develop / Perform", value: m.competencies_ai_generated },
     { label: "AI generation runs", module: "Develop / Perform", value: m.ai_generation_runs },
+  ];
+}
+
+/** Same shape as detailRows(), sourced from a period snapshot instead — omits
+ *  rows with no period-scoped counterpart (seats/total users/org structure/
+ *  cycle counts; see UsagePeriodMetrics's own doc comment for why). */
+function periodDetailRows(p: UsagePeriodMetrics, lb: LearningBreakdown): { label: string; module: string; value: number }[] {
+  return [
+    { label: "Active users", module: "Adoption", value: p.active_users },
+    { label: "Distinct courses used — all sources", module: "Develop", value: p.learning_items_count },
+    { label: "— Company-built courses", module: "Develop", value: lb.company.items },
+    { label: "— Lumofy library courses", module: "Develop", value: lb.lumofy.items },
+    { label: "— Global library courses", module: "Develop", value: lb.global.items },
+    { label: "Course enrollments (total)", module: "Develop", value: p.learning_enrollments },
+    { label: "— Company-built", module: "Develop", value: lb.company.enrollments },
+    { label: "— Lumofy library", module: "Develop", value: lb.lumofy.enrollments },
+    { label: "— Global library", module: "Develop", value: lb.global.enrollments },
+    ...lb.providers.map((pv) => ({ label: `    · ${pv.provider}`, module: "Develop", value: pv.enrollments })),
+    { label: "Course completions (total)", module: "Develop", value: p.learning_completions },
+    { label: "— Company-built completed", module: "Develop", value: lb.company.completions },
+    { label: "— Lumofy library completed", module: "Develop", value: lb.lumofy.completions },
+    { label: "— Global library completed", module: "Develop", value: lb.global.completions },
+    { label: "Pathway enrollments (total)", module: "Develop", value: p.pathway_enrollments },
+    { label: "— Company-built pathways", module: "Develop", value: p.pathway_company_enrollments },
+    { label: "— Lumofy-library pathways", module: "Develop", value: p.pathway_lumofy_enrollments },
+    { label: "Pathway completions (total)", module: "Develop", value: p.pathway_completions },
+    { label: "— Company-built completed", module: "Develop", value: p.pathway_company_completions },
+    { label: "— Lumofy-library completed", module: "Develop", value: p.pathway_lumofy_completions },
+    { label: "Pathways used (own + shared)", module: "Develop", value: p.pathways_count },
+    { label: "Quizzes created", module: "Develop", value: p.quizzes_generated },
+    { label: "Quiz enrollments", module: "Develop", value: p.quiz_enrollments },
+    { label: "Quiz completions", module: "Develop", value: p.quiz_completions },
+    { label: "Live sessions created", module: "Develop", value: p.sessions_created },
+    { label: "Talent assessment enrollments", module: "Develop", value: p.talent_assessment_enrollments },
+    { label: "Talent assessment completed", module: "Develop", value: p.talent_assessment_completed },
+    { label: "AI assessment enrollments", module: "Develop", value: p.ai_assessment_enrollments },
+    { label: "AI assessment completed", module: "Develop", value: p.ai_assessment_completed },
+    { label: "PM cycles configured", module: "Perform", value: p.pm_cycles_configured },
+    { label: "PM cycles completed", module: "Perform", value: p.pm_cycles_completed },
+    { label: "eNPS responses", module: "Engage", value: p.enps_responses },
+    { label: "Custom survey responses", module: "Engage", value: p.survey_responses },
+    { label: "Competencies touched", module: "Develop / Perform", value: p.competencies_created },
+    { label: "AI-generated competencies", module: "Develop / Perform", value: p.competencies_ai_generated },
   ];
 }

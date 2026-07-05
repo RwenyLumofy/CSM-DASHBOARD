@@ -112,8 +112,8 @@ export type UsageResult = UsageSnapshot | UsageUnavailable;
 /** Period-bounded totals for the Usage tab's timeline filter — everything
  *  here has a real event date, unlike the point-in-time fields on
  *  UsageSnapshotRow (seats, total_users, org structure, competencies_total,
- *  PM cycles, eNPS/survey cycle counts), which have no history to
- *  reconstruct and stay "Current" regardless of the selected period. */
+ *  enps_cycles/survey_cycles), which have no history to reconstruct and stay
+ *  "Current" regardless of the selected period. */
 export interface UsagePeriodMetrics {
   active_users: number;
   learning_enrollments: number;
@@ -134,9 +134,12 @@ export interface UsagePeriodMetrics {
   talent_assessment_completed: number;
   ai_assessment_enrollments: number;
   ai_assessment_completed: number;
+  competencies_created: number;
   competencies_ai_generated: number;
   enps_responses: number;
   survey_responses: number;
+  pm_cycles_configured: number;
+  pm_cycles_completed: number;
 }
 
 export interface UsagePeriodSnapshot {
@@ -148,6 +151,12 @@ export interface UsagePeriodSnapshot {
    *  trend chart only; never sum these for a period total (see PERIOD_TREND_SQL). */
   activeUsersTrend: { day: string; value: number }[];
   metrics: UsagePeriodMetrics;
+  /** Same company/Lumofy/global split as UsageSnapshot.learning, bounded to
+   *  enrollments created within [start, end). */
+  learning: LearningBreakdown;
+  /** The Adoption Score recomputed from this period's data instead of the
+   *  always-current rolling window — see computePeriodAdoptionScore(). */
+  score: AdoptionScore;
 }
 
 export type UsagePeriodResult = UsagePeriodSnapshot | UsageUnavailable;
