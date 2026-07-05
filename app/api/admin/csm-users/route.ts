@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCsmUsers } from "@/lib/data";
+import { isSuperAdmin } from "@/lib/auth";
 import { SAMPLE_CSMS } from "@/lib/sample/csms";
 
 export const runtime = "nodejs";
@@ -10,7 +11,14 @@ export async function GET() {
   return NextResponse.json({ ok: true, csms });
 }
 
+// POST/PUT write to the CSM directory (creates/overwrites app_users' merged CSM
+// list) — this had NO auth check at all beyond middleware's "is signed in",
+// meaning any authenticated user (not just an admin) could add or corrupt CSM
+// records. Reads stay open (the CSM directory isn't sensitive), writes don't.
 export async function POST(req: Request) {
+  if (!(await isSuperAdmin())) {
+    return NextResponse.json({ ok: false, error: "Only an admin can manage CSM users." }, { status: 403 });
+  }
   try {
     const body = await req.json();
     const { name, email } = body as { name?: string; email?: string };
@@ -29,8 +37,11 @@ export async function POST(req: Request) {
   }
 }
 
-/** GET /api/admin/csm-users?seed=1 — seeds the known Lumofy CSMs on first run. */
+/** Seeds the known Lumofy CSMs on first run. */
 export async function PUT() {
+  if (!(await isSuperAdmin())) {
+    return NextResponse.json({ ok: false, error: "Only an admin can manage CSM users." }, { status: 403 });
+  }
   try {
     const { upsertCsmUser } = await import("@/lib/repo/drizzle");
     for (const csm of Object.values(SAMPLE_CSMS)) {

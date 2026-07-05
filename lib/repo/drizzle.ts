@@ -381,6 +381,13 @@ export async function getAllDealsFromDb(): Promise<Deal[]> {
   return rows.map(dealRowTo);
 }
 
+/** Which client a deal belongs to — used to check ownership before mutating it. */
+export async function getDealClientId(dealId: string): Promise<string | null> {
+  const db = getDb();
+  const rows = await db.select({ clientId: schema.clientDeals.clientId }).from(schema.clientDeals).where(eq(schema.clientDeals.id, dealId)).limit(1);
+  return rows[0]?.clientId ?? null;
+}
+
 /**
  * Toggle whether a deal is tracked. Un-tracking a deal marks it "dead" and
  * excludes its ARR from the client's balance; re-tracking restores it.

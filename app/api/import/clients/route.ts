@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { buildTemplateXlsx, parseWorkbook, rowsToRecords, validateRows } from "@/lib/import/clients";
 import { csmDirectory, getClients, persistImport } from "@/lib/data";
+import { isSuperAdmin } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +43,12 @@ export async function POST(req: Request) {
     const { preview, rows } = validateRows(raw, existingIds);
 
     if (mode === "commit") {
+      // Commit writes across the whole clients table, unscoped by owner — had
+      // no auth check at all beyond "signed in". Preview stays open (it's a
+      // read-only dry run); only the actual write is admin-gated.
+      if (!(await isSuperAdmin())) {
+        return NextResponse.json({ ok: false, error: "Only an admin can import clients." }, { status: 403 });
+      }
       if (rows.length === 0) {
         return NextResponse.json({ ok: false, error: "No valid rows to import.", preview }, { status: 400 });
       }
