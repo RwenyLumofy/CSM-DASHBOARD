@@ -64,6 +64,23 @@ function daysToRenewal(iso: string | null): number | null {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
 }
 
+/** Run `fn` over `items` with at most `limit` in flight — same pattern used
+ *  server-side in lib/repo/drizzle.ts. A bulk edit over most/all of a large
+ *  list otherwise fires one PATCH per client all at once; against the small
+ *  (6-connection) production DB pool that starves the very next read (the
+ *  router.refresh() this function triggers) into a withDbTimeout timeout,
+ *  which briefly renders the whole clients list empty. */
+async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await fn(items[idx]!);
+    }
+  });
+  await Promise.all(workers);
+}
+
 function channelOf(c: Client): string | null {
   const v = c.properties?.referral_source;
   return typeof v === "string" && v.trim() ? v : null;
@@ -261,7 +278,7 @@ export function ClientsTable({
     else if (currentBulk.kind === "core") body = { fields: { [currentBulk.coreKey]: bulkValue || null } };
     else body = { properties: { [currentBulk.propKey]: bulkValue || null } };
     try {
-      await Promise.all([...selected].map((id) => patchClient(id, body)));
+      await mapLimit([...selected], 5, (id) => patchClient(id, body));
       router.refresh();
       setSelected(new Set());
       setBulkField("");
