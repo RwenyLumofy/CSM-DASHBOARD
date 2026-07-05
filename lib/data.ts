@@ -129,7 +129,7 @@ export async function getDowngrades(): Promise<{ client: Client; delta: number }
 export async function getArrEventsForClient(clientId: string): Promise<ArrEvent[]> {
   if (hasDatabase() && dbHealthy()) {
     try {
-      const events = await getArrEventsByClient(clientId);
+      const events = await withDbTimeout(getArrEventsByClient(clientId));
       markDbHealthy();
       return sortByDateDesc(withRunningBalance(events));
     } catch (err) {
@@ -143,7 +143,7 @@ export async function getArrEventsForClient(clientId: string): Promise<ArrEvent[
 export async function getContactsForClient(clientId: string): Promise<Contact[]> {
   if (hasDatabase() && dbHealthy()) {
     try {
-      const rows = await getContactsByClient(clientId);
+      const rows = await withDbTimeout(getContactsByClient(clientId));
       markDbHealthy();
       return rows;
     } catch (err) {
@@ -193,7 +193,7 @@ export async function removeManualContact(clientId: string, contactId: string): 
 export async function getAttachmentsForClient(clientId: string): Promise<Attachment[]> {
   if (hasDatabase() && dbHealthy()) {
     try {
-      const rows = await getAttachmentsByClient(clientId);
+      const rows = await withDbTimeout(getAttachmentsByClient(clientId));
       markDbHealthy();
       return rows;
     } catch (err) {
@@ -267,7 +267,7 @@ export async function deleteAttachment(clientId: string, attachmentId: string): 
 export async function getDealsForClient(clientId: string): Promise<Deal[]> {
   if (hasDatabase() && dbHealthy()) {
     try {
-      const rows = await getDealsByClient(clientId);
+      const rows = await withDbTimeout(getDealsByClient(clientId));
       markDbHealthy();
       return rows;
     } catch (err) {
@@ -281,7 +281,7 @@ export async function getDealsForClient(clientId: string): Promise<Deal[]> {
 export async function getEmailsForClient(clientId: string): Promise<Email[]> {
   if (hasDatabase() && dbHealthy()) {
     try {
-      const rows = await getEmailsByClient(clientId);
+      const rows = await withDbTimeout(getEmailsByClient(clientId));
       markDbHealthy();
       return rows;
     } catch (err) {
@@ -295,7 +295,7 @@ export async function getEmailsForClient(clientId: string): Promise<Email[]> {
 export async function getMeetingsForClient(clientId: string): Promise<Meeting[]> {
   if (hasDatabase() && dbHealthy()) {
     try {
-      const rows = await getMeetingsByClient(clientId);
+      const rows = await withDbTimeout(getMeetingsByClient(clientId));
       markDbHealthy();
       return rows;
     } catch (err) {
@@ -722,7 +722,7 @@ export async function updateClientDetails(
   }
   if (payload.properties) {
     // MERGE over existing so a single-field inline edit never wipes the rest.
-    const existing = await getClientByIdFromDb(clientId);
+    const existing = await withDbTimeout(getClientByIdFromDb(clientId));
     const merged: Record<string, unknown> = { ...(existing?.properties ?? {}), ...payload.properties };
     // If this edit directly sets a field recomputeClientReferral would
     // otherwise auto-derive from deal history (referral_source,

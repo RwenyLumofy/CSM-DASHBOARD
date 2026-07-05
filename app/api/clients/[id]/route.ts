@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { assignCsm, updateClientDetails } from "@/lib/data";
 import { canSeeClient, isSuperAdmin } from "@/lib/auth";
+import { withDbTimeout } from "@/lib/db/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // Without this, fields/properties-only edits would be an IDOR (any signed-in
     // user could PATCH any client by guessing its id).
     const { getClientByIdFromDb } = await import("@/lib/repo/drizzle");
-    const target = await getClientByIdFromDb(id);
+    const target = await withDbTimeout(getClientByIdFromDb(id));
     if (!(await canSeeClient(target))) {
       return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
     }

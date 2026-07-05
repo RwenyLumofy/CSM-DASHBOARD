@@ -12,6 +12,7 @@
 
 import "server-only";
 import { integrations } from "@/lib/config";
+import { withDbTimeout } from "@/lib/db/client";
 import { HubSpotClient } from "@/lib/integrations/hubspot";
 import { MetabaseClient } from "@/lib/integrations/metabase";
 import { computeAdoptionScore, ownedModulesFromPackage, type OwnedModules } from "@/lib/usage/score";
@@ -50,7 +51,12 @@ async function resolveEnvironment(clientId: string): Promise<ResolvedEnv | { err
   // the Usage tab could even mount, and the 4-hourly cron sync has no signed-in
   // user at all — role-scoping would (and did) reject every client for it.
   const { getClientByIdFromDb } = await import("@/lib/repo/drizzle");
-  const client = await getClientByIdFromDb(clientId);
+  let client;
+  try {
+    client = await withDbTimeout(getClientByIdFromDb(clientId));
+  } catch (err) {
+    return { error: { status: "error", message: `Database read failed: ${err}` } };
+  }
   if (!client) return { error: { status: "error", message: "Client not found." } };
 
   const cached = (client.properties as Record<string, unknown> | undefined)?.[USAGE_ENV_KEY] as
@@ -260,7 +266,7 @@ async function resolveOwnedModules(clientId: string): Promise<OwnedModules> {
   try {
     const { getClientByIdFromDb, getDealsByClient } = await import("@/lib/repo/drizzle");
     const { dealOverridesMap, applyDealOverrides } = await import("@/lib/deal-overrides");
-    const [client, deals] = await Promise.all([getClientByIdFromDb(clientId), getDealsByClient(clientId)]);
+    const [client, deals] = await withDbTimeout(Promise.all([getClientByIdFromDb(clientId), getDealsByClient(clientId)]));
     const overrides = dealOverridesMap(client?.properties as Record<string, unknown> | undefined);
     const modules = new Set<string>();
     for (const d of deals) {

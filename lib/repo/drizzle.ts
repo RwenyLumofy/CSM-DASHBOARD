@@ -844,8 +844,11 @@ export async function persistSync(bundle: SyncBundle): Promise<{ newClientIds: s
   }
 
   // Re-materialize ARR + referral only for rows we actually created/updated.
-  for (const c of newClients) await recomputeClient(c.id);
-  for (const c of newClients) await recomputeClientReferral(c.id);
+  // Bounded concurrency (matches importClientsDb) instead of one-at-a-time --
+  // at 75 clients this was already ~300 serial round trips per sync, holding
+  // DB connections open longer than necessary on every single sync run.
+  await mapLimit(newClients, 5, (c) => recomputeClient(c.id));
+  await mapLimit(newClients, 5, (c) => recomputeClientReferral(c.id));
 
   return { newClientIds: brandNewIds };
 }
@@ -1152,6 +1155,40 @@ export async function setSyncCheckpoint(key: string, value: string): Promise<voi
     .insert(schema.syncCheckpoints)
     .values({ key, value, updatedAt: new Date() })
     .onConflictDoUpdate({ target: schema.syncCheckpoints.key, set: { value, updatedAt: new Date() } });
+}
+
+const SYNC_LOCK_KEY = "sync_lock";
+const SYNC_LOCK_STALE_MS = 10 * 60 * 1000; // a crashed/killed sync self-heals after 10 min
+
+/**
+ * Mutual exclusion for runSync() so a manual "Sync now" click can't overlap
+ * the scheduled cron tick (both would re-fetch the same HubSpot window and
+ * race recomputeClient for the same clients). A plain row UPDATE, not
+ * pg_advisory_lock — Supabase's transaction-mode pooler doesn't guarantee the
+ * same backend session across statements, so a session-scoped advisory lock
+ * can silently fail to hold (the same class of issue that made
+ * `connection: { statement_timeout }` a no-op earlier). This only needs one
+ * atomic statement, which works over any pooling mode.
+ */
+export async function acquireSyncLock(): Promise<boolean> {
+  const db = getDb();
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - SYNC_LOCK_STALE_MS).toISOString();
+  const rows = await db
+    .insert(schema.syncCheckpoints)
+    .values({ key: SYNC_LOCK_KEY, value: now.toISOString(), updatedAt: now })
+    .onConflictDoUpdate({
+      target: schema.syncCheckpoints.key,
+      set: { value: now.toISOString(), updatedAt: now },
+      where: sql`${schema.syncCheckpoints.value} < ${staleBefore}`,
+    })
+    .returning({ key: schema.syncCheckpoints.key });
+  return rows.length > 0;
+}
+
+export async function releaseSyncLock(): Promise<void> {
+  const db = getDb();
+  await db.delete(schema.syncCheckpoints).where(eq(schema.syncCheckpoints.key, SYNC_LOCK_KEY));
 }
 
 /* ------------------------------------------------- workspace config (jsonb) */

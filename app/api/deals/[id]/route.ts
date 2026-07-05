@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { setDealTracked, getClientById } from "@/lib/data";
 import { canSeeClient } from "@/lib/auth";
+import { withDbTimeout } from "@/lib/db/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       // to and gate on the same canSeeClient() every other client mutation
       // already goes through.
       const { getDealClientId } = await import("@/lib/repo/drizzle");
-      const clientId = await getDealClientId(dealId);
+      const clientId = await withDbTimeout(getDealClientId(dealId));
       if (!clientId) return NextResponse.json({ ok: false, error: "Deal not found." }, { status: 404 });
       const client = await getClientById(clientId);
       if (!(await canSeeClient(client))) {

@@ -11,6 +11,7 @@ import { StakeholderTypesManager } from "@/components/settings/StakeholderTypesM
 import { getAppUsers, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
 import { getCurrentUserEmail, isSuperAdmin } from "@/lib/auth";
 import { hasDatabase, integrations } from "@/lib/config";
+import { withDbTimeout } from "@/lib/db/client";
 import { cn } from "@/lib/cn";
 import type { LumofyStaffMember } from "@/components/settings/LumofyStaffManager";
 
@@ -28,11 +29,17 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   let lumofyStaff: LumofyStaffMember[] = [];
   let stakeholderTypes: string[] = [];
   if (hasDatabase() && superAdmin) {
-    const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
-    [lumofyStaff, stakeholderTypes] = await Promise.all([
-      getWorkspaceConfigFromDb("lumofy_staff").then((v) => (v as LumofyStaffMember[]) ?? []),
-      getWorkspaceConfigFromDb("stakeholder_types").then((v) => (v as string[]) ?? []),
-    ]);
+    try {
+      const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
+      [lumofyStaff, stakeholderTypes] = await withDbTimeout(
+        Promise.all([
+          getWorkspaceConfigFromDb("lumofy_staff").then((v) => (v as LumofyStaffMember[]) ?? []),
+          getWorkspaceConfigFromDb("stakeholder_types").then((v) => (v as string[]) ?? []),
+        ]),
+      );
+    } catch (err) {
+      console.warn("[settings] workspace config read failed:", err);
+    }
   }
 
   const activeTab = tab === "workflows" && superAdmin ? "workflows" : "workspace";
@@ -90,7 +97,7 @@ async function WorkspaceTab({
   let lastSyncedAt: string | null = null;
   if (hasDatabase()) {
     const { getSyncCheckpoint } = await import("@/lib/repo/drizzle");
-    lastSyncedAt = await getSyncCheckpoint("last_synced_at").catch(() => null);
+    lastSyncedAt = await withDbTimeout(getSyncCheckpoint("last_synced_at")).catch(() => null);
   }
 
   return (

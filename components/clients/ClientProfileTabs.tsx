@@ -14,7 +14,7 @@
    empty states until their data models land.
    ========================================================================= */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -651,8 +651,18 @@ type CommView = "emails" | "meetings" | "contacts" | "stakeholders";
 
 function CommunicationTab({ clientId, contacts, emails, meetings, stakeholderMappings }: { clientId: string; contacts: Contact[]; emails: Email[]; meetings: Meeting[]; stakeholderMappings: StakeholderMapping[] }) {
   const [view, setView] = useState<CommView>("emails");
-  const sortedEmails = [...emails].sort((a, b) => (b.sentAt ?? b.createdAt).localeCompare(a.sentAt ?? a.createdAt));
-  const sortedMeetings = [...meetings].sort((a, b) => (b.startTime ?? b.createdAt).localeCompare(a.startTime ?? a.createdAt));
+  // Only actually needed for the "emails"/"meetings" sub-view, but was
+  // re-sorting on every render (including tab switches away from this
+  // panel and unrelated parent re-renders) regardless of which sub-view was
+  // active.
+  const sortedEmails = useMemo(
+    () => [...emails].sort((a, b) => (b.sentAt ?? b.createdAt).localeCompare(a.sentAt ?? a.createdAt)),
+    [emails],
+  );
+  const sortedMeetings = useMemo(
+    () => [...meetings].sort((a, b) => (b.startTime ?? b.createdAt).localeCompare(a.startTime ?? a.createdAt)),
+    [meetings],
+  );
 
   const TABS: { key: CommView; label: string; icon: LucideIcon; count?: number }[] = [
     { key: "emails", label: "Emails", icon: Mail, count: emails.length },
@@ -2159,6 +2169,14 @@ const PIPELINE_LABEL = (p: Deal["pipeline"]) =>
  *  under client.properties.__deal_dates; synced contract dates stay read-only. */
 function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, propertyDefs }: { deals: Deal[]; clientId: string; dealOverrides: DealOverridesMap; dealDates: DealDatesMap; dealBriefs: DealBriefsMap; propertyDefs: PropertyDefinition[] }) {
   const router = useRouter();
+  // router.refresh() is fire-and-forget — it resolves the *scheduling* of a
+  // background re-render, not the refreshed (server-confirmed) props actually
+  // landing. Without useTransition, a save's own "saving" flag cleared as soon
+  // as the fetch settled, while the still-stale `deals` prop kept the "N
+  // unsaved changes" banner and Save button visible — reading as "the save
+  // didn't work," prompting a second (or third) click. isPending stays true
+  // until the refreshed props have actually committed.
+  const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(true);
   const sales = deals.filter((d) => d.pipeline !== "cs");
   const renewals = deals.filter((d) => d.pipeline === "cs" && d.category !== "expansion");
@@ -2190,7 +2208,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
           }),
         ),
       );
-      router.refresh();
+      startTransition(() => router.refresh());
     } finally {
       setSaving(false);
     }
@@ -2225,7 +2243,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
       // an amount/date override also changes the header's ARR/renewal/status
       // and the profile-completeness badge (all server-computed) — refresh so
       // those don't sit stale until a manual reload.
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch { setLocalOverrides(prev); }
   }
 
@@ -2244,7 +2262,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
     try {
       const res = await fetch(`/api/clients/${clientId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ properties: { [DEAL_OVERRIDES_KEY]: next } }) });
       if (!res.ok) throw new Error();
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch { setLocalOverrides(prev); }
   }
 
@@ -2260,7 +2278,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
       if (!res.ok) throw new Error();
       // Milestone dates feed the profile-completeness badge (header + list) —
       // refresh so filling one in clears the alert immediately, not after reload.
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch { setLocalDates(prev); }
   }
 
@@ -2343,6 +2361,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
                     dealBrief={localBriefs[d.id] ?? null}
                     onSaveBrief={(value) => saveDealBrief(d.id, value)}
                     propertyDefs={propertyDefs}
+                    refreshPending={isPending}
                   />
                 ))}
               </ul>
@@ -2351,13 +2370,13 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
             {changed.length > 0 && (
               <div className="mt-3 flex items-center justify-end gap-2 border-t border-border-subtle pt-3">
                 <span className="caption mr-auto">{changed.length} unsaved change{changed.length > 1 ? "s" : ""} — ARR updates on save</span>
-                <button type="button" onClick={() => setDraft(baseline())} disabled={saving}
+                <button type="button" onClick={() => setDraft(baseline())} disabled={saving || isPending}
                   className="rounded-[10px] px-3 py-1.5 font-body text-[13px] font-semibold text-fg-muted transition-colors hover:text-fg disabled:opacity-50">
                   Reset
                 </button>
-                <button type="button" onClick={save} disabled={saving}
+                <button type="button" onClick={save} disabled={saving || isPending}
                   className="inline-flex items-center gap-1.5 rounded-[10px] bg-sirius px-4 py-1.5 font-body text-[13px] font-semibold text-white transition-colors hover:bg-cosmos disabled:opacity-60">
-                  {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save
+                  {(saving || isPending) ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save
                 </button>
               </div>
             )}
@@ -2383,6 +2402,7 @@ function DealCard({
   dealBrief,
   onSaveBrief,
   propertyDefs,
+  refreshPending,
 }: {
   deal: Deal;
   checked: boolean;
@@ -2395,6 +2415,10 @@ function DealCard({
   dealBrief: string | null;
   onSaveBrief: (value: string | null) => void | Promise<void>;
   propertyDefs: PropertyDefinition[];
+  /** True while a prior save's router.refresh() is still landing — keeps
+   *  fields showing "saving" instead of re-enabling and inviting a second,
+   *  overlapping edit before the server-confirmed data has actually arrived. */
+  refreshPending: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [editingBrief, setEditingBrief] = useState(false);
@@ -2453,6 +2477,7 @@ function DealCard({
         options={optionsForDealField(key)}
         onCommit={(v) => onSaveField(key as string, v)}
         alertSeverity={FIELD_SEVERITY[key as string]}
+        pending={refreshPending}
       />
     );
   };
@@ -2608,6 +2633,7 @@ function DealCard({
                     value={dealDates[f.key] ?? null}
                     onCommit={(v) => onSaveDate(f.key, v)}
                     alertSeverity={FIELD_SEVERITY[f.key]}
+                    pending={refreshPending}
                   />
                 ))}
               </dl>
@@ -2656,7 +2682,7 @@ function SyncedDate({ label, value, hint }: { label: string; value: string | nul
 }
 
 /** CSM-editable milestone date cell — persists into client.properties.__deal_dates. */
-function DealDateField({ label, value, onCommit, alertSeverity }: { label: string; value: string | null; onCommit: (v: string | null) => void | Promise<void>; alertSeverity?: "red" | "yellow" }) {
+function DealDateField({ label, value, onCommit, alertSeverity, pending }: { label: string; value: string | null; onCommit: (v: string | null) => void | Promise<void>; alertSeverity?: "red" | "yellow"; pending?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const empty = !value;
@@ -2681,7 +2707,7 @@ function DealDateField({ label, value, onCommit, alertSeverity }: { label: strin
       </dt>
       <dd>
         {editing ? (
-          <EditInput type="date" value={value} saving={saving} onCommit={commit} onCancel={() => setEditing(false)} />
+          <EditInput type="date" value={value} saving={saving || !!pending} onCommit={commit} onCancel={() => setEditing(false)} />
         ) : (
           <button onClick={() => setEditing(true)} className="group -ml-1 flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-bg-muted">
             <span className={valueCls}>{formatDate(value)}</span>
@@ -2705,6 +2731,7 @@ function OverrideField({
   options,
   onCommit,
   alertSeverity,
+  pending,
 }: {
   label: string;
   type: OverrideFieldType;
@@ -2714,6 +2741,8 @@ function OverrideField({
   options?: Opt[];
   onCommit: (v: unknown) => void | Promise<void>;
   alertSeverity?: "red" | "yellow";
+  /** True while a prior save's router.refresh() is still landing. */
+  pending?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2764,9 +2793,9 @@ function OverrideField({
       <dd>
         {editing ? (
           type === "tags" ? (
-            <TagsInput value={Array.isArray(value) ? (value as string[]) : []} saving={saving} onCommit={commit} onCancel={() => setEditing(false)} />
+            <TagsInput value={Array.isArray(value) ? (value as string[]) : []} saving={saving || !!pending} onCommit={commit} onCancel={() => setEditing(false)} />
           ) : (
-            <EditInput type={type as FieldType} options={options} value={value} saving={saving} onCommit={commit} onCancel={() => setEditing(false)} />
+            <EditInput type={type as FieldType} options={options} value={value} saving={saving || !!pending} onCommit={commit} onCancel={() => setEditing(false)} />
           )
         ) : (
           <button onClick={() => setEditing(true)} className="group -ml-1 flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-bg-muted">

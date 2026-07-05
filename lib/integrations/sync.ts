@@ -33,6 +33,9 @@ export interface SyncResult {
   lastSyncedAt: string | null;
   sources: { hubspot: boolean; intercom: boolean; metabase: boolean };
   warnings: string[];
+  /** True when this call didn't run at all because another sync (cron or a
+   *  manual "Sync now") was already in progress. Not an error. */
+  skipped?: boolean;
 }
 
 export interface SyncBundle {
@@ -281,7 +284,43 @@ async function reconcileDealSelectOptions(hs: HubSpotClient, deals: Deal[]): Pro
   }
 }
 
+/**
+ * Runs a sync, guarded so a manual "Sync now" click can never overlap the
+ * scheduled cron tick (or a second manual click) — both would re-fetch the
+ * same HubSpot window and race recomputeClient for the same clients. See
+ * acquireSyncLock()'s own comment for why this is a DB row lock, not
+ * pg_advisory_lock (doesn't reliably hold over a transaction-mode pooler).
+ */
 export async function runSync(): Promise<SyncResult> {
+  const emptySources = { hubspot: integrations.hubspot(), intercom: integrations.intercom(), metabase: integrations.metabase() };
+  if (hasDatabase()) {
+    const { acquireSyncLock } = await import("@/lib/repo/drizzle");
+    const acquired = await acquireSyncLock();
+    if (!acquired) {
+      return {
+        ok: false,
+        clientCount: 0,
+        dealCount: 0,
+        dealEventCount: 0,
+        persisted: false,
+        incremental: true,
+        lastSyncedAt: null,
+        sources: emptySources,
+        warnings: ["Sync already running — skipped this trigger."],
+        skipped: true,
+      };
+    }
+    try {
+      return await runSyncInner();
+    } finally {
+      const { releaseSyncLock } = await import("@/lib/repo/drizzle");
+      await releaseSyncLock();
+    }
+  }
+  return runSyncInner();
+}
+
+async function runSyncInner(): Promise<SyncResult> {
   const sources = { hubspot: integrations.hubspot(), intercom: integrations.intercom(), metabase: integrations.metabase() };
   const syncStartedAt = new Date().toISOString();
 

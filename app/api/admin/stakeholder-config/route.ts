@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isSuperAdmin } from "@/lib/auth";
+import { withDbTimeout } from "@/lib/db/client";
 
 // workspaceConfig keys
 const KEYS = ["stakeholder_types", "lumofy_staff"] as const;
@@ -10,7 +11,7 @@ export async function GET(req: Request) {
   const key = searchParams.get("key") as ConfigKey | null;
   if (!key || !KEYS.includes(key)) return NextResponse.json({ error: "invalid key" }, { status: 400 });
   const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
-  const value = await getWorkspaceConfigFromDb(key);
+  const value = await withDbTimeout(getWorkspaceConfigFromDb(key));
   return NextResponse.json({ value: value ?? (key === "stakeholder_types" ? [] : []) });
 }
 

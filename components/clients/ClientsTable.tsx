@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState, memo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, AlertTriangle, ChevronRight, Loader2, Plus, X } from "lucide-react";
@@ -133,19 +133,22 @@ export function ClientsTable({
       return next;
     });
   }
-  function toggleRow(id: string) {
+  // useCallback with stable deps so these can be passed directly to the
+  // memoized ClientRow below without a per-row wrapper closure recreated on
+  // every render — a new closure per row would defeat the memoization.
+  const toggleRow = useCallback((id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  }
+  }, []);
 
   async function patchClient(id: string, body: unknown) {
     await fetch(`/api/clients/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   }
 
-  async function setRowCsm(id: string, csmId: string) {
+  const setRowCsm = useCallback(async (id: string, csmId: string) => {
     setSavingRow(`${id}:csm`);
     try {
       await patchClient(id, { csmId: csmId || null });
@@ -153,9 +156,9 @@ export function ClientsTable({
     } finally {
       setSavingRow(null);
     }
-  }
+  }, [router]);
 
-  async function setRowImpl(id: string, ownerEmail: string) {
+  const setRowImpl = useCallback(async (id: string, ownerEmail: string) => {
     setSavingRow(`${id}:impl`);
     try {
       await patchClient(id, { implementationOwnerEmail: ownerEmail || null });
@@ -163,7 +166,7 @@ export function ClientsTable({
     } finally {
       setSavingRow(null);
     }
-  }
+  }, [router]);
 
   const currentBulk = BULK_FIELDS.find((f) => f.key === bulkField) ?? null;
 
@@ -284,84 +287,22 @@ export function ClientsTable({
           </tr>
         </thead>
         <tbody>
-          {filtered.map((c) => {
-            const dtr = daysToRenewal(c.renewalDate);
-            const renewalSoon = dtr != null && dtr >= 0 && dtr <= 90;
-            const isSel = selected.has(c.id);
-            // A controlled <select> whose value matches no <option> renders as
-            // "Unassigned". So always include the currently-assigned owner as an
-            // option (even if they've left the team or the options list is empty)
-            // — otherwise an assigned client falsely shows as Unassigned.
-            const rowCsms =
-              c.csm && !csms.some((m) => m.id === c.csm!.id)
-                ? [{ id: c.csm.id, name: c.csm.name }, ...csms]
-                : csms;
-            const rowImpls =
-              c.implementationOwner && !impls.some((m) => m.id === c.implementationOwner!.id)
-                ? [{ id: c.implementationOwner.id, name: c.implementationOwner.name }, ...impls]
-                : impls;
-            return (
-              <tr key={c.id} className={cn("group border-b border-border-subtle transition-colors last:border-0", isSel ? "bg-accent-soft/40" : "hover:bg-accent-soft/60", c.status === "churned" && "opacity-60")}>
-                <Td>
-                  <input type="checkbox" checked={isSel} onChange={() => toggleRow(c.id)} aria-label={`Select ${c.name}`} className="size-4 cursor-pointer accent-sirius" />
-                </Td>
-                <Td>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Link href={`/clients/${c.id}`} className="font-body text-sm font-semibold text-fg group-hover:text-sirius">{c.name}</Link>
-                    <RowCompletenessBadge completeness={completenessByClient[c.id]} />
-                  </span>
-                </Td>
-                <Td>
-                  {canAssignOwners ? (
-                    <span className="flex items-center gap-1.5">
-                      <select
-                        value={c.csm?.id ?? ""}
-                        disabled={savingRow === `${c.id}:csm`}
-                        onChange={(e) => setRowCsm(c.id, e.target.value)}
-                        className="max-w-[150px] truncate rounded-md border border-transparent bg-transparent py-1 pl-1.5 pr-5 font-body text-[13px] text-fg-muted outline-none transition-colors hover:border-border hover:bg-bg focus:border-sirius-200"
-                      >
-                        <option value="">Unassigned</option>
-                        {rowCsms.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                      </select>
-                      {savingRow === `${c.id}:csm` && <Loader2 size={12} className="animate-spin text-fg-subtle" />}
-                    </span>
-                  ) : (
-                    <span className="font-body text-[13px] text-fg-muted">{c.csm?.name ?? "Unassigned"}</span>
-                  )}
-                </Td>
-                <Td>
-                  {canAssignOwners ? (
-                    <span className="flex items-center gap-1.5">
-                      <select
-                        value={c.implementationOwner?.id ?? ""}
-                        disabled={savingRow === `${c.id}:impl`}
-                        onChange={(e) => setRowImpl(c.id, e.target.value)}
-                        className="max-w-[150px] truncate rounded-md border border-transparent bg-transparent py-1 pl-1.5 pr-5 font-body text-[13px] text-fg-muted outline-none transition-colors hover:border-border hover:bg-bg focus:border-sirius-200"
-                      >
-                        <option value="">Unassigned</option>
-                        {rowImpls.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                      </select>
-                      {savingRow === `${c.id}:impl` && <Loader2 size={12} className="animate-spin text-fg-subtle" />}
-                    </span>
-                  ) : (
-                    <span className="font-body text-[13px] text-fg-muted">{c.implementationOwner?.name ?? "Unassigned"}</span>
-                  )}
-                </Td>
-                <Td align="right">
-                  <span className="tabular font-body text-sm font-semibold text-fg">{formatCurrency(c.arr, c.currency, { compact: true })}</span>
-                </Td>
-                <Td>
-                  <span className={cn("tabular font-body text-[13px]", renewalSoon ? "font-semibold text-[#8A6A0A]" : "text-fg-muted")}>{formatDate(c.renewalDate)}</span>
-                </Td>
-                <Td>{c.status === "churned" ? <Badge tone="neutral">Churned</Badge> : <HealthPill health={c.health} compact />}</Td>
-                <Td align="right">
-                  <Link href={`/clients/${c.id}`} className="grid size-7 place-items-center rounded-md text-fg-subtle transition-colors hover:bg-bg-muted hover:text-sirius">
-                    <ChevronRight size={16} />
-                  </Link>
-                </Td>
-              </tr>
-            );
-          })}
+          {filtered.map((c) => (
+            <ClientRow
+              key={c.id}
+              client={c}
+              csms={csms}
+              impls={impls}
+              isSelected={selected.has(c.id)}
+              onToggle={toggleRow}
+              canAssignOwners={canAssignOwners}
+              savingCsm={savingRow === `${c.id}:csm`}
+              savingImpl={savingRow === `${c.id}:impl`}
+              onSetCsm={setRowCsm}
+              onSetImpl={setRowImpl}
+              completeness={completenessByClient[c.id]}
+            />
+          ))}
           {filtered.length === 0 && (
             <tr>
               <td colSpan={8} className="px-5 py-16 text-center">
@@ -384,6 +325,116 @@ export function ClientsTable({
     </div>
   );
 }
+
+/**
+ * One client row. Memoized so typing in the search box (which re-renders
+ * ClientsTable via local `query` state, not a server refresh) doesn't
+ * re-render every row's owner dropdowns/badges — only rows whose own props
+ * actually changed. Selection/saving state is passed down as plain booleans
+ * (not the shared `selected` Set/`savingRow` string) specifically so a row's
+ * memo comparison isn't invalidated by an unrelated row's selection toggling.
+ */
+const ClientRow = memo(function ClientRow({
+  client: c,
+  csms,
+  impls,
+  isSelected,
+  onToggle,
+  canAssignOwners,
+  savingCsm,
+  savingImpl,
+  onSetCsm,
+  onSetImpl,
+  completeness,
+}: {
+  client: Client;
+  csms: Csm[];
+  impls: Csm[];
+  isSelected: boolean;
+  onToggle: (id: string) => void;
+  canAssignOwners: boolean;
+  savingCsm: boolean;
+  savingImpl: boolean;
+  onSetCsm: (id: string, csmId: string) => void;
+  onSetImpl: (id: string, email: string) => void;
+  completeness?: { severity: "red" | "yellow" | "none"; missingRed: { key: string; label: string }[]; missingYellow: { key: string; label: string }[] };
+}) {
+  const dtr = daysToRenewal(c.renewalDate);
+  const renewalSoon = dtr != null && dtr >= 0 && dtr <= 90;
+  // A controlled <select> whose value matches no <option> renders as
+  // "Unassigned". So always include the currently-assigned owner as an
+  // option (even if they've left the team or the options list is empty) —
+  // otherwise an assigned client falsely shows as Unassigned.
+  const rowCsms =
+    c.csm && !csms.some((m) => m.id === c.csm!.id)
+      ? [{ id: c.csm.id, name: c.csm.name }, ...csms]
+      : csms;
+  const rowImpls =
+    c.implementationOwner && !impls.some((m) => m.id === c.implementationOwner!.id)
+      ? [{ id: c.implementationOwner.id, name: c.implementationOwner.name }, ...impls]
+      : impls;
+  return (
+    <tr className={cn("group border-b border-border-subtle transition-colors last:border-0", isSelected ? "bg-accent-soft/40" : "hover:bg-accent-soft/60", c.status === "churned" && "opacity-60")}>
+      <Td>
+        <input type="checkbox" checked={isSelected} onChange={() => onToggle(c.id)} aria-label={`Select ${c.name}`} className="size-4 cursor-pointer accent-sirius" />
+      </Td>
+      <Td>
+        <span className="inline-flex items-center gap-1.5">
+          <Link href={`/clients/${c.id}`} className="font-body text-sm font-semibold text-fg group-hover:text-sirius">{c.name}</Link>
+          <RowCompletenessBadge completeness={completeness} />
+        </span>
+      </Td>
+      <Td>
+        {canAssignOwners ? (
+          <span className="flex items-center gap-1.5">
+            <select
+              value={c.csm?.id ?? ""}
+              disabled={savingCsm}
+              onChange={(e) => onSetCsm(c.id, e.target.value)}
+              className="max-w-[150px] truncate rounded-md border border-transparent bg-transparent py-1 pl-1.5 pr-5 font-body text-[13px] text-fg-muted outline-none transition-colors hover:border-border hover:bg-bg focus:border-sirius-200"
+            >
+              <option value="">Unassigned</option>
+              {rowCsms.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            {savingCsm && <Loader2 size={12} className="animate-spin text-fg-subtle" />}
+          </span>
+        ) : (
+          <span className="font-body text-[13px] text-fg-muted">{c.csm?.name ?? "Unassigned"}</span>
+        )}
+      </Td>
+      <Td>
+        {canAssignOwners ? (
+          <span className="flex items-center gap-1.5">
+            <select
+              value={c.implementationOwner?.id ?? ""}
+              disabled={savingImpl}
+              onChange={(e) => onSetImpl(c.id, e.target.value)}
+              className="max-w-[150px] truncate rounded-md border border-transparent bg-transparent py-1 pl-1.5 pr-5 font-body text-[13px] text-fg-muted outline-none transition-colors hover:border-border hover:bg-bg focus:border-sirius-200"
+            >
+              <option value="">Unassigned</option>
+              {rowImpls.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            {savingImpl && <Loader2 size={12} className="animate-spin text-fg-subtle" />}
+          </span>
+        ) : (
+          <span className="font-body text-[13px] text-fg-muted">{c.implementationOwner?.name ?? "Unassigned"}</span>
+        )}
+      </Td>
+      <Td align="right">
+        <span className="tabular font-body text-sm font-semibold text-fg">{formatCurrency(c.arr, c.currency, { compact: true })}</span>
+      </Td>
+      <Td>
+        <span className={cn("tabular font-body text-[13px]", renewalSoon ? "font-semibold text-[#8A6A0A]" : "text-fg-muted")}>{formatDate(c.renewalDate)}</span>
+      </Td>
+      <Td>{c.status === "churned" ? <Badge tone="neutral">Churned</Badge> : <HealthPill health={c.health} compact />}</Td>
+      <Td align="right">
+        <Link href={`/clients/${c.id}`} className="grid size-7 place-items-center rounded-md text-fg-subtle transition-colors hover:bg-bg-muted hover:text-sirius">
+          <ChevronRight size={16} />
+        </Link>
+      </Td>
+    </tr>
+  );
+});
 
 function BulkValueControl({
   field,

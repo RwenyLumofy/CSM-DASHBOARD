@@ -13,15 +13,18 @@ let _db: PostgresJsDatabase<typeof schema> | null = null;
 export function getDb(): PostgresJsDatabase<typeof schema> {
   if (!env.databaseUrl) throw new Error("DATABASE_URL is not configured");
   if (!_db) {
-    // Pool size per lambda. A single /clients render fires ~9-10 concurrent
-    // reads (layout's notifications/labels + the page's clients/csms/deals/
-    // props); at max:3 most of them queue behind just 3 connections, and on a
-    // cross-region cold connection that queueing was enough on its own to blow
-    // past withDbTimeout's ceiling and come back empty (seen in prod: a
-    // super-admin's /clients read timed out and showed zero clients even
-    // though the data was fine). Supabase's transaction-mode pooler (6543)
-    // multiplexes far more than this per project, so a modest per-lambda bump
-    // is safe and directly cuts how many queueing "waves" one request needs.
+    // Pool size per lambda. Raised 3->6 on a theory that same-request query
+    // queueing (a single /clients render fires ~9-10 concurrent reads) was
+    // the cause of a super-admin's /clients read timing out and showing zero
+    // clients. That theory is UNCONFIRMED — a live check of the Supabase
+    // project found only 13/60 backend connections in use and no stuck
+    // queries, and the real, confirmed cause turned out to be a coverage gap
+    // (most DB reads across the app weren't wrapped in withDbTimeout at all,
+    // so they hung to Vercel's 300s ceiling regardless of pool size — see
+    // withDbTimeout below). Don't change this number again without pulling
+    // real Supabase pooler metrics (Dashboard -> Database -> Connection
+    // pooling) during an actual slow episode; guessing at it twice already
+    // didn't fix anything.
     const isProd = process.env.NODE_ENV === "production";
     const max = isProd ? 6 : 10;
     // Idle timeout = how long an unused connection stays open before it's closed.
@@ -75,9 +78,19 @@ export function getDb(): PostgresJsDatabase<typeof schema> {
  * 300s function ceiling while giving real queries enough room to finish.
  */
 export function withDbTimeout<T>(promise: Promise<T>, ms = 45_000): Promise<T> {
+  // Logged here (not just left to each caller's own catch) so a call site
+  // with no try/catch of its own — the exact gap that caused two rounds of
+  // "found another unwrapped spot" — still leaves a trace of which query
+  // stalled and for how long, instead of a silent 500/empty result.
+  const stackHint = new Error().stack?.split("\n")[2]?.trim() ?? "unknown call site";
   return Promise.race([
     promise,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`DB read timed out after ${ms}ms`)), ms)),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => {
+        console.warn(`[db] query timed out after ${ms}ms, called from: ${stackHint}`);
+        reject(new Error(`DB read timed out after ${ms}ms`));
+      }, ms),
+    ),
   ]);
 }
 

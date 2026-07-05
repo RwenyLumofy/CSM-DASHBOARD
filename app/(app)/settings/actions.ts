@@ -21,6 +21,7 @@ export interface SyncActionResult {
   dealCount?: number;
   lastSyncedAt?: string | null;
   overridesCleared?: number;
+  skipped?: boolean;
 }
 
 /** Any signed-in user may trigger a manual incremental sync (dev bypass when off). */
@@ -39,6 +40,7 @@ export async function syncNowAction(): Promise<SyncActionResult> {
   if (!hasDatabase()) return { ok: false, error: "No database configured." };
   try {
     const r = await runSync();
+    if (r.skipped) return { ok: false, error: "A sync is already running — try again in a moment.", skipped: true };
     return { ok: true, clientCount: r.clientCount, dealCount: r.dealCount, lastSyncedAt: r.lastSyncedAt };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -60,6 +62,9 @@ export async function fullResyncAction(): Promise<SyncActionResult> {
     // Rewind the checkpoint so runSync re-pulls every Closed Won deal (not first-run).
     await setSyncCheckpoint("last_synced_at", "2020-01-01T00:00:00.000Z");
     const r = await runSync();
+    if (r.skipped) {
+      return { ok: false, error: "A sync is already running — try again in a moment.", skipped: true, overridesCleared };
+    }
     return { ok: true, clientCount: r.clientCount, dealCount: r.dealCount, lastSyncedAt: r.lastSyncedAt, overridesCleared };
   } catch (e) {
     return { ok: false, error: String(e) };

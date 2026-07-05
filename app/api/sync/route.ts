@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { env, integrations, hasDatabase } from "@/lib/config";
 import { runSync } from "@/lib/integrations/sync";
+import { withDbTimeout } from "@/lib/db/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function GET() {
   let lastSyncedAt: string | null = null;
   if (hasDatabase()) {
     const { getSyncCheckpoint } = await import("@/lib/repo/drizzle");
-    lastSyncedAt = await getSyncCheckpoint("last_synced_at").catch(() => null);
+    lastSyncedAt = await withDbTimeout(getSyncCheckpoint("last_synced_at")).catch(() => null);
   }
   return NextResponse.json({
     sources: { hubspot: integrations.hubspot(), intercom: integrations.intercom(), metabase: integrations.metabase() },
