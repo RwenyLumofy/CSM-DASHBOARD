@@ -16,9 +16,9 @@ import { ImportDialog } from "@/components/clients/ImportDialog";
 type SortKey = "name" | "arr" | "health" | "renewal";
 type SortDir = "asc" | "desc";
 type Csm = { id: string; name: string };
-/** "not_churned" and "all" are view filters, not real lifecycle stages —
- *  the other four match Client["status"] (AccountStatus) exactly. */
-type StatusFilter = "not_churned" | "onboarding" | "active" | "renewal" | "churned" | "all";
+/** "all" is a view filter (no filtering); the other four match
+ *  Client["status"] (AccountStatus) exactly. */
+type StatusFilter = "onboarding" | "active" | "renewal" | "churned" | "all";
 
 function daysToRenewal(iso: string | null): number | null {
   if (!iso) return null;
@@ -73,10 +73,9 @@ export function ClientsTable({
   const [query, setQuery] = useState(initialQuery);
   const [tier, setTier] = useState("all");
   const [csm, setCsm] = useState("all");
-  // "not_churned" (default) hides churned accounts without forcing "Active" to
-  // mean two different things — the four real lifecycle stages (onboarding,
-  // active, renewal, churned) are each individually selectable below.
-  const [status, setStatus] = useState<StatusFilter>("not_churned");
+  // Defaults to "all" — no pre-filtering; the four real lifecycle stages
+  // (onboarding, active, renewal, churned) are each individually selectable.
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [channel, setChannel] = useState("all");
   const [country, setCountry] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("arr");
@@ -95,8 +94,7 @@ export function ClientsTable({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let rows = clients.filter((c) => {
-      if (status === "not_churned" && c.status === "churned") return false;
-      if (status !== "not_churned" && status !== "all" && c.status !== status) return false;
+      if (status !== "all" && c.status !== status) return false;
       if (tier !== "all" && c.health.tier !== tier) return false;
       if (csm !== "all" && c.csm?.id !== csm) return false;
       if (channel !== "all" && channelOf(c) !== channel) return false;
@@ -205,10 +203,8 @@ export function ClientsTable({
       {/* Toolbar */}
       {showActions && (
         <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-3.5">
-          <div className="flex items-baseline gap-1.5" title={isFiltered ? `${filtered.length} of ${clients.length} clients match the current filters` : undefined}>
-            <span className={cn("font-display text-[22px] font-bold leading-none tabular", isFiltered ? "text-sirius" : "text-fg")}>
-              {filtered.length}
-            </span>
+          <div className="flex items-center gap-1.5" title={isFiltered ? `${filtered.length} of ${clients.length} clients match the current filters` : undefined}>
+            <span className="font-display text-lg font-bold leading-none tabular text-fg">{filtered.length}</span>
             <span className="font-body text-[13px] text-fg-muted">
               {isFiltered ? `of ${clients.length} clients` : filtered.length === 1 ? "client" : "clients"}
             </span>
@@ -247,12 +243,11 @@ export function ClientsTable({
           {countries.map((co) => <option key={co} value={co}>{co}</option>)}
         </FilterSelect>
         <FilterSelect value={status} onChange={(v) => setStatus(v as StatusFilter)} label="Status">
-          <option value="not_churned">Active (excl. churned)</option>
+          <option value="all">All statuses</option>
           <option value="onboarding">Onboarding</option>
           <option value="active">Active</option>
           <option value="renewal">Renewal</option>
           <option value="churned">Churned</option>
-          <option value="all">All statuses</option>
         </FilterSelect>
       </div>
 
