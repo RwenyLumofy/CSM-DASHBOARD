@@ -284,7 +284,6 @@ function GeneralTab({
 }) {
   const id = client.id;
   const props = client.properties ?? {};
-  const definedKeys = new Set(propertyDefs.map((d) => d.key));
   // Surfaced in the summary header → excluded from the Account grid.
   const HEADER_KEYS = new Set(["tier"]);
   // Per-deal now — shown on each deal card, not at the account level. Includes
@@ -306,13 +305,6 @@ function GeneralTab({
   const dealOverrides = (props[DEAL_OVERRIDES_KEY] as DealOverridesMap | undefined) ?? {};
   const dealDates = (props[DEAL_DATES_KEY] as DealDatesMap | undefined) ?? {};
   const dealBriefs = (props[DEAL_BRIEFS_KEY] as DealBriefsMap | undefined) ?? {};
-  // Internal/system state that happens to live in the same properties bag but
-  // is never a real client-facing field — must never leak into the "Other"
-  // catch-all. "__usage_env" is the Usage tab's cached Metabase environment
-  // resolution (lib/usage/index.ts's USAGE_ENV_KEY, duplicated here since that
-  // module is server-only and can't be imported into this client component).
-  const INTERNAL_PROP_KEYS = new Set([DEAL_OVERRIDES_KEY, DEAL_DATES_KEY, DEAL_BRIEFS_KEY, STATUS_OVERRIDE_KEY, "__usage_env"]);
-  const extraKeys = Object.keys(props).filter((k) => !INTERNAL_PROP_KEYS.has(k) && !definedKeys.has(k) && hasValue(props[k]));
   const optsFor = (key: string) => selectOpts(propertyDefs.find((d) => d.key === key)?.options);
 
   return (
@@ -356,14 +348,6 @@ function GeneralTab({
           </FieldGrid>
         </Section>
       ))}
-
-      {extraKeys.length > 0 && (
-        <Section icon={FileText} title="Other" defaultOpen={false}>
-          <FieldGrid>
-            {extraKeys.map((k) => <Field key={k} label={humanizeKey(k)}>{renderUnknownValue(props[k])}</Field>)}
-          </FieldGrid>
-        </Section>
-      )}
     </Panel>
   );
 }
@@ -2097,24 +2081,6 @@ function EditInput({
       {buttons}
     </div>
   );
-}
-
-function renderUnknownValue(value: unknown): string {
-  if (Array.isArray(value)) return value.join(", ");
-  if (value && typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    if ("start" in o || "end" in o) {
-      const start = o.start ? formatDate(String(o.start)) : "—";
-      const end = o.end ? formatDate(String(o.end)) : "—";
-      return `${start} – ${end}`;
-    }
-    return JSON.stringify(value);
-  }
-  return String(value);
-}
-
-function humanizeKey(key: string): string {
-  return key.replace(/_prop$/, "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function ComponentBar({ label, value, weight }: { label: string; value: number; weight: number }) {

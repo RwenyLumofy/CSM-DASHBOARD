@@ -92,7 +92,6 @@ function rowToProps(r) {
   if (ref) set("referral_source", REFERRAL_MAP[ref.toLowerCase()] ?? ref);
   set("closed_won_date_prop", flexDate(r["Closed Won Date"]));
   set("contract_effective_date_prop", flexDate(r["Contract Effective Date"]));
-  set("handover_meeting_date", flexDate(r["Handover Meeting Date"]));
   set("invoice_sent_date", flexDate(r["Invoice Sent Date"]));
   set("kickoff_meeting_date", flexDate(r["Kick-Off Meeting"]));
   set("launch_date", flexDate(r["Launch Date"]));
