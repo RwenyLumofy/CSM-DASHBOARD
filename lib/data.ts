@@ -671,13 +671,20 @@ export async function assignImplementationOwner(
   await assignImplementationOwnerToClient(clientId, m.identity, source);
 }
 
-/** Email-or-name → CSM directory, used to resolve owners during bulk import. */
+/** CSM lookup for manual/CSV client creation (rowsToRecords → client.csm).
+ *  Normalizes id to the CSM's email — getCsmUsers() returns the raw
+ *  csm_users directory row, whose own `.id` is a numeric HubSpot owner id,
+ *  not an email. Assigning that raw object left every CSV-created client's
+ *  csm.id unmatchable against the Clients list CSM filter (built from the
+ *  email-keyed getCsms()) — the same bug class as assignCsm()'s legacy path. */
 export async function csmDirectory(): Promise<Map<string, Csm>> {
   const map = new Map<string, Csm>();
   const csms = await getCsmUsers();
   for (const csm of csms) {
-    if (csm.email) map.set(csm.email.toLowerCase(), csm);
-    map.set(csm.name.toLowerCase(), csm);
+    if (!csm.email) continue; // can't assign consistently without one
+    const normalized: Csm = { ...csm, id: csm.email.toLowerCase() };
+    map.set(csm.email.toLowerCase(), normalized);
+    map.set(csm.name.toLowerCase(), normalized);
   }
   return map;
 }
@@ -766,11 +773,16 @@ export async function assignCsm(clientId: string, idOrEmail: string | null): Pro
     await assignCsmToClient(clientId, member.identity, "manual");
     return;
   }
-  // Legacy fallback: a csm_users directory id (HubSpot owner id).
+  // Legacy fallback: a csm_users directory id (HubSpot owner id). Normalize to
+  // the email-keyed identity before writing — assigning the raw directory
+  // object as-is (its own `.id` is the numeric HubSpot owner id, not email)
+  // is exactly what left 73 of 74 clients' csm.id unmatchable against the
+  // Clients list CSM filter (built from the email-keyed getCsms()).
   const csms = await getCsmUsers();
   const csm = csms.find((c) => c.id === idOrEmail);
   if (!csm) throw new Error(`CSM not found: ${idOrEmail}`);
-  await assignCsmToClient(clientId, csm, "manual");
+  if (!csm.email) throw new Error(`CSM "${csm.name}" has no email on file — can't assign consistently.`);
+  await assignCsmToClient(clientId, { ...csm, id: csm.email.toLowerCase() }, "manual");
 }
 
 /* ----------------------------------------------------------------- utils */
