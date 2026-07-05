@@ -13,15 +13,17 @@ let _db: PostgresJsDatabase<typeof schema> | null = null;
 export function getDb(): PostgresJsDatabase<typeof schema> {
   if (!env.databaseUrl) throw new Error("DATABASE_URL is not configured");
   if (!_db) {
-    // Pool size: keep 1 on Vercel serverless (each lambda holds its own
-    // connection; many lambdas must not exhaust the pooler), but use a small
-    // pool locally so a heavy import/sync doesn't serialize and freeze all
-    // page reads behind a single connection.
-    // The client profile fires ~8 reads in parallel; let them run concurrently
-    // instead of serializing behind one connection. Supabase's transaction-mode
-    // pooler (6543) multiplexes, so a few connections per lambda is safe.
+    // Pool size per lambda. A single /clients render fires ~9-10 concurrent
+    // reads (layout's notifications/labels + the page's clients/csms/deals/
+    // props); at max:3 most of them queue behind just 3 connections, and on a
+    // cross-region cold connection that queueing was enough on its own to blow
+    // past withDbTimeout's ceiling and come back empty (seen in prod: a
+    // super-admin's /clients read timed out and showed zero clients even
+    // though the data was fine). Supabase's transaction-mode pooler (6543)
+    // multiplexes far more than this per project, so a modest per-lambda bump
+    // is safe and directly cuts how many queueing "waves" one request needs.
     const isProd = process.env.NODE_ENV === "production";
-    const max = isProd ? 3 : 10;
+    const max = isProd ? 6 : 10;
     // Idle timeout = how long an unused connection stays open before it's closed.
     // The DB is remote (cross-region), so re-opening a connection pays a full
     // TLS+auth handshake (~700ms measured). In dev we keep connections warm for
@@ -65,8 +67,14 @@ export function getDb(): PostgresJsDatabase<typeof schema> {
  * running server-side until the connection is torn down with the lambda. That
  * tradeoff is fine here (small pool, short-lived lambdas) in exchange for not
  * needing every call site to hold onto the raw postgres.js query object.
+ *
+ * 20s was too tight in practice: a merely-slow (not stuck) query under normal
+ * cross-region + connection-queueing conditions tripped it and came back
+ * empty instead of hanging — worse than the timeout itself, since it silently
+ * showed a super-admin zero clients. 45s stays comfortably under Vercel's
+ * 300s function ceiling while giving real queries enough room to finish.
  */
-export function withDbTimeout<T>(promise: Promise<T>, ms = 20_000): Promise<T> {
+export function withDbTimeout<T>(promise: Promise<T>, ms = 45_000): Promise<T> {
   return Promise.race([
     promise,
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`DB read timed out after ${ms}ms`)), ms)),
