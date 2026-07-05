@@ -181,6 +181,14 @@ export function ClientsTable({
   }
 
   const isFiltered = filtered.length !== clients.length;
+  // Same raw sum-across-clients convention as buildPortfolioSummary (lib/metrics/portfolio.ts) —
+  // no currency conversion exists anywhere in the app, so mixed-currency portfolios just add face
+  // values under one label. Unlike that summary, this intentionally does NOT exclude churned
+  // clients: it must track the client count above exactly under every filter, or picking
+  // "Churned" in the status filter would show N clients next to a mismatched/zero ARR.
+  const arrCurrency = clients[0]?.currency ?? "USD";
+  const totalArr = useMemo(() => filtered.reduce((sum, c) => sum + c.arr, 0), [filtered]);
+  const totalArrAll = useMemo(() => clients.reduce((sum, c) => sum + c.arr, 0), [clients]);
   const allSelected = filtered.length > 0 && filtered.every((c) => selected.has(c.id));
   function toggleAll() {
     setSelected((prev) => {
@@ -257,11 +265,19 @@ export function ClientsTable({
       {/* Toolbar */}
       {showActions && (
         <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-3.5">
-          <div className="flex items-center gap-1.5" title={isFiltered ? `${filtered.length} of ${clients.length} clients match the current filters` : undefined}>
-            <span className="font-display text-lg font-bold leading-none tabular text-fg">{filtered.length}</span>
-            <span className="font-body text-[13px] text-fg-muted">
-              {isFiltered ? `of ${clients.length} clients` : filtered.length === 1 ? "client" : "clients"}
-            </span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1.5" title={isFiltered ? `${filtered.length} of ${clients.length} clients match the current filters` : undefined}>
+              <span className="font-display text-lg font-bold leading-none tabular text-fg">{filtered.length}</span>
+              <span className="font-body text-[13px] text-fg-muted">
+                {isFiltered ? `of ${clients.length} clients` : filtered.length === 1 ? "client" : "clients"}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5" title={isFiltered ? `${formatCurrency(totalArr, arrCurrency, { compact: true })} of ${formatCurrency(totalArrAll, arrCurrency, { compact: true })} ARR match the current filters` : undefined}>
+              <span className="font-display text-lg font-bold leading-none tabular text-fg">{formatCurrency(totalArr, arrCurrency, { compact: true })}</span>
+              <span className="font-body text-[13px] text-fg-muted">
+                {isFiltered ? `of ${formatCurrency(totalArrAll, arrCurrency, { compact: true })} ARR` : "ARR"}
+              </span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <ImportDialog />
