@@ -74,24 +74,33 @@ function ownsClient(client: Client, email: string, team: Team | null): boolean {
   return (client.csm?.email ?? "").toLowerCase() === email;
 }
 
+/** Roles that see every client rather than only the ones they own. Unlike
+ *  super_admin this doesn't grant admin actions (user/property management,
+ *  owner reassignment) — it only widens which clients scopeClientsToUser()/
+ *  canSeeClient() let through. */
+function hasFullClientVisibility(role: Role | null): boolean {
+  return role === "super_admin" || role === "csm_officer";
+}
+
 /** True when the given client is visible to the current user (own client / admin). */
 export async function canSeeClient(client: Client | null): Promise<boolean> {
   if (!client) return false;
   const role = await getCurrentUserRole();
-  if (role === "super_admin") return true;
+  if (hasFullClientVisibility(role)) return true;
   if (!role) return false;
   const email = await getCurrentUserEmail();
   return !!email && ownsClient(client, email, teamForRole(role));
 }
 
 /**
- * Restrict a client list to what the current user may see. Super-admins (and
- * dev bypass) see everything; a CSM-team user sees only clients they are the
- * CSM of; an Implementation-team user sees only clients they implement.
+ * Restrict a client list to what the current user may see. Super-admins and
+ * CSM Officers (dev bypass too) see everything; other CSM-team roles see only
+ * clients they're the CSM of; Implementation-team roles see only clients they
+ * implement.
  */
 export async function scopeClientsToUser(clients: Client[]): Promise<Client[]> {
   const role = await getCurrentUserRole();
-  if (role === "super_admin") return clients;
+  if (hasFullClientVisibility(role)) return clients;
   if (!role) return [];
   const email = await getCurrentUserEmail();
   if (!email) return [];
