@@ -155,7 +155,7 @@ export function UsersManager({
                     }
                     className="rounded-lg border border-border bg-surface px-2.5 py-1.5 font-body text-[12.5px] font-semibold text-fg outline-none ring-sirius focus:ring-2 disabled:opacity-50"
                   >
-                    {ROLES.filter((r) => r !== "super_admin").map((r) => (
+                    {ROLES.map((r) => (
                       <option key={r} value={r}>{label(r, roleLabels)}</option>
                     ))}
                   </select>
@@ -221,7 +221,7 @@ export function UsersManager({
                 onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as Role }))}
                 className="rounded-lg border border-border bg-surface px-3 py-2 font-body text-sm text-fg outline-none ring-sirius focus:ring-2"
               >
-                {ROLES.filter((r) => r !== "super_admin").map((r) => (
+                {ROLES.map((r) => (
                   <option key={r} value={r}>{label(r, roleLabels)}</option>
                 ))}
               </select>
