@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Lock, Loader2, AlertTriangle, ShieldCheck, Check } from "lucide-react";
 import { ROLES, DEFAULT_ROLE_LABELS, type Role } from "@/lib/roles";
 import { Avatar } from "@/components/ui/Avatar";
-import { addOrUpdateUserAction, setUserRoleAction, removeUserAction } from "@/app/(app)/settings/user-actions";
+import { addOrUpdateUserAction, removeUserAction } from "@/app/(app)/settings/user-actions";
 
 interface AppUser {
   email: string;
@@ -35,8 +35,9 @@ export function UsersManager({
 }) {
   const router = useRouter();
 
-  // Local role selections — only committed to server when Save is clicked.
+  // Local role/name edits — only committed to server when Save is clicked.
   const [pendingRoles, setPendingRoles] = useState<Record<string, Role>>({});
+  const [pendingNames, setPendingNames] = useState<Record<string, string>>({});
   const [busyEmail, setBusyEmail] = useState<string | null>(null);
   const [savedEmail, setSavedEmail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,17 +50,21 @@ export function UsersManager({
     return pendingRoles[u.email] ?? u.role;
   }
 
-  function isDirty(u: AppUser): boolean {
-    return pendingRoles[u.email] !== undefined && pendingRoles[u.email] !== u.role;
+  function currentName(u: AppUser): string {
+    return pendingNames[u.email] ?? u.name ?? "";
   }
 
-  async function saveRole(u: AppUser) {
-    const role = pendingRoles[u.email];
-    if (!role) return;
+  function isDirty(u: AppUser): boolean {
+    const roleDirty = pendingRoles[u.email] !== undefined && pendingRoles[u.email] !== u.role;
+    const nameDirty = pendingNames[u.email] !== undefined && pendingNames[u.email] !== (u.name ?? "");
+    return roleDirty || nameDirty;
+  }
+
+  async function saveUser(u: AppUser) {
     setBusyEmail(u.email);
     setError(null);
     try {
-      const r = await setUserRoleAction(u.email, role, u.name);
+      const r = await addOrUpdateUserAction({ email: u.email, name: currentName(u), role: currentRole(u) });
       if (!r.ok) {
         setError(r.error ?? "Something went wrong.");
       } else {
@@ -67,6 +72,11 @@ export function UsersManager({
         setTimeout(() => setSavedEmail(null), 2000);
         // Clear pending so the row is no longer dirty.
         setPendingRoles((prev) => {
+          const next = { ...prev };
+          delete next[u.email];
+          return next;
+        });
+        setPendingNames((prev) => {
           const next = { ...prev };
           delete next[u.email];
           return next;
@@ -129,14 +139,25 @@ export function UsersManager({
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="truncate font-body text-[13px] font-semibold text-fg">{u.name ?? u.email}</span>
+                  {u.bootstrap ? (
+                    <span className="truncate font-body text-[13px] font-semibold text-fg">{u.name ?? u.email}</span>
+                  ) : (
+                    <input
+                      type="text"
+                      value={currentName(u)}
+                      onChange={(e) => setPendingNames((prev) => ({ ...prev, [u.email]: e.target.value }))}
+                      placeholder={u.email}
+                      disabled={busy}
+                      className="-mx-1 min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-1 font-body text-[13px] font-semibold text-fg outline-none transition-colors hover:border-border focus:border-border focus:bg-surface focus:ring-2 focus:ring-sirius disabled:opacity-50"
+                    />
+                  )}
                   {isSelf && (
-                    <span className="rounded bg-bg-muted px-1.5 text-[10px] font-semibold uppercase tracking-[0.05em] text-fg-subtle">
+                    <span className="shrink-0 rounded bg-bg-muted px-1.5 text-[10px] font-semibold uppercase tracking-[0.05em] text-fg-subtle">
                       You
                     </span>
                   )}
                 </div>
-                {u.name && <span className="caption block truncate">{u.email}</span>}
+                {currentName(u) && <span className="caption block truncate">{u.email}</span>}
               </div>
 
               {u.bootstrap ? (
@@ -164,7 +185,7 @@ export function UsersManager({
                   {dirty && (
                     <button
                       type="button"
-                      onClick={() => saveRole(u)}
+                      onClick={() => saveUser(u)}
                       disabled={busy}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-sirius px-3 py-1.5 font-body text-[12.5px] font-semibold text-white transition-opacity disabled:opacity-50"
                     >
