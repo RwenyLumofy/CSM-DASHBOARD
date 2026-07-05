@@ -191,6 +191,7 @@ export interface ClientHeaderCardProps {
   name: string;
   industry: string | null;
   country: string | null;
+  tier: string | null;
   statusLabel: string;
   statusTone: "sirius" | "neutral";
   health: HealthScore;
@@ -217,6 +218,7 @@ export function ClientHeaderCard({
   name,
   industry,
   country,
+  tier,
   statusLabel,
   statusTone,
   health,
@@ -248,6 +250,7 @@ export function ClientHeaderCard({
           <div>
             <div className="mb-1.5 flex items-center gap-2">
               <Badge tone={statusTone}>{statusLabel}</Badge>
+              {tier && <Badge tone="neutral">{tier}</Badge>}
               <CompletenessBadge severity={profileSeverity} missingRed={missingRed} missingYellow={missingYellow} />
             </div>
             <h1 className="h3">{name}</h1>

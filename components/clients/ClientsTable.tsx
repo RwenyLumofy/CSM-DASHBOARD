@@ -69,6 +69,14 @@ function channelOf(c: Client): string | null {
   return typeof v === "string" && v.trim() ? v : null;
 }
 
+/** The "Tier" account property (client.properties.tier) — an unrelated,
+ *  same-named concept to Client["health"]["tier"] (healthy/watch/at_risk,
+ *  filtered separately below as the "Health" dropdown). */
+function accountTierOf(c: Client): string | null {
+  const v = c.properties?.tier;
+  return typeof v === "string" && v.trim() ? v : null;
+}
+
 /** Fields available for bulk edit. kind drives the PATCH payload shape. */
 type BulkField =
   | { key: string; label: string; kind: "csm" }
@@ -122,6 +130,7 @@ export function ClientsTable({
   const [customEnd, setCustomEnd] = useState("");
   const [channel, setChannel] = useState("all");
   const [country, setCountry] = useState("all");
+  const [accountTier, setAccountTier] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("arr");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -133,6 +142,7 @@ export function ClientsTable({
 
   const channels = useMemo(() => [...new Set(clients.map(channelOf).filter(Boolean) as string[])].sort(), [clients]);
   const countries = useMemo(() => [...new Set(clients.map((c) => c.country).filter(Boolean) as string[])].sort(), [clients]);
+  const accountTiers = useMemo(() => [...new Set(clients.map(accountTierOf).filter(Boolean) as string[])].sort(), [clients]);
   const propOptions = (key: string) => propertyDefs.find((d) => d.key === key)?.options ?? [];
 
   // Recomputed only when the filter/custom dates actually change, not on
@@ -152,6 +162,7 @@ export function ClientsTable({
       if (csm !== "all" && c.csm?.id !== csm) return false;
       if (channel !== "all" && channelOf(c) !== channel) return false;
       if (country !== "all" && c.country !== country) return false;
+      if (accountTier !== "all" && accountTierOf(c) !== accountTier) return false;
       if (q) {
         const hay = `${c.name} ${c.domain ?? ""} ${c.country ?? ""} ${c.csm?.name ?? ""} ${c.implementationOwner?.name ?? ""} ${c.industry ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -173,7 +184,7 @@ export function ClientsTable({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [clients, query, tier, csm, status, renewalRange, channel, country, sortKey, sortDir]);
+  }, [clients, query, tier, csm, status, renewalRange, channel, country, accountTier, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -311,6 +322,10 @@ export function ClientsTable({
         <FilterSelect value={country} onChange={setCountry} label="Country">
           <option value="all">All countries</option>
           {countries.map((co) => <option key={co} value={co}>{co}</option>)}
+        </FilterSelect>
+        <FilterSelect value={accountTier} onChange={setAccountTier} label="Tier">
+          <option value="all">All tiers</option>
+          {accountTiers.map((t) => <option key={t} value={t}>{t}</option>)}
         </FilterSelect>
         <FilterSelect value={status} onChange={(v) => setStatus(v as StatusFilter)} label="Status">
           <option value="all">All statuses</option>
