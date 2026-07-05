@@ -10,6 +10,7 @@ import { HealthPill } from "@/components/ui/HealthPill";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
 import { ImportDialog } from "@/components/clients/ImportDialog";
 
@@ -19,6 +20,44 @@ type Csm = { id: string; name: string };
 /** "all" is a view filter (no filtering); the other four match
  *  Client["status"] (AccountStatus) exactly. */
 type StatusFilter = "onboarding" | "active" | "renewal" | "churned" | "all";
+type RenewalFilter = "all" | "overdue" | "this_quarter" | "next_quarter" | "next_30" | "next_90" | "custom";
+
+function addDaysIso(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** "YYYY-Qn" -> the following quarter, rolling the year over past Q4. */
+function nextQuarterOf(q: string): string {
+  const m = q.match(/^(\d{4})-Q([1-4])$/)!;
+  let year = Number(m[1]);
+  let qn = Number(m[2]) + 1;
+  if (qn > 4) { qn = 1; year += 1; }
+  return `${year}-Q${qn}`;
+}
+
+/** Half-open [start, end) date range for a renewal filter, or null for "all"
+ *  (no filtering). periodBounds()/currentQuarter() are the same quarter-math
+ *  already used by the ARR/retention reports, so "this/next quarter" here
+ *  matches what those reports mean by a quarter exactly. */
+function renewalBounds(filter: RenewalFilter, customStart: string, customEnd: string): { start: string; end: string } | null {
+  const today = new Date().toISOString().slice(0, 10);
+  switch (filter) {
+    case "all": return null;
+    case "overdue": return { start: "0000-01-01", end: today };
+    case "this_quarter": return periodBounds(currentQuarter());
+    case "next_quarter": return periodBounds(nextQuarterOf(currentQuarter()));
+    case "next_30": return { start: today, end: addDaysIso(today, 30) };
+    case "next_90": return { start: today, end: addDaysIso(today, 90) };
+    case "custom":
+      if (!customStart && !customEnd) return null;
+      // end is exclusive elsewhere in this function, so bump the picked end
+      // date by a day to make it inclusive the way a person reading a date
+      // range picker would expect ("through June 30" includes June 30).
+      return { start: customStart || "0000-01-01", end: customEnd ? addDaysIso(customEnd, 1) : "9999-12-31" };
+  }
+}
 
 function daysToRenewal(iso: string | null): number | null {
   if (!iso) return null;
@@ -76,6 +115,9 @@ export function ClientsTable({
   // Defaults to "all" — no pre-filtering; the four real lifecycle stages
   // (onboarding, active, renewal, churned) are each individually selectable.
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [renewal, setRenewal] = useState<RenewalFilter>("all");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
   const [channel, setChannel] = useState("all");
   const [country, setCountry] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("arr");
@@ -91,10 +133,19 @@ export function ClientsTable({
   const countries = useMemo(() => [...new Set(clients.map((c) => c.country).filter(Boolean) as string[])].sort(), [clients]);
   const propOptions = (key: string) => propertyDefs.find((d) => d.key === key)?.options ?? [];
 
+  // Recomputed only when the filter/custom dates actually change, not on
+  // every render/keystroke elsewhere in the table.
+  const renewalRange = useMemo(() => renewalBounds(renewal, customStart, customEnd), [renewal, customStart, customEnd]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let rows = clients.filter((c) => {
       if (status !== "all" && c.status !== status) return false;
+      if (renewalRange) {
+        if (!c.renewalDate) return false;
+        const d = c.renewalDate.slice(0, 10);
+        if (d < renewalRange.start || d >= renewalRange.end) return false;
+      }
       if (tier !== "all" && c.health.tier !== tier) return false;
       if (csm !== "all" && c.csm?.id !== csm) return false;
       if (channel !== "all" && channelOf(c) !== channel) return false;
@@ -120,7 +171,7 @@ export function ClientsTable({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [clients, query, tier, csm, status, channel, country, sortKey, sortDir]);
+  }, [clients, query, tier, csm, status, renewalRange, channel, country, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -249,6 +300,34 @@ export function ClientsTable({
           <option value="renewal">Renewal</option>
           <option value="churned">Churned</option>
         </FilterSelect>
+        <FilterSelect value={renewal} onChange={(v) => setRenewal(v as RenewalFilter)} label="Renewal">
+          <option value="all">Any renewal date</option>
+          <option value="overdue">Overdue</option>
+          <option value="this_quarter">This quarter</option>
+          <option value="next_quarter">Next quarter</option>
+          <option value="next_30">Next 30 days</option>
+          <option value="next_90">Next 90 days</option>
+          <option value="custom">Custom range…</option>
+        </FilterSelect>
+        {renewal === "custom" && (
+          <span className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              aria-label="Renewal from"
+              className="rounded-md border border-border bg-surface px-2.5 py-2 font-body text-[13px] text-fg-muted outline-none transition-colors focus:border-sirius-200"
+            />
+            <span className="caption">to</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              aria-label="Renewal to"
+              className="rounded-md border border-border bg-surface px-2.5 py-2 font-body text-[13px] text-fg-muted outline-none transition-colors focus:border-sirius-200"
+            />
+          </span>
+        )}
       </div>
 
       {/* Bulk action bar */}
