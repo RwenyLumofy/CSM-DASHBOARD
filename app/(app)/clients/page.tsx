@@ -7,7 +7,7 @@ import { dealOverridesMap, applyDealOverrides, DEAL_DATES_KEY, type DealDatesMap
 import { computeProfileCompleteness, type ProfileCompleteness } from "@/lib/profile-completeness";
 import type { Deal } from "@/lib/types";
 
-export const metadata = { title: "Clients · Lumofy CS" };
+export const metadata = { title: "Clients · Lumofy Signals" };
 export const dynamic = "force-dynamic";
 
 export default async function ClientsPage({

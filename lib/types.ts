@@ -1,5 +1,5 @@
 /* =========================================================================
-   Domain model for the Lumofy CS Dashboard.
+   Domain model for Lumofy Signals.
    These types are the contract between the data sources (HubSpot, Intercom,
    Metabase), the persistence layer, and the UI. Source-specific shapes are
    mapped into these by the integration clients.

@@ -14,7 +14,7 @@ import { hasDatabase, integrations } from "@/lib/config";
 import { cn } from "@/lib/cn";
 import type { LumofyStaffMember } from "@/components/settings/LumofyStaffManager";
 
-export const metadata = { title: "Settings · Lumofy CS" };
+export const metadata = { title: "Settings · Lumofy Signals" };
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {

@@ -7,7 +7,7 @@ import { getClients, getOpenTasks, getPlaybooks } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 import type { PlaybookTrigger } from "@/lib/types";
 
-export const metadata = { title: "Playbooks · Lumofy CS" };
+export const metadata = { title: "Playbooks · Lumofy Signals" };
 
 const TRIGGER_LABEL: Record<PlaybookTrigger, string> = {
   health_below: "Health below",

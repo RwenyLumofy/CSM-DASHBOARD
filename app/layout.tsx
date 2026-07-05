@@ -4,7 +4,7 @@ import { authEnabled } from "@/lib/config";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Lumofy · Customer Success",
+  title: "Lumofy Signals",
   description: "Centralized client data, playbooks, and retention reporting for the Lumofy CSM team.",
   icons: { icon: "/brand/logo-mono-vertical-black.png" },
 };

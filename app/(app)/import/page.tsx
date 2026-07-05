@@ -4,7 +4,7 @@ import { ImportClient } from "@/components/import/ImportClient";
 import { Download } from "lucide-react";
 import { isSuperAdmin } from "@/lib/auth";
 
-export const metadata = { title: "Import clients · Lumofy CS" };
+export const metadata = { title: "Import clients · Lumofy Signals" };
 export const dynamic = "force-dynamic";
 
 // Bulk import writes across the entire clients table (not scoped to "my

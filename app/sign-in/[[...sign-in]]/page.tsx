@@ -97,7 +97,7 @@ export default function SignInPage() {
             textTransform: "uppercase",
             margin: "0 0 32px",
           }}>
-            Customer Success Dashboard
+            Lumofy Signals
           </p>
 
           {/* Heading */}

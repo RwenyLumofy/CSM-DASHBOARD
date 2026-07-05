@@ -1,4 +1,4 @@
-# Lumofy · Customer Success Dashboard
+# Lumofy Signals
 
 A tool for the Lumofy CSM team to **centralize client data**, **run playbooks**, and **report retention** (NRR / GRR / churn / downgrades / health) to upper management.
 

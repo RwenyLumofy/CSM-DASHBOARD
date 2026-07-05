@@ -7,7 +7,7 @@ import { TrendingDown, TrendingUp } from "lucide-react";
 import { getClients, getDowngrades, getPortfolioSummary, getRetention } from "@/lib/data";
 import { formatCurrency, signed } from "@/lib/format";
 
-export const metadata = { title: "Reports · Lumofy CS" };
+export const metadata = { title: "Reports · Lumofy Signals" };
 
 export default async function ReportsPage() {
   const [retention, downgradeList, clients, portfolio] = await Promise.all([

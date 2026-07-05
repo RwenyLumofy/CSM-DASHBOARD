@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { InboxList } from "@/components/inbox/InboxList";
 import { getMyNotifications } from "@/lib/data";
 
-export const metadata = { title: "Action list · Lumofy CS" };
+export const metadata = { title: "Action list · Lumofy Signals" };
 export const dynamic = "force-dynamic";
 
 export default async function InboxPage() {
