@@ -124,7 +124,18 @@ export async function getClientByIdFromDb(id: string): Promise<Client | null> {
 
 /* ------------------------------------------------------------- arr events */
 
-function eventRowToArrEvent(r: EventRow): ArrEvent {
+// effectiveDate/createdAt are non-nullable on ArrEvent (it's a running-balance
+// ledger — an event with no date can't be placed on the timeline), so unlike
+// the optional dates above they can't fall back to null via iso(). A row with
+// an unparseable value here is excluded rather than crashing the whole read —
+// seen once in prod: a single bad row in this map took down getArrEventsFromDb
+// entirely, which zeroed out the clients list for every user via loadSource's
+// shared Promise.all. One malformed ledger row should never do that.
+function eventRowToArrEvent(r: EventRow): ArrEvent | null {
+  if (Number.isNaN(r.effectiveDate?.getTime()) || Number.isNaN(r.createdAt?.getTime())) {
+    console.warn(`[drizzle] arr_events row ${r.id} (client ${r.clientId}) has an invalid date — excluded from read`);
+    return null;
+  }
   return {
     id: r.id,
     clientId: r.clientId,
@@ -161,13 +172,13 @@ function arrEventToRow(e: ArrEvent): typeof schema.arrEvents.$inferInsert {
 export async function getArrEventsFromDb(): Promise<ArrEvent[]> {
   const db = getDb();
   const rows = await db.select().from(schema.arrEvents);
-  return rows.map(eventRowToArrEvent);
+  return rows.map(eventRowToArrEvent).filter((e): e is ArrEvent => e !== null);
 }
 
 export async function getArrEventsByClient(clientId: string): Promise<ArrEvent[]> {
   const db = getDb();
   const rows = await db.select().from(schema.arrEvents).where(eq(schema.arrEvents.clientId, clientId));
-  return rows.map(eventRowToArrEvent);
+  return rows.map(eventRowToArrEvent).filter((e): e is ArrEvent => e !== null);
 }
 
 /* -------------------------------------------------------------- contacts */
