@@ -31,13 +31,21 @@ export function getDb(): PostgresJsDatabase<typeof schema> {
     // them quickly (20s).
     const idle_timeout = isProd ? 20 : 300;
     // `connect_timeout` bounds how long a read waits on an unreachable DB before
-    // failing fast (so pages fall back to sample instead of hanging).
+    // failing fast (so pages fall back to sample instead of hanging). It only
+    // covers the initial handshake though — once connected, a query with no
+    // bound (a stuck lock, a stalled read on the cross-region link) can hang
+    // indefinitely and taken down the whole request until Vercel's own
+    // function-duration ceiling kills it (seen in prod: a plain /clients read
+    // hung 300s and 504'd). `statement_timeout` bounds each query itself so it
+    // throws — which every caller here already catches and falls back on —
+    // long before that.
     const sql = postgres(env.databaseUrl, {
       prepare: false,
       max,
       connect_timeout: 10,
       idle_timeout,
       max_lifetime: 60 * 30,
+      connection: { statement_timeout: 25_000 },
       // Don't let a transient idle-connection error become an unhandled
       // rejection that crashes the dev server; postgres.js will reconnect.
       onnotice: () => {},

@@ -62,7 +62,7 @@ export class IntercomClient {
     // The scroll endpoint returns up to 60 records per call until empty.
     for (let i = 0; i < 1000; i++) {
       const url = `${this.base}/companies/scroll${scroll ? `?scroll_param=${scroll}` : ""}`;
-      const res = await fetch(url, { headers: this.headers(), cache: "no-store" });
+      const res = await fetch(url, { headers: this.headers(), cache: "no-store", signal: AbortSignal.timeout(15_000) });
       if (!res.ok) throw new Error(`Intercom companies/scroll: ${res.status} ${await res.text()}`);
       const data = (await res.json()) as {
         data?: { id: string; company_id?: string; name?: string; website?: string; user_count?: number }[];
@@ -95,7 +95,7 @@ export class IntercomClient {
     let startingAfter: string | undefined;
     for (let i = 0; i < 1000; i++) {
       const url = `${this.base}/contacts?per_page=150${startingAfter ? `&starting_after=${startingAfter}` : ""}`;
-      const res = await fetch(url, { headers: this.headers(), cache: "no-store" });
+      const res = await fetch(url, { headers: this.headers(), cache: "no-store", signal: AbortSignal.timeout(15_000) });
       if (!res.ok) throw new Error(`Intercom contacts: ${res.status} ${await res.text()}`);
       const data = (await res.json()) as {
         data?: { id: string; companies?: { data?: { id: string }[] } }[];
@@ -134,6 +134,7 @@ export class IntercomClient {
         headers: this.headers(),
         body: JSON.stringify(body),
         cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) throw new Error(`Intercom conversations/search: ${res.status} ${await res.text()}`);
       const data = (await res.json()) as {
