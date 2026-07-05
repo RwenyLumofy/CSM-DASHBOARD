@@ -124,6 +124,7 @@ export function ClientsTable({
     else { setSortKey(key); setSortDir(key === "name" ? "asc" : "desc"); }
   }
 
+  const isFiltered = filtered.length !== clients.length;
   const allSelected = filtered.length > 0 && filtered.every((c) => selected.has(c.id));
   function toggleAll() {
     setSelected((prev) => {
@@ -201,7 +202,16 @@ export function ClientsTable({
         <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-3.5">
           <div className="flex items-center gap-2.5">
             <span className="font-body text-[13px] font-semibold text-fg">All clients</span>
-            <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-bg-muted px-1.5 font-body text-[11px] font-semibold tabular text-fg-muted">{clients.length}</span>
+            <span
+              className={cn(
+                "inline-flex h-[20px] items-center justify-center gap-1 whitespace-nowrap rounded-full px-2 font-body text-[11px] font-semibold tabular",
+                isFiltered ? "bg-accent-soft text-sirius" : "bg-bg-muted text-fg-muted",
+              )}
+              title={isFiltered ? `${filtered.length} of ${clients.length} match the current filters` : undefined}
+            >
+              {filtered.length}
+              {isFiltered && <span className="font-normal text-sirius/60">of {clients.length}</span>}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <ImportDialog />
@@ -241,9 +251,6 @@ export function ClientsTable({
           <option value="churned">Churned</option>
           <option value="all">All</option>
         </FilterSelect>
-        <span className="ml-auto caption tabular text-fg-muted">
-          {filtered.length} {filtered.length === 1 ? "client" : "clients"}
-        </span>
       </div>
 
       {/* Bulk action bar */}
