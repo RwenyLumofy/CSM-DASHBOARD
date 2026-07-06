@@ -11,23 +11,32 @@ import type { Client } from "@/lib/types";
 /** Lower-cased primary email of the signed-in user, or null. Cached per request. */
 export const getCurrentUserEmail = cache(async (): Promise<string | null> => {
   if (!authEnabled()) return null;
-  try {
-    // currentUser() is a live call to Clerk's Backend API (unlike auth(), which
-    // just reads the already-verified session JWT) and has no built-in timeout.
-    // Seen hanging in prod right after a fresh OAuth/SSO sign-in — the exact
-    // moment Clerk's backend is doing the most extra work on that session —
-    // which froze the whole page for the full 300s Vercel ceiling. Racing it
-    // against a timeout turns that into a fast, already-handled fallback below
-    // instead of a multi-minute hang.
-    const u = await Promise.race([
-      currentUser(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Clerk currentUser() timed out")), 8_000)),
-    ]);
-    const email = u?.primaryEmailAddress?.emailAddress ?? u?.emailAddresses?.[0]?.emailAddress;
-    return email ? email.toLowerCase() : null;
-  } catch {
-    return null;
+  // currentUser() is a live call to Clerk's Backend API (unlike auth(), which
+  // just reads the already-verified session JWT) and has no built-in timeout.
+  // Seen hanging in prod right after a fresh OAuth/SSO sign-in — the exact
+  // moment Clerk's backend is doing the most extra work on that session — which
+  // froze the whole page for the full 300s Vercel ceiling, so each attempt is
+  // raced against a timeout.
+  //
+  // A null return here cascades badly: the caller's role resolves to null,
+  // which makes canSeeClient / scopeClientsToUser treat even a super-admin as
+  // "no access" — a spurious 404 on a profile, or an EMPTY clients list on the
+  // way back to it. A single slow attempt used to fall straight through to
+  // null; retry once first, since a transient hiccup almost always clears on
+  // the second call. Worst case is 2×6s, still comfortably under the ceiling.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const u = await Promise.race([
+        currentUser(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Clerk currentUser() timed out")), 6_000)),
+      ]);
+      const email = u?.primaryEmailAddress?.emailAddress ?? u?.emailAddresses?.[0]?.emailAddress;
+      return email ? email.toLowerCase() : null; // resolved (email or genuinely none)
+    } catch {
+      // timed out / backend hiccup — fall through to one retry, then null
+    }
   }
+  return null;
 });
 
 /**
