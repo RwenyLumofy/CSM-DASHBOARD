@@ -60,7 +60,18 @@ export async function buildUnifiedData(opts?: { sinceDate?: string }): Promise<{
   warnings.push(...acquisition.warnings);
   const companies = acquisition.companies;
 
-  // --- Intercom: support summaries keyed by domain and name ---------------
+  // --- Intercom: support summaries keyed by environment id (reliable),
+  // domain, and name (fallback for a company HubSpot hasn't linked yet) ----
+  // Intercom's external `company_id` for a company is the SAME UUID as
+  // HubSpot's `mixpanel_company_id` (== environments_environment.id, the key
+  // that already links Metabase usage) — verified via a live cross-check
+  // (2026-07-06) against real accounts. That match is exact and stable, unlike
+  // domain/name: most Intercom companies here have no website set at all, and
+  // names commonly differ from the HubSpot company name (e.g. Intercom "BBK"
+  // vs HubSpot "Bank of Bahrain & Kuwait") — either of which silently drops
+  // the match. Domain/name stay ONLY as a fallback for a company that hasn't
+  // been linked to a platform environment yet (mixpanel_company_id unset).
+  const supportByEnvironmentId = new Map<string, SupportSummary>();
   const supportByDomain = new Map<string, SupportSummary>();
   const supportByName = new Map<string, SupportSummary>();
   if (integrations.intercom()) {
@@ -83,6 +94,7 @@ export async function buildUnifiedData(opts?: { sinceDate?: string }): Promise<{
       }
       for (const co of icCompanies) {
         const summary = summarizeSupport(convByCompany.get(co.id) ?? []);
+        if (co.companyId) supportByEnvironmentId.set(co.companyId.trim().toLowerCase(), summary);
         if (co.domain) supportByDomain.set(co.domain.toLowerCase(), summary);
         supportByName.set(co.name.toLowerCase(), summary);
       }
@@ -140,7 +152,7 @@ export async function buildUnifiedData(opts?: { sinceDate?: string }): Promise<{
       });
     }
 
-    return assembleClient(co, events, quarterStart, owners, supportByDomain, supportByName, usageByKey);
+    return assembleClient(co, events, quarterStart, owners, supportByEnvironmentId, supportByDomain, supportByName, usageByKey);
   });
 
   return {
@@ -429,11 +441,16 @@ function assembleClient(
   events: ArrEvent[],
   quarterStart: string,
   owners: Map<string, HubspotOwner>,
+  supportByEnvironmentId: Map<string, SupportSummary>,
   supportByDomain: Map<string, SupportSummary>,
   supportByName: Map<string, SupportSummary>,
   usageByKey: Map<string, Partial<UsageMetrics> & { seats: number; activeUsers: number }>,
 ): Client {
+  // Reliable UUID match first (see the Intercom block above for why); domain
+  // then name are only a fallback for a company not yet linked to a platform
+  // environment in HubSpot.
   const support =
+    (co.mixpanelCompanyId ? supportByEnvironmentId.get(co.mixpanelCompanyId.trim().toLowerCase()) : undefined) ??
     (co.domain ? supportByDomain.get(co.domain.toLowerCase()) : undefined) ??
     supportByName.get(co.name.toLowerCase()) ??
     emptySupport();

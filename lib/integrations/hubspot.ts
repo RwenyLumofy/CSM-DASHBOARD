@@ -110,6 +110,11 @@ const COMPANY_PROPERTIES = [
   "hs_lastmodifieddate",
   "hubspot_owner_id",
   "csm", // custom company prop — the assigned CSM (a HubSpot owner id)
+  // The Lumofy platform environment UUID (== environments_environment.id).
+  // Already the reliable key linking a company to its Metabase usage data;
+  // fetched here too (free — same batch call) so the sync can link Intercom
+  // support data the same way instead of guessing by domain/company name.
+  "mixpanel_company_id",
 ];
 
 // ---- Types ---------------------------------------------------------------
@@ -139,6 +144,11 @@ export interface HubspotCompany {
   ownerId: string | null;
   /** Value of the company's custom `csm` property — a HubSpot owner id. */
   csmOwnerId: string | null;
+  /** `mixpanel_company_id` — the Lumofy platform environment UUID. Equals
+   *  environments_environment.id (Metabase usage linking) AND, per a live
+   *  cross-check (2026-07-06), Intercom's `company_id` for the same company —
+   *  the reliable key for linking Intercom support data. Null when unset. */
+  mixpanelCompanyId: string | null;
   startedAt: string | null;
   lastModifiedAt: string | null;
   /** Default initial renewal date = latest won close date + 1 year. */
@@ -480,6 +490,7 @@ export class HubSpotClient {
       customerType: p.customer_type ?? null,
       ownerId: p.hubspot_owner_id ?? null,
       csmOwnerId: p.csm ?? null,
+      mixpanelCompanyId: p.mixpanel_company_id?.trim() || null,
       startedAt: isoDate(p.hs_v2_date_entered_customer),
       lastModifiedAt: p.hs_lastmodifieddate ?? null,
       renewalDate: null,
