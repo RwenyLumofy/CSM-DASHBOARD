@@ -9,9 +9,14 @@ import { roleLabel } from "@/lib/roles";
 export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const role = authEnabled() ? await getCurrentUserRole() : null;
-  const [customLabels, notifications, unreadCount] = await Promise.all([
-    role ? getRoleLabels() : Promise.resolve(undefined),
+  // Every one of these used to wait on `role` first — role was awaited ALONE
+  // before this Promise.all even started, so the Clerk/role round-trip
+  // serialized in front of notifications/labels that don't actually need it.
+  // getRoleLabels() degrades to defaults on its own if the DB is unavailable,
+  // so it's safe to fetch unconditionally rather than gating it on role.
+  const [role, customLabels, notifications, unreadCount] = await Promise.all([
+    authEnabled() ? getCurrentUserRole() : Promise.resolve(null),
+    getRoleLabels(),
     getMyNotifications(20),
     getMyUnreadCount(),
   ]);

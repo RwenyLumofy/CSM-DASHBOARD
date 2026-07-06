@@ -64,10 +64,18 @@ const source = cache(loadSource);
 async function loadSource(): Promise<Source> {
   if (hasDatabase() && dbHealthy()) {
     try {
+      // Prime role/email resolution CONCURRENTLY with the DB fetch below —
+      // they're independent (role doesn't depend on which clients come back),
+      // and getCurrentUserRole()/getCurrentUserEmail() are request-cached, so
+      // scopeClientsToUser() below pays nothing extra for it. Was previously
+      // sequential (fetch clients, THEN resolve role), which serialized the
+      // Clerk/role round-trip behind the DB read on every single list load.
+      const rolePrimed = getCurrentUserRole();
       const [allClients, arrEvents] = await withDbTimeout(
         Promise.all([getClientsFromDb(), getArrEventsFromDb()]),
       );
       markDbHealthy();
+      await rolePrimed;
       // Role-scope: CSM tiers see only their own clients; super-admins see all.
       // Applied here so every downstream read (list, dashboard, ARR, retention)
       // is scoped consistently.
@@ -99,8 +107,15 @@ export const getClientById = cache(async (id: string): Promise<Client | null> =>
   if (hasDatabase() && dbHealthy()) {
     try {
       const { getClientByIdFromDb } = await import("@/lib/repo/drizzle");
+      // Prime role resolution CONCURRENTLY with the DB fetch — canSeeClient()
+      // below needs it, but it doesn't depend on THIS client, so there's no
+      // reason to wait for the DB round-trip before starting the Clerk/role
+      // lookup too. Turns "DB read, then Clerk/role read" into max(DB, Clerk)
+      // instead of DB + Clerk.
+      const rolePrimed = getCurrentUserRole();
       const client = await withDbTimeout(getClientByIdFromDb(id));
       markDbHealthy();
+      await rolePrimed;
       // Role-scope: a CSM can't open another CSM's client by guessing the URL.
       return (await canSeeClient(client)) ? client : null;
     } catch (err) {

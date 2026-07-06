@@ -2,7 +2,7 @@
    scopes client data to what that role may see. */
 
 import { cache } from "react";
-import { currentUser } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { authEnabled, env, hasDatabase } from "@/lib/config";
 import { withDbTimeout } from "@/lib/db/client";
 import { DEFAULT_ROLE, isRole, teamForRole, type Role, type Team } from "@/lib/roles";
@@ -11,8 +11,29 @@ import type { Client } from "@/lib/types";
 /** Lower-cased primary email of the signed-in user, or null. Cached per request. */
 export const getCurrentUserEmail = cache(async (): Promise<string | null> => {
   if (!authEnabled()) return null;
-  // currentUser() is a live call to Clerk's Backend API (unlike auth(), which
-  // just reads the already-verified session JWT) and has no built-in timeout.
+
+  // Fast path: read the email straight off the already-verified session JWT.
+  // auth() is LOCAL (cookie + signature check) — no network call — unlike
+  // currentUser() below. This is the actual fix for baseline per-page latency:
+  // previously EVERY page paid a live round-trip to Clerk's Backend API before
+  // anything else could render, because there was no other way to get the
+  // email. Requires a custom "email" claim added in the Clerk Dashboard
+  // (Sessions -> Customize session token, e.g. {"email":
+  // "{{user.primary_email_address}}"}). Until that's configured — or for a
+  // session token issued before it was added — sessionClaims.email is just
+  // undefined and this falls through to the live lookup below, so it's purely
+  // additive and never a behavior change on its own.
+  try {
+    const { sessionClaims } = await auth();
+    const claimEmail = (sessionClaims as { email?: string } | null)?.email;
+    if (claimEmail) return claimEmail.toLowerCase();
+  } catch {
+    /* fall through to the live lookup */
+  }
+
+  // Slow path (fallback). currentUser() is a live call to Clerk's Backend API
+  // (unlike auth(), which just reads the already-verified session JWT) and has
+  // no built-in timeout.
   // Seen hanging in prod right after a fresh OAuth/SSO sign-in — the exact
   // moment Clerk's backend is doing the most extra work on that session — which
   // froze the whole page for the full 300s Vercel ceiling, so each attempt is
