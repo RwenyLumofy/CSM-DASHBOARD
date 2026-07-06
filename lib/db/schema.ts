@@ -335,3 +335,34 @@ export const clientUsageSnapshots = pgTable("client_usage_snapshots", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * AI-generated CSM action feed — the revamped Action List. Unlike
+ * `notifications` (per-recipient, task-like open/done), an action belongs to a
+ * CLIENT and is live GUIDANCE: it auto-resolves when the underlying condition
+ * clears, or a CSM can dismiss it. Visibility follows client visibility (a CSM
+ * sees actions for clients they own; admins/officers see all), so there is no
+ * recipient column. `id` is deterministic (`{clientId}:{category}:{signalKey}`)
+ * so each daily regeneration is an idempotent reconcile, not an append.
+ */
+export const clientActions = pgTable("client_actions", {
+  id: text("id").primaryKey(),
+  clientId: text("client_id").notNull(),
+  // 'incomplete_profile' | 'usage' | 'health' | 'stakeholders' | 'sentiment'
+  category: text("category").notNull(),
+  // Fine-grained signal within a category, e.g. 'prop:products', 'wau_zero',
+  // 'health_at_risk', 'no_stakeholders'. Part of the id, drives reconcile.
+  signalKey: text("signal_key").notNull(),
+  priority: text("priority").notNull(), // 'high' | 'medium' | 'low'
+  title: text("title").notNull(), // the directive (AI-written or templated)
+  insight: text("insight"), // the one-line "why" (AI-written or templated)
+  // 'open' | 'dismissed' (CSM hid it — sticky) | 'resolved' (auto, condition cleared)
+  status: text("status").notNull().default("open"),
+  source: text("source").notNull().default("template"), // 'ai' | 'template'
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+}, (t) => [
+  index("client_actions_client_id_idx").on(t.clientId),
+  index("client_actions_status_idx").on(t.status),
+]);
+

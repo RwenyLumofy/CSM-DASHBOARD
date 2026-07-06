@@ -21,6 +21,12 @@ export const env = {
   metabasePassword: process.env.METABASE_PASSWORD ?? "",
   metabaseUsageCardId: process.env.METABASE_USAGE_CARD_ID ?? "",
 
+  // Gemini — writes the human-readable text for the AI-generated CSM action
+  // feed (lib/actions/*). Optional: without a key the feed still works with
+  // deterministic templated wording; the key only adds AI-written phrasing.
+  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+
   syncSecret: process.env.SYNC_SECRET ?? "",
   cronSecret: process.env.CRON_SECRET ?? "",
 
@@ -52,6 +58,7 @@ export const integrations = {
   intercom: () => env.intercomToken.length > 0,
   metabase: () => env.metabaseUrl.length > 0 && (env.metabaseApiKey.length > 0 || env.metabaseUsername.length > 0),
   supabaseStorage: () => env.supabaseServiceRoleKey.length > 0 && env.supabaseAnonKey.length > 0 && hasDatabase(),
+  gemini: () => env.geminiApiKey.length > 0,
 };
 
 /** Overall mode label used in the UI banner. */

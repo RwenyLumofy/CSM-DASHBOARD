@@ -1341,6 +1341,115 @@ export async function getLatestNotificationDateByType(type: string): Promise<Map
   return map;
 }
 
+/* ----------------------------------------------------------- client actions */
+
+type ClientActionRow = typeof schema.clientActions.$inferSelect;
+
+function clientActionRowTo(r: ClientActionRow): import("@/lib/types").ClientAction {
+  return {
+    id: r.id,
+    clientId: r.clientId,
+    category: r.category as import("@/lib/types").ActionCategory,
+    signalKey: r.signalKey,
+    priority: r.priority as import("@/lib/types").ActionPriority,
+    title: r.title,
+    insight: r.insight,
+    status: (r.status as import("@/lib/types").ActionStatus) ?? "open",
+    source: (r.source as "ai" | "template") ?? "template",
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+    resolvedAt: iso(r.resolvedAt),
+  };
+}
+
+export interface NewClientAction {
+  id: string;
+  clientId: string;
+  category: string;
+  signalKey: string;
+  priority: string;
+  title: string;
+  insight?: string | null;
+  source?: "ai" | "template";
+}
+
+/** All actions for one client (newest first), optionally filtered by status. */
+export async function getClientActionsForClientDb(clientId: string, statuses?: string[]): Promise<import("@/lib/types").ClientAction[]> {
+  const db = getDb();
+  const where = statuses && statuses.length > 0
+    ? and(eq(schema.clientActions.clientId, clientId), inArray(schema.clientActions.status, statuses))
+    : eq(schema.clientActions.clientId, clientId);
+  const rows = await db.select().from(schema.clientActions).where(where).orderBy(desc(schema.clientActions.createdAt));
+  return rows.map(clientActionRowTo);
+}
+
+/** Actions across a set of clients (the visible ones), optionally by status —
+ *  backs the global Action List. Empty clientIds ⇒ empty (no unscoped reads). */
+export async function getClientActionsForClientsDb(clientIds: string[], statuses?: string[]): Promise<import("@/lib/types").ClientAction[]> {
+  if (clientIds.length === 0) return [];
+  const db = getDb();
+  const conds = [inArray(schema.clientActions.clientId, clientIds)];
+  if (statuses && statuses.length > 0) conds.push(inArray(schema.clientActions.status, statuses));
+  const rows = await db.select().from(schema.clientActions).where(and(...conds)).orderBy(desc(schema.clientActions.createdAt));
+  return rows.map(clientActionRowTo);
+}
+
+/**
+ * Reconcile a client's actions against the freshly detected `desired` set
+ * (idempotent — deterministic ids). Inserts new signals as open; refreshes the
+ * text/priority of still-open (or previously auto-resolved) ones and re-opens
+ * them; LEAVES dismissed ones hidden (the CSM's choice is sticky); and
+ * auto-resolves any open action whose signal has cleared (the underlying data
+ * was fixed).
+ */
+export async function reconcileClientActionsDb(clientId: string, desired: NewClientAction[]): Promise<void> {
+  const db = getDb();
+  const existing = await db.select().from(schema.clientActions).where(eq(schema.clientActions.clientId, clientId));
+  const existingById = new Map(existing.map((r) => [r.id, r]));
+  const desiredIds = new Set(desired.map((d) => d.id));
+  const now = new Date();
+
+  for (const d of desired) {
+    const cur = existingById.get(d.id);
+    if (!cur) {
+      await db.insert(schema.clientActions).values({
+        id: d.id, clientId: d.clientId, category: d.category, signalKey: d.signalKey,
+        priority: d.priority, title: d.title, insight: d.insight ?? null,
+        status: "open", source: d.source ?? "template", createdAt: now, updatedAt: now,
+      }).onConflictDoNothing({ target: schema.clientActions.id });
+    } else if (cur.status === "dismissed") {
+      // Respect the CSM's dismissal — stay hidden across regenerations.
+    } else {
+      await db.update(schema.clientActions)
+        .set({ title: d.title, insight: d.insight ?? null, priority: d.priority, source: d.source ?? "template", status: "open", resolvedAt: null, updatedAt: now })
+        .where(eq(schema.clientActions.id, d.id));
+    }
+  }
+
+  const toResolve = existing.filter((r) => r.status === "open" && !desiredIds.has(r.id)).map((r) => r.id);
+  if (toResolve.length > 0) {
+    await db.update(schema.clientActions)
+      .set({ status: "resolved", resolvedAt: now, updatedAt: now })
+      .where(and(eq(schema.clientActions.clientId, clientId), inArray(schema.clientActions.id, toResolve)));
+  }
+}
+
+/** Dismiss (hide, sticky) or re-open a single action. Authorization (can the
+ *  caller see this action's client) is enforced by the calling layer. */
+export async function setClientActionStatusDb(id: string, status: "open" | "dismissed"): Promise<void> {
+  const db = getDb();
+  await db.update(schema.clientActions)
+    .set({ status, resolvedAt: null, updatedAt: new Date() })
+    .where(eq(schema.clientActions.id, id));
+}
+
+/** The client id an action belongs to (for authorization before status change). */
+export async function getClientActionClientIdDb(id: string): Promise<string | null> {
+  const db = getDb();
+  const rows = await db.select({ clientId: schema.clientActions.clientId }).from(schema.clientActions).where(eq(schema.clientActions.id, id)).limit(1);
+  return rows[0]?.clientId ?? null;
+}
+
 /* -------------------------------------------------------- admin: clear data */
 
 /**

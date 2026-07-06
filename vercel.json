@@ -12,6 +12,10 @@
     {
       "path": "/api/cron/profile-completeness",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/client-actions",
+      "schedule": "0 8 * * *"
     }
   ]
 }

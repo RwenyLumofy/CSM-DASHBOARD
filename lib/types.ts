@@ -432,6 +432,38 @@ export interface Notification {
   createdAt: string; // ISO
 }
 
+/* ---------- AI action feed (the revamped Action List) ------------------ */
+
+/** The six directive categories a CSM action can belong to. `sentiment`
+ *  (low NPS/CSAT) is defined but dormant until a sentiment source is wired;
+ *  `projects` and stakeholder-engagement arrive with those features. */
+export type ActionCategory =
+  | "incomplete_profile"
+  | "usage"
+  | "health"
+  | "stakeholders"
+  | "sentiment";
+
+export type ActionPriority = "high" | "medium" | "low";
+/** open = active guidance; dismissed = CSM hid it (sticky across regens);
+ *  resolved = auto-closed because the underlying condition cleared. */
+export type ActionStatus = "open" | "dismissed" | "resolved";
+
+export interface ClientAction {
+  id: string; // `${clientId}:${category}:${signalKey}`
+  clientId: string;
+  category: ActionCategory;
+  signalKey: string;
+  priority: ActionPriority;
+  title: string;
+  insight: string | null;
+  status: ActionStatus;
+  source: "ai" | "template";
+  createdAt: string; // ISO
+  updatedAt: string; // ISO
+  resolvedAt: string | null; // ISO
+}
+
 /* ---------- Reporting / metrics ---------------------------------------- */
 
 /** Per-account ARR snapshot for a period — the basis for NRR / GRR. */

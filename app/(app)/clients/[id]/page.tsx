@@ -10,6 +10,7 @@ import {
   getDealsForClient,
   getEmailsForClient,
   getMeetingsForClient,
+  getClientActionsFor,
   getPropertyDefinitions,
   getRoleLabels,
   getTeamMembers,
@@ -35,7 +36,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const client = await getClientById(id);
   if (!client) notFound();
 
-  const [timeline, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin] =
+  const [timeline, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions] =
     await Promise.all([
       getTimelineForClient(id),
       getAttachmentsForClient(id),
@@ -48,6 +49,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       getTeamMembers("implementation"),
       getRoleLabels(),
       isSuperAdmin(),
+      getClientActionsFor(id),
     ]);
   const ownerOptions = (ms: typeof csmMembers) => ms.map((m) => ({ email: m.email, name: m.name ?? m.email, role: m.role }));
 
@@ -127,6 +129,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         timeline={timeline}
         propertyDefs={propertyDefs}
         supabaseUrl={supabaseUrl}
+        clientActions={clientActions}
       />
     </div>
   );

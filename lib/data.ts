@@ -7,10 +7,12 @@
 import { cache } from "react";
 import { randomUUID } from "node:crypto";
 import type {
+  AccountStatus,
   ArrEvent,
   ArrEventInput,
   Attachment,
   Client,
+  ClientAction,
   Contact,
   Csm,
   Deal,
@@ -591,6 +593,79 @@ export async function getSuperAdminEmails(): Promise<string[]> {
   const users = await getAppUsers();
   for (const u of users) if (u.role === "super_admin") set.add(u.email.toLowerCase());
   return [...set];
+}
+
+/* ------------------------------------------------ AI action list (client actions) */
+
+/** An open action joined with its client's display fields, for the global feed. */
+export interface ClientActionWithMeta extends ClientAction {
+  clientName: string;
+  clientStatus: AccountStatus;
+  csmName: string | null;
+}
+
+/** Open actions across every client the signed-in user may see (role-scoped
+ *  via getClients), joined with client display fields. Backs the global
+ *  Action List. Dismissed/resolved are hidden — this is the active feed. */
+export async function getMyClientActions(): Promise<ClientActionWithMeta[]> {
+  if (!hasDatabase() || !dbHealthy()) return [];
+  try {
+    const clients = await getClients();
+    if (clients.length === 0) return [];
+    const byId = new Map(clients.map((c) => [c.id, c]));
+    const { getClientActionsForClientsDb } = await import("@/lib/repo/drizzle");
+    const actions = await withDbTimeout(getClientActionsForClientsDb([...byId.keys()], ["open"]));
+    return actions.map((a) => {
+      const c = byId.get(a.clientId)!;
+      return { ...a, clientName: c.name, clientStatus: c.status, csmName: c.csm?.name ?? null };
+    });
+  } catch (err) {
+    console.warn("[data] getMyClientActions failed:", err);
+    return [];
+  }
+}
+
+/** Open actions for one client (the per-client Actions tab). Role-scoped: a
+ *  user who can't see the client gets nothing. */
+export async function getClientActionsFor(clientId: string): Promise<ClientAction[]> {
+  if (!hasDatabase() || !dbHealthy()) return [];
+  const client = await getClientById(clientId); // role-scoped; null if not visible
+  if (!client) return [];
+  try {
+    const { getClientActionsForClientDb } = await import("@/lib/repo/drizzle");
+    return await withDbTimeout(getClientActionsForClientDb(clientId, ["open"]));
+  } catch (err) {
+    console.warn("[data] getClientActionsFor failed:", err);
+    return [];
+  }
+}
+
+/** Dismiss (hide) or re-open an action — authorized by the action's client
+ *  being visible to the caller. */
+export async function setClientActionStatus(id: string, status: "open" | "dismissed"): Promise<void> {
+  if (!hasDatabase()) return;
+  const { getClientActionClientIdDb, setClientActionStatusDb } = await import("@/lib/repo/drizzle");
+  const clientId = await getClientActionClientIdDb(id);
+  if (!clientId) return;
+  if (!(await getClientById(clientId))) return; // authorize via visibility
+  await setClientActionStatusDb(id, status);
+}
+
+/** Regenerate one client's actions (per-client "Regenerate"). Authorized. */
+export async function regenerateActionsForClient(clientId: string): Promise<void> {
+  if (!hasDatabase()) return;
+  if (!(await getClientById(clientId))) return; // authorize
+  const { generateActionsForClient } = await import("@/lib/actions/generate");
+  await generateActionsForClient(clientId);
+}
+
+/** Regenerate actions for every client the caller can see (global "Regenerate"). */
+export async function regenerateMyClientActions(): Promise<void> {
+  if (!hasDatabase()) return;
+  const clients = await getClients();
+  if (clients.length === 0) return;
+  const { generateActionsForClients } = await import("@/lib/actions/generate");
+  await generateActionsForClients(clients.map((c) => c.id));
 }
 
 /* --------------------------------------------------------- team members */

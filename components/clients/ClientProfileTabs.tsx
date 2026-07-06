@@ -85,6 +85,7 @@ import {
 import type {
   Attachment,
   Client,
+  ClientAction,
   Contact,
   Deal,
   Email,
@@ -93,6 +94,7 @@ import type {
   PropertyDefinition,
   TimelineEvent,
 } from "@/lib/types";
+import { ActionFeed } from "@/components/actions/ActionFeed";
 
 type TabKey =
   | "general"
@@ -117,10 +119,12 @@ interface Props {
   /** Supabase project URL for direct-to-storage attachment uploads, or null
    *  when SUPABASE_SERVICE_ROLE_KEY / NEXT_PUBLIC_SUPABASE_ANON_KEY aren't set. */
   supabaseUrl: string | null;
+  /** Open AI actions for this client (the "Action list" tab). */
+  clientActions: ClientAction[];
 }
 
 export function ClientProfileTabs(props: Props) {
-  const { client, deals, emails, meetings, contacts, attachments, timeline, propertyDefs, supabaseUrl } = props;
+  const { client, deals, emails, meetings, contacts, attachments, timeline, propertyDefs, supabaseUrl, clientActions } = props;
   const [active, setActive] = useState<TabKey>("general");
 
   const commCount = contacts.length + emails.length + meetings.length;
@@ -134,7 +138,7 @@ export function ClientProfileTabs(props: Props) {
     { key: "satisfaction", label: "Satisfaction indicator", icon: Gauge },
     { key: "projects", label: "Project Management", icon: FolderKanban },
     { key: "notes", label: "Notes", icon: StickyNote },
-    { key: "actions", label: "Action list", icon: ListChecks },
+    { key: "actions", label: "Action list", icon: ListChecks, count: clientActions.length || undefined },
   ];
 
   return (
@@ -179,7 +183,7 @@ export function ClientProfileTabs(props: Props) {
         {active === "satisfaction" && <SatisfactionTab client={client} />}
         {active === "projects" && <ProjectsTab />}
         {active === "notes" && <NotesTab timeline={timeline} />}
-        {active === "actions" && <ActionsTab client={client} />}
+        {active === "actions" && <ActionsTab client={client} actions={clientActions} />}
       </div>
     </div>
   );
@@ -1497,15 +1501,30 @@ function NotesTab({ timeline }: { timeline: TimelineEvent[] }) {
 /* Action list — health breakdown + auto-calc placeholder                 */
 /* ===================================================================== */
 
-function ActionsTab({ client }: { client: Client }) {
+function ActionsTab({ client, actions }: { client: Client; actions: ClientAction[] }) {
   return (
     <>
       <Card>
         <CardEyebrow>Action list</CardEyebrow>
-        <EmptyHint
-          icon={ListChecks}
-          title="Actions will be auto-generated"
-          body="Once the health formula is configured, this list will surface the actions most likely to protect or recover this account's health — driven by the signals below."
+        <p className="mb-4 mt-0.5 font-body text-[12px] leading-relaxed text-fg-subtle">
+          AI-guided next steps for {client.name}, from this account&rsquo;s live readings — missing data, quiet usage, health
+          dips, stakeholder gaps. These are guidance, not tasks: dismiss one to hide it, or it clears itself once the
+          underlying situation resolves. Regenerate to refresh.
+        </p>
+        <ActionFeed
+          mode="client"
+          clientId={client.id}
+          items={actions.map((a) => ({
+            id: a.id,
+            clientId: a.clientId,
+            category: a.category,
+            signalKey: a.signalKey,
+            priority: a.priority,
+            title: a.title,
+            insight: a.insight,
+            source: a.source,
+            clientName: client.name,
+          }))}
         />
       </Card>
       <Card>
