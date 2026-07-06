@@ -6,6 +6,7 @@
 
 import { hasDatabase } from "@/lib/config";
 import { dbHealthy } from "@/lib/db/health";
+import { withDbTimeout } from "@/lib/db/client";
 import type {
   CapacityConfig,
   CsmAssignmentConfig,
@@ -52,7 +53,7 @@ async function readConfig<T>(key: string, fallback: T): Promise<T> {
   if (hasDatabase() && dbHealthy()) {
     try {
       const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
-      const stored = await getWorkspaceConfigFromDb(key);
+      const stored = await withDbTimeout(getWorkspaceConfigFromDb(key));
       if (stored && typeof stored === "object") {
         return { ...fallback, ...(stored as Partial<T>) };
       }

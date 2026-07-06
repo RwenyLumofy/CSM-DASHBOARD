@@ -67,14 +67,22 @@ function rowToClient(r: Row): Client {
     segment: (r.segment as Client["segment"]) ?? "smb",
     logoUrl: r.logoUrl,
     hubspotUrl: r.hubspotUrl ?? undefined,
-    health: (r.health as HealthScore) ?? emptyHealth(),
-    // Spread onto emptySupport(), not `?? emptySupport()` — a client whose
-    // `support` predates a field added later (slaBreaches/supportLevelUsed,
-    // 2026-07-06) has a real, non-null JSONB blob that's just missing those
-    // keys; `??` would never fall back for it, leaving the field truly
-    // undefined at runtime and crashing the first reader that iterates it.
+    // Spread onto empty*(), not `?? empty*()`, for the same reason across all
+    // three JSONB-typed fields: a client whose blob predates a field added
+    // later to the type is non-null but missing that key, so `??` would never
+    // fall back for it — the field stays truly undefined at runtime and
+    // crashes the first reader that iterates it (this already happened once,
+    // for `support`'s slaBreaches/supportLevelUsed, 2026-07-06). health/usage
+    // haven't been extended since their original definition — no writer today
+    // produces a partial blob for either — but this is cheap, forward-looking
+    // insurance against the exact same class of bug recurring.
+    health: {
+      ...emptyHealth(),
+      ...(r.health as Partial<HealthScore> | null),
+      components: { ...emptyHealth().components, ...(r.health as Partial<HealthScore> | null)?.components },
+    },
     support: { ...emptySupport(), ...(r.support as Partial<SupportSummary> | null) },
-    usage: (r.usage as UsageMetrics) ?? emptyUsage(),
+    usage: { ...emptyUsage(), ...(r.usage as Partial<UsageMetrics> | null) },
     tags: r.tags ?? [],
     properties: (r.properties as Record<string, unknown>) ?? {},
   };
@@ -214,18 +222,20 @@ export async function getContactsByClient(clientId: string): Promise<Contact[]> 
  *  so it can never collide with a HubSpot-synced row). */
 export async function insertClientContact(c: Contact): Promise<void> {
   const db = getDb();
-  await db.insert(schema.clientContacts).values({
-    id: c.id,
-    clientId: c.clientId,
-    hubspotContactId: c.hubspotContactId,
-    firstName: c.firstName,
-    lastName: c.lastName,
-    email: c.email,
-    phone: c.phone,
-    jobTitle: c.jobTitle,
-    isPrimary: c.isPrimary,
-    createdAt: new Date(c.createdAt),
-  });
+  await withDbTimeout(
+    db.insert(schema.clientContacts).values({
+      id: c.id,
+      clientId: c.clientId,
+      hubspotContactId: c.hubspotContactId,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      email: c.email,
+      phone: c.phone,
+      jobTitle: c.jobTitle,
+      isPrimary: c.isPrimary,
+      createdAt: new Date(c.createdAt),
+    }),
+  );
 }
 
 /** Delete a manually-added contact. Refuses to delete a HubSpot-synced row
@@ -233,9 +243,11 @@ export async function insertClientContact(c: Contact): Promise<void> {
  *  at best, misleading at worst). */
 export async function deleteManualContact(clientId: string, contactId: string): Promise<void> {
   const db = getDb();
-  await db
-    .delete(schema.clientContacts)
-    .where(and(eq(schema.clientContacts.id, contactId), eq(schema.clientContacts.clientId, clientId), isNull(schema.clientContacts.hubspotContactId)));
+  await withDbTimeout(
+    db
+      .delete(schema.clientContacts)
+      .where(and(eq(schema.clientContacts.id, contactId), eq(schema.clientContacts.clientId, clientId), isNull(schema.clientContacts.hubspotContactId))),
+  );
 }
 
 /* ------------------------------------------------------------ attachments */
@@ -266,37 +278,43 @@ export async function getAttachmentsByClient(clientId: string): Promise<Attachme
  *  probe or delete another client's row. */
 export async function getAttachmentById(clientId: string, attachmentId: string): Promise<Attachment | null> {
   const db = getDb();
-  const rows = await db
-    .select()
-    .from(schema.clientAttachments)
-    .where(and(eq(schema.clientAttachments.id, attachmentId), eq(schema.clientAttachments.clientId, clientId)))
-    .limit(1);
+  const rows = await withDbTimeout(
+    db
+      .select()
+      .from(schema.clientAttachments)
+      .where(and(eq(schema.clientAttachments.id, attachmentId), eq(schema.clientAttachments.clientId, clientId)))
+      .limit(1),
+  );
   return rows[0] ? attachmentRowTo(rows[0]) : null;
 }
 
 export async function deleteClientAttachment(clientId: string, attachmentId: string): Promise<void> {
   const db = getDb();
-  await db
-    .delete(schema.clientAttachments)
-    .where(and(eq(schema.clientAttachments.id, attachmentId), eq(schema.clientAttachments.clientId, clientId)));
+  await withDbTimeout(
+    db
+      .delete(schema.clientAttachments)
+      .where(and(eq(schema.clientAttachments.id, attachmentId), eq(schema.clientAttachments.clientId, clientId))),
+  );
 }
 
 /** Record a manually-uploaded attachment (hubspotFileId stays null — the
  *  wipe-HubSpot-data path only deletes rows where it's set, so these survive). */
 export async function insertClientAttachment(a: Attachment): Promise<void> {
   const db = getDb();
-  await db.insert(schema.clientAttachments).values({
-    id: a.id,
-    clientId: a.clientId,
-    hubspotFileId: a.hubspotFileId,
-    dealId: a.dealId,
-    name: a.name,
-    url: a.url,
-    extension: a.extension,
-    size: a.size,
-    storagePath: a.storagePath,
-    createdAt: new Date(a.createdAt),
-  });
+  await withDbTimeout(
+    db.insert(schema.clientAttachments).values({
+      id: a.id,
+      clientId: a.clientId,
+      hubspotFileId: a.hubspotFileId,
+      dealId: a.dealId,
+      name: a.name,
+      url: a.url,
+      extension: a.extension,
+      size: a.size,
+      storagePath: a.storagePath,
+      createdAt: new Date(a.createdAt),
+    }),
+  );
 }
 
 /* ---------------------------------------------------------------- deals */
@@ -937,14 +955,16 @@ export async function getPropertyDefinitionsFromDb(): Promise<PropertyDefinition
 
 export async function upsertPropertyDefinition(def: PropertyDefinition): Promise<void> {
   const db = getDb();
-  await db
-    .insert(schema.propertyDefinitions)
-    .values({ key: def.key, label: def.label, type: def.type, options: def.options, hiddenOptions: def.hiddenOptions ?? [], group: def.group, sortOrder: def.sortOrder, isSystem: def.isSystem, isReadOnly: def.isReadOnly })
-    .onConflictDoUpdate({
-      target: schema.propertyDefinitions.key,
-      // hiddenOptions intentionally excluded — sync must never overwrite user's visibility settings
-      set: { label: def.label, options: def.options, sortOrder: def.sortOrder },
-    });
+  await withDbTimeout(
+    db
+      .insert(schema.propertyDefinitions)
+      .values({ key: def.key, label: def.label, type: def.type, options: def.options, hiddenOptions: def.hiddenOptions ?? [], group: def.group, sortOrder: def.sortOrder, isSystem: def.isSystem, isReadOnly: def.isReadOnly })
+      .onConflictDoUpdate({
+        target: schema.propertyDefinitions.key,
+        // hiddenOptions intentionally excluded — sync must never overwrite user's visibility settings
+        set: { label: def.label, options: def.options, sortOrder: def.sortOrder },
+      }),
+  );
 }
 
 /**
@@ -960,33 +980,37 @@ export async function upsertPropertyDefinition(def: PropertyDefinition): Promise
  */
 export async function upsertPropertyDefinitionOptions(def: PropertyDefinition): Promise<void> {
   const db = getDb();
-  await db
-    .insert(schema.propertyDefinitions)
-    .values({ key: def.key, label: def.label, type: def.type, options: def.options, hiddenOptions: def.hiddenOptions ?? [], group: def.group, sortOrder: def.sortOrder, isSystem: def.isSystem, isReadOnly: def.isReadOnly })
-    .onConflictDoUpdate({
-      target: schema.propertyDefinitions.key,
-      // label/sortOrder/group/hiddenOptions intentionally excluded — sync
-      // must only ever own the option list, never revert an admin's rename.
-      set: { options: def.options },
-    });
+  await withDbTimeout(
+    db
+      .insert(schema.propertyDefinitions)
+      .values({ key: def.key, label: def.label, type: def.type, options: def.options, hiddenOptions: def.hiddenOptions ?? [], group: def.group, sortOrder: def.sortOrder, isSystem: def.isSystem, isReadOnly: def.isReadOnly })
+      .onConflictDoUpdate({
+        target: schema.propertyDefinitions.key,
+        // label/sortOrder/group/hiddenOptions intentionally excluded — sync
+        // must only ever own the option list, never revert an admin's rename.
+        set: { options: def.options },
+      }),
+  );
 }
 
 export async function updatePropertyHiddenOptions(key: string, hiddenOptions: string[]): Promise<void> {
   const db = getDb();
-  await db.update(schema.propertyDefinitions).set({ hiddenOptions }).where(eq(schema.propertyDefinitions.key, key));
+  await withDbTimeout(db.update(schema.propertyDefinitions).set({ hiddenOptions }).where(eq(schema.propertyDefinitions.key, key)));
 }
 
 export async function updatePropertyOptions(key: string, options: string[]): Promise<void> {
   const db = getDb();
-  await db.update(schema.propertyDefinitions).set({ options }).where(eq(schema.propertyDefinitions.key, key));
+  await withDbTimeout(db.update(schema.propertyDefinitions).set({ options }).where(eq(schema.propertyDefinitions.key, key)));
 }
 
 export async function addPropertyOption(key: string, option: string): Promise<void> {
   const db = getDb();
-  const rows = await db.select({ options: schema.propertyDefinitions.options }).from(schema.propertyDefinitions).where(eq(schema.propertyDefinitions.key, key)).limit(1);
+  const rows = await withDbTimeout(
+    db.select({ options: schema.propertyDefinitions.options }).from(schema.propertyDefinitions).where(eq(schema.propertyDefinitions.key, key)).limit(1),
+  );
   const current = (rows[0]?.options as string[]) ?? [];
   if (current.includes(option)) return;
-  await db.update(schema.propertyDefinitions).set({ options: [...current, option] }).where(eq(schema.propertyDefinitions.key, key));
+  await withDbTimeout(db.update(schema.propertyDefinitions).set({ options: [...current, option] }).where(eq(schema.propertyDefinitions.key, key)));
 }
 
 export async function updateClientProperties(clientId: string, properties: Record<string, unknown>): Promise<void> {
@@ -1056,10 +1080,12 @@ export async function getCsmUsersFromDb(): Promise<import("@/lib/types").Csm[]> 
 
 export async function upsertCsmUser(user: { id: string; name: string; email: string; initials: string }): Promise<void> {
   const db = getDb();
-  await db
-    .insert(schema.csmUsers)
-    .values({ ...user, active: true })
-    .onConflictDoUpdate({ target: schema.csmUsers.id, set: { name: user.name, email: user.email, initials: user.initials } });
+  await withDbTimeout(
+    db
+      .insert(schema.csmUsers)
+      .values({ ...user, active: true })
+      .onConflictDoUpdate({ target: schema.csmUsers.id, set: { name: user.name, email: user.email, initials: user.initials } }),
+  );
 }
 
 /** Set (or clear, when value is null) a single key on a client's properties
@@ -1089,10 +1115,12 @@ export async function assignCsmToClient(
   source: import("@/lib/types").AssignmentSource | null = "manual",
 ): Promise<void> {
   const db = getDb();
-  await db
-    .update(schema.clients)
-    .set({ csm, csmSource: csm ? source : null, updatedAt: new Date() })
-    .where(eq(schema.clients.id, clientId));
+  await withDbTimeout(
+    db
+      .update(schema.clients)
+      .set({ csm, csmSource: csm ? source : null, updatedAt: new Date() })
+      .where(eq(schema.clients.id, clientId)),
+  );
 }
 
 export async function assignImplementationOwnerToClient(
@@ -1101,10 +1129,12 @@ export async function assignImplementationOwnerToClient(
   source: import("@/lib/types").AssignmentSource | null = "manual",
 ): Promise<void> {
   const db = getDb();
-  await db
-    .update(schema.clients)
-    .set({ implementationOwner: owner, implementationOwnerSource: owner ? source : null, updatedAt: new Date() })
-    .where(eq(schema.clients.id, clientId));
+  await withDbTimeout(
+    db
+      .update(schema.clients)
+      .set({ implementationOwner: owner, implementationOwnerSource: owner ? source : null, updatedAt: new Date() })
+      .where(eq(schema.clients.id, clientId)),
+  );
 }
 
 /* ----------------------------------------------------------- app users / roles */
@@ -1332,28 +1362,34 @@ export async function getUnreadCountForUserDb(email: string): Promise<number> {
 /** Mark one notification read (only if it belongs to `email`). */
 export async function markNotificationReadDb(id: string, email: string): Promise<void> {
   const db = getDb();
-  await db
-    .update(schema.notifications)
-    .set({ readAt: new Date() })
-    .where(and(eq(schema.notifications.id, id), eq(schema.notifications.recipientEmail, email.toLowerCase())));
+  await withDbTimeout(
+    db
+      .update(schema.notifications)
+      .set({ readAt: new Date() })
+      .where(and(eq(schema.notifications.id, id), eq(schema.notifications.recipientEmail, email.toLowerCase()))),
+  );
 }
 
 /** Mark all of a user's notifications read. */
 export async function markAllNotificationsReadDb(email: string): Promise<void> {
   const db = getDb();
-  await db
-    .update(schema.notifications)
-    .set({ readAt: new Date() })
-    .where(and(eq(schema.notifications.recipientEmail, email.toLowerCase()), isNull(schema.notifications.readAt)));
+  await withDbTimeout(
+    db
+      .update(schema.notifications)
+      .set({ readAt: new Date() })
+      .where(and(eq(schema.notifications.recipientEmail, email.toLowerCase()), isNull(schema.notifications.readAt))),
+  );
 }
 
 /** Resolve (or reopen) an action item the user owns. */
 export async function setNotificationStatusDb(id: string, email: string, status: "open" | "done"): Promise<void> {
   const db = getDb();
-  await db
-    .update(schema.notifications)
-    .set({ status })
-    .where(and(eq(schema.notifications.id, id), eq(schema.notifications.recipientEmail, email.toLowerCase())));
+  await withDbTimeout(
+    db
+      .update(schema.notifications)
+      .set({ status })
+      .where(and(eq(schema.notifications.id, id), eq(schema.notifications.recipientEmail, email.toLowerCase()))),
+  );
 }
 
 /** Resolve any open action items tied to a client+type (e.g. when an admin
@@ -1485,15 +1521,19 @@ export async function reconcileClientActionsDb(clientId: string, desired: NewCli
  *  caller see this action's client) is enforced by the calling layer. */
 export async function setClientActionStatusDb(id: string, status: "open" | "dismissed"): Promise<void> {
   const db = getDb();
-  await db.update(schema.clientActions)
-    .set({ status, resolvedAt: null, updatedAt: new Date() })
-    .where(eq(schema.clientActions.id, id));
+  await withDbTimeout(
+    db.update(schema.clientActions)
+      .set({ status, resolvedAt: null, updatedAt: new Date() })
+      .where(eq(schema.clientActions.id, id)),
+  );
 }
 
 /** The client id an action belongs to (for authorization before status change). */
 export async function getClientActionClientIdDb(id: string): Promise<string | null> {
   const db = getDb();
-  const rows = await db.select({ clientId: schema.clientActions.clientId }).from(schema.clientActions).where(eq(schema.clientActions.id, id)).limit(1);
+  const rows = await withDbTimeout(
+    db.select({ clientId: schema.clientActions.clientId }).from(schema.clientActions).where(eq(schema.clientActions.id, id)).limit(1),
+  );
   return rows[0]?.clientId ?? null;
 }
 

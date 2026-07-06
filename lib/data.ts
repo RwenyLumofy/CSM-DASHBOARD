@@ -865,7 +865,7 @@ export async function updateClientDetails(
     await assignImplementationOwner(clientId, payload.implementationOwnerEmail);
   }
   if (payload.fields && Object.keys(payload.fields).length > 0) {
-    await updateClientFields(clientId, payload.fields as import("@/lib/repo/drizzle").ClientFieldUpdate);
+    await withDbTimeout(updateClientFields(clientId, payload.fields as import("@/lib/repo/drizzle").ClientFieldUpdate));
   }
   if (payload.properties) {
     // MERGE over existing so a single-field inline edit never wipes the rest.
@@ -881,7 +881,7 @@ export async function updateClientDetails(
       for (const f of touchedRecomputed) overridden.add(f);
       merged[FIELD_OVERRIDES_KEY] = [...overridden];
     }
-    await updateClientProperties(clientId, merged);
+    await withDbTimeout(updateClientProperties(clientId, merged));
     // A properties edit can be a __deal_overrides amount/contractStartDate
     // change, which affects ARR/renewal — re-materialize immediately so the
     // header doesn't show stale numbers until the next sync cycle.

@@ -320,10 +320,24 @@ async function runSyncInner(): Promise<SyncResult> {
     firstRun = !lastSyncedAt;
   }
 
+  // 1h safety buffer on the "since" lower bound — HubSpot's CRM Search API
+  // (what fetchWonDeals filters against) is eventually consistent, so a deal
+  // write landing just before this run's fetch executes can be missed if the
+  // search index hasn't caught up yet. Without a buffer, the checkpoint still
+  // advances to this run's start time regardless, and since it's a hard GTE
+  // lower bound that only moves forward, that deal's true hs_lastmodifieddate
+  // would then be permanently excluded from every future run. Re-fetching an
+  // extra hour of "since" window is harmless — persistSync/upsertClient are
+  // idempotent upserts, so reprocessing an already-seen deal is a no-op.
+  const SYNC_CHECKPOINT_BUFFER_MS = 60 * 60 * 1000;
+  const bufferedSinceDate = lastSyncedAt
+    ? new Date(new Date(lastSyncedAt).getTime() - SYNC_CHECKPOINT_BUFFER_MS).toISOString()
+    : undefined;
+
   const emptyBundle: SyncBundle = { clients: [], deals: [], arrEvents: [] };
   const { bundle, warnings } = firstRun
     ? { bundle: emptyBundle, warnings: ["Sync checkpoint initialized. The app will pick up new Closed Won deals from now forward."] }
-    : await buildUnifiedData({ sinceDate: lastSyncedAt ?? undefined });
+    : await buildUnifiedData({ sinceDate: bufferedSinceDate });
 
   let persisted = false;
   let engagement = { contacts: 0, emails: 0, meetings: 0, deals: 0 };

@@ -10,6 +10,7 @@ import { dealOverridesMap, applyDealOverrides } from "@/lib/deal-overrides";
 import { getTeamMembers } from "@/lib/data";
 import { getCapacityConfig } from "@/lib/assignment/config";
 import { clientImplementationLevel, normalizeLevel } from "@/lib/assignment/engine";
+import { withDbTimeout } from "@/lib/db/client";
 
 export interface MemberHealth {
   email: string;
@@ -40,8 +41,8 @@ export async function getTeamHealth(): Promise<MemberHealth[]> {
   const { getClientsFromDb, getAllDealsFromDb } = await import("@/lib/repo/drizzle");
 
   const [clients, deals, members, capacity] = await Promise.all([
-    getClientsFromDb(),
-    getAllDealsFromDb(),
+    withDbTimeout(getClientsFromDb()),
+    withDbTimeout(getAllDealsFromDb()),
     getTeamMembers(),
     getCapacityConfig(),
   ]);

@@ -13,6 +13,7 @@ import { dealOverridesMap, applyDealOverrides, DEAL_DATES_KEY, type DealDatesMap
 import { getClientUsage } from "@/lib/usage";
 import { detectSignals, type SignalInputs, type StakeholderMapping } from "@/lib/actions/signals";
 import { enrichSignals } from "@/lib/actions/enrich";
+import { withDbTimeout } from "@/lib/db/client";
 
 export interface ActionGenSummary {
   clients: number;
@@ -105,7 +106,7 @@ export async function generateActionsForClients(clientIds: string[]): Promise<Ac
   const { integrations } = await import("@/lib/config");
   const { getClientsFromDb, getAllDealsFromDb } = await import("@/lib/repo/drizzle");
   const idSet = new Set(clientIds);
-  const [allClients, allDeals] = await Promise.all([getClientsFromDb(), getAllDealsFromDb()]);
+  const [allClients, allDeals] = await Promise.all([withDbTimeout(getClientsFromDb()), withDbTimeout(getAllDealsFromDb())]);
   const clients = allClients.filter((c) => idSet.has(c.id));
   const dealsByClient = groupDeals(allDeals);
 
@@ -118,7 +119,7 @@ export async function generateAllClientActions(): Promise<ActionGenSummary> {
   const start = Date.now();
   const { integrations } = await import("@/lib/config");
   const { getClientsFromDb, getAllDealsFromDb } = await import("@/lib/repo/drizzle");
-  const [clients, allDeals] = await Promise.all([getClientsFromDb(), getAllDealsFromDb()]);
+  const [clients, allDeals] = await Promise.all([withDbTimeout(getClientsFromDb()), withDbTimeout(getAllDealsFromDb())]);
   const dealsByClient = groupDeals(allDeals);
 
   const upserted = await mapLimit(clients, 5, (c) => generateForClient(c, dealsByClient.get(c.id) ?? []));

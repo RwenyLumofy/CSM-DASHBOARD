@@ -24,6 +24,7 @@ import {
   type Candidate,
 } from "@/lib/assignment/engine";
 import type { AssignmentDecision } from "@/lib/assignment/types";
+import { withDbTimeout } from "@/lib/db/client";
 
 export interface AssignmentRunSummary {
   processed: number;
@@ -56,8 +57,8 @@ export async function runAssignment(targetIds?: string[]): Promise<AssignmentRun
   } = await import("@/lib/repo/drizzle");
 
   const [allClients, allDeals, csmConfig, implConfig, members, superAdmins, roleLabels] = await Promise.all([
-    getClientsFromDb(),
-    getAllDealsFromDb(),
+    withDbTimeout(getClientsFromDb()),
+    withDbTimeout(getAllDealsFromDb()),
     getCsmAssignmentConfig(),
     getImplementationAssignmentConfig(),
     getTeamMembers(),
@@ -157,7 +158,7 @@ export async function runAssignment(targetIds?: string[]): Promise<AssignmentRun
     }
   }
 
-  if (notifications.length) await insertNotificationsDb(notifications);
+  if (notifications.length) await withDbTimeout(insertNotificationsDb(notifications));
   return summary;
 }
 

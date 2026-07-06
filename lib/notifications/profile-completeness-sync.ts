@@ -19,6 +19,7 @@ import "server-only";
 import type { Deal } from "@/lib/types";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { dealOverridesMap, applyDealOverrides, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
+import { withDbTimeout } from "@/lib/db/client";
 
 const YELLOW_REPEAT_DAYS = 3;
 
@@ -42,11 +43,11 @@ export async function syncProfileCompletenessNotifications(now: Date = new Date(
   const { getSuperAdminEmails } = await import("@/lib/data");
 
   const [clients, allDeals, superAdmins, lastRed, lastYellow] = await Promise.all([
-    getClientsFromDb(),
-    getAllDealsFromDb(),
+    withDbTimeout(getClientsFromDb()),
+    withDbTimeout(getAllDealsFromDb()),
     getSuperAdminEmails(),
-    getLatestNotificationDateByType("profile_incomplete_red"),
-    getLatestNotificationDateByType("profile_incomplete_yellow"),
+    withDbTimeout(getLatestNotificationDateByType("profile_incomplete_red")),
+    withDbTimeout(getLatestNotificationDateByType("profile_incomplete_yellow")),
   ]);
 
   const dealsByClient = new Map<string, Deal[]>();
@@ -72,10 +73,10 @@ export async function syncProfileCompletenessNotifications(now: Date = new Date(
 
     if (severity === "red") {
       summary.red++;
-      resolveTasks.push(resolveNotificationsForClientDb(client.id, ["profile_incomplete_yellow"]));
+      resolveTasks.push(withDbTimeout(resolveNotificationsForClientDb(client.id, ["profile_incomplete_yellow"])));
       const already = lastRed.get(client.id);
       if (!already || !isSameUtcDay(already, now)) {
-        resolveTasks.push(resolveNotificationsForClientDb(client.id, ["profile_incomplete_red"]));
+        resolveTasks.push(withDbTimeout(resolveNotificationsForClientDb(client.id, ["profile_incomplete_red"])));
         const recipients = new Set([client.csm?.email, ...superAdmins].filter((e): e is string => !!e));
         const missingList = missingRed.map((f) => f.label).join(", ");
         for (const email of recipients) {
@@ -91,11 +92,11 @@ export async function syncProfileCompletenessNotifications(now: Date = new Date(
       }
     } else if (severity === "yellow") {
       summary.yellow++;
-      resolveTasks.push(resolveNotificationsForClientDb(client.id, ["profile_incomplete_red"]));
+      resolveTasks.push(withDbTimeout(resolveNotificationsForClientDb(client.id, ["profile_incomplete_red"])));
       const already = lastYellow.get(client.id);
       const stale = !already || now.getTime() - already.getTime() >= YELLOW_REPEAT_DAYS * 86_400_000;
       if (stale && client.csm?.email) {
-        resolveTasks.push(resolveNotificationsForClientDb(client.id, ["profile_incomplete_yellow"]));
+        resolveTasks.push(withDbTimeout(resolveNotificationsForClientDb(client.id, ["profile_incomplete_yellow"])));
         const missingList = missingYellow.map((f) => f.label).join(", ");
         toInsert.push({
           id: `pi-yellow-${client.id}-${todayKey}`,
@@ -108,12 +109,12 @@ export async function syncProfileCompletenessNotifications(now: Date = new Date(
       }
     } else {
       summary.complete++;
-      resolveTasks.push(resolveNotificationsForClientDb(client.id, ["profile_incomplete_red", "profile_incomplete_yellow"]));
+      resolveTasks.push(withDbTimeout(resolveNotificationsForClientDb(client.id, ["profile_incomplete_red", "profile_incomplete_yellow"])));
     }
   }
 
   await Promise.all(resolveTasks);
-  await insertNotificationsDb(toInsert);
+  await withDbTimeout(insertNotificationsDb(toInsert));
   summary.notificationsSent = toInsert.length;
   summary.durationMs = Date.now() - start;
   return summary;
