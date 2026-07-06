@@ -5,7 +5,7 @@ import { ClientProfileTabs } from "@/components/clients/ClientProfileTabs";
 import { ClientHeaderCard } from "@/components/clients/ClientHeaderCard";
 import {
   getAttachmentsForClient,
-  getClientById,
+  getClientForProfile,
   getContactsForClient,
   getDealsForClient,
   getEmailsForClient,
@@ -27,13 +27,13 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const client = await getClientById(id);
+  const client = await getClientForProfile(id);
   return { title: client ? `${client.name} · Lumofy Signals` : "Client · Lumofy Signals" };
 }
 
 export default async function ClientProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const client = await getClientById(id);
+  const client = await getClientForProfile(id);
   if (!client) notFound();
 
   const [timeline, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions] =

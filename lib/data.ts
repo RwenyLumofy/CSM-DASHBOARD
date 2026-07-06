@@ -37,7 +37,7 @@ import { buildPortfolioSummary } from "@/lib/metrics/portfolio";
 import { computeRetention, downgrades } from "@/lib/metrics/retention";
 import { currentQuarter, withRunningBalance } from "@/lib/metrics/arr";
 import { env, hasDatabase } from "@/lib/config";
-import { canSeeClient, getCurrentUserEmail, scopeClientsToUser } from "@/lib/auth";
+import { canSeeClient, getCurrentUserEmail, getCurrentUserRole, scopeClientsToUser } from "@/lib/auth";
 import { DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, teamForRole, type Role, type Team } from "@/lib/roles";
 import { dbHealthy, markDbHealthy, markDbUnhealthy } from "@/lib/db/health";
 import { withDbTimeout } from "@/lib/db/client";
@@ -110,6 +110,54 @@ export const getClientById = cache(async (id: string): Promise<Client | null> =>
   }
   return null;
 });
+
+/**
+ * Load a client for its profile PAGE, hardened against a spurious 404.
+ *
+ * getClientById returns null for three very different situations: (a) the row
+ * genuinely doesn't exist, (b) the signed-in user is definitively not allowed
+ * to see it, and (c) a TRANSIENT failure — a DB blip, or a Clerk backend
+ * hiccup that momentarily nulls the signed-in user (getCurrentUserEmail's
+ * timeout), which flips even a full-visibility CSM's role to null and makes
+ * canSeeClient deny. The page 404s on any null, so (c) turned a routine
+ * post-save refresh into "the app went down" (a hard 404 on an account the
+ * CSM was just editing).
+ *
+ * The middleware has already guaranteed this request is authenticated, so an
+ * unresolvable user here is a hiccup, not "no access". This resolver only
+ * returns null (→ 404) when the account is genuinely gone or the user is
+ * DEFINITIVELY unauthorized (a resolved, scoped CSM who isn't the owner);
+ * a transient inability to load or authorize shows the account instead.
+ */
+export async function getClientForProfile(id: string): Promise<Client | null> {
+  const scoped = await getClientById(id);
+  if (scoped) return scoped;
+  if (!hasDatabase()) return null;
+
+  // getClientById returned null — re-read the raw row (fresh; getClientById is
+  // request-cached so calling it again returns the same null) to disambiguate.
+  let row: Client | null = null;
+  try {
+    const { getClientByIdFromDb } = await import("@/lib/repo/drizzle");
+    row = await withDbTimeout(getClientByIdFromDb(id));
+  } catch {
+    return null; // DB genuinely unreachable — nothing to render
+  }
+  if (!row) return null; // genuinely gone → real 404
+
+  const role = await getCurrentUserRole();
+  // Full visibility, or an unresolved user (transient — but authenticated):
+  // show the account rather than 404 it.
+  if (role === null || role === "super_admin" || role === "csm_officer") return row;
+
+  // A scoped CSM: only their own account. A RESOLVED non-owner is a genuine
+  // denial (null → 404, hiding existence); an unresolved email is transient.
+  const email = await getCurrentUserEmail();
+  if (!email) return row;
+  const team = teamForRole(role);
+  const ownerEmail = (team === "implementation" ? row.implementationOwner?.email : row.csm?.email) ?? "";
+  return ownerEmail.toLowerCase() === email ? row : null;
+}
 
 export async function getPortfolioSummary(): Promise<PortfolioSummary> {
   const { clients } = await source();
