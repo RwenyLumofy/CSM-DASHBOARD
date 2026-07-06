@@ -18,7 +18,7 @@
    ========================================================================= */
 
 import type { Client, Deal } from "@/lib/types";
-import type { DealDatesMap } from "@/lib/deal-overrides";
+import { hasGlobalLibrary, type DealDatesMap } from "@/lib/deal-overrides";
 
 export type CompletenessSeverity = "red" | "yellow" | "none";
 
@@ -42,7 +42,16 @@ function hasValue(v: unknown): boolean {
 type FieldCheck =
   | { key: string; label: string; scope: "client"; get: (client: Client) => unknown }
   | { key: string; label: string; scope: "deal"; get: (deal: Deal) => unknown }
-  | { key: string; label: string; scope: "dealDate"; dateKey: string };
+  | {
+      key: string;
+      label: string;
+      scope: "dealDate";
+      dateKey: string;
+      /** When present and false for a deal, that deal never counts this date
+       *  as missing — e.g. a global library date isn't required on a deal
+       *  that has no global library at all. */
+      requiredWhen?: (deal: Deal) => boolean;
+    };
 
 const RED_FIELDS: FieldCheck[] = [
   { key: "products", label: "Module", scope: "deal", get: (d) => d.products },
@@ -57,8 +66,8 @@ const RED_FIELDS: FieldCheck[] = [
   { key: "pricePerUser", label: "User price", scope: "deal", get: (d) => d.pricePerUser },
   { key: "csm", label: "CSM assignee", scope: "client", get: (c) => c.csm },
   { key: "implementationOwner", label: "Implementation assignee", scope: "client", get: (c) => c.implementationOwner },
-  { key: "global_library_start_date", label: "Global library start", scope: "dealDate", dateKey: "global_library_start_date" },
-  { key: "global_library_expiry_date", label: "Global library expiry", scope: "dealDate", dateKey: "global_library_expiry_date" },
+  { key: "global_library_start_date", label: "Global library start", scope: "dealDate", dateKey: "global_library_start_date", requiredWhen: hasGlobalLibrary },
+  { key: "global_library_expiry_date", label: "Global library expiry", scope: "dealDate", dateKey: "global_library_expiry_date", requiredWhen: hasGlobalLibrary },
 ];
 
 const YELLOW_FIELDS: FieldCheck[] = [
@@ -87,7 +96,10 @@ function isMissing(field: FieldCheck, client: Client, trackedDeals: Deal[], deal
   if (trackedDeals.length === 0) return true; // no deal to ever hold this field
   if (field.scope === "deal") return trackedDeals.some((d) => !hasValue(field.get(d)));
   // scope === "dealDate"
-  return trackedDeals.some((d) => !hasValue(dealDates[d.id]?.[field.dateKey]));
+  return trackedDeals.some((d) => {
+    if (field.requiredWhen && !field.requiredWhen(d)) return false;
+    return !hasValue(dealDates[d.id]?.[field.dateKey]);
+  });
 }
 
 export function computeProfileCompleteness(

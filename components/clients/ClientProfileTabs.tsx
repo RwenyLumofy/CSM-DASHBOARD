@@ -77,6 +77,7 @@ import {
   DEAL_FIELD_FALLBACK_OPTIONS,
   applyDealOverrides,
   computeRenewal,
+  hasGlobalLibrary,
   type DealOverridesMap,
   type DealDatesMap,
   type DealBriefsMap,
@@ -2428,6 +2429,12 @@ function DealCard({
   // that field carries an override (key present in dealOverride).
   const eff = applyDealOverrides(deal, dealOverride);
   const isEdited = (k: keyof Deal) => Object.prototype.hasOwnProperty.call(dealOverride, k as string);
+  // Global library is "None" (or unset) on this deal -> its start/expiry
+  // dates aren't needed. Reacts instantly to editing the Global library
+  // field above: `eff` is recomputed from `dealOverride` on every render, and
+  // saveDealField updates dealOverride optimistically before the server
+  // round-trip even lands.
+  const needsGlobalLibraryDates = hasGlobalLibrary(eff);
   const renewal = computeRenewal(eff.contractStartDate);
   // Total Licenses = Licenses Purchased + Complementary Licenses (computed).
   const totalLicenses =
@@ -2611,16 +2618,26 @@ function DealCard({
                 <SyncedDate label="Renewal" value={renewal} hint="Auto · +1yr" />
               </dl>
               <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-border-subtle pt-3 sm:grid-cols-3">
-                {DEAL_DATE_FIELDS.map((f) => (
-                  <DealDateField
-                    key={f.key}
-                    label={f.label}
-                    value={dealDates[f.key] ?? null}
-                    onCommit={(v) => onSaveDate(f.key, v)}
-                    alertSeverity={FIELD_SEVERITY[f.key]}
-                    pending={refreshPending}
-                  />
-                ))}
+                {DEAL_DATE_FIELDS.map((f) => {
+                  // These two only apply when this deal actually has a global
+                  // library — see needsGlobalLibraryDates above. Dimmed + no
+                  // alert icon while it doesn't; both flip back immediately if
+                  // the Global library field above is edited, since eff (and
+                  // this) recompute on every render.
+                  const isGlobalLibraryDate = f.key === "global_library_start_date" || f.key === "global_library_expiry_date";
+                  const dimmed = isGlobalLibraryDate && !needsGlobalLibraryDates;
+                  return (
+                    <DealDateField
+                      key={f.key}
+                      label={f.label}
+                      value={dealDates[f.key] ?? null}
+                      onCommit={(v) => onSaveDate(f.key, v)}
+                      alertSeverity={dimmed ? undefined : FIELD_SEVERITY[f.key]}
+                      pending={refreshPending}
+                      dimmed={dimmed}
+                    />
+                  );
+                })}
               </dl>
               {deal.hubspotUrl && (
                 <div className="mt-3 flex justify-end">
@@ -2667,7 +2684,7 @@ function SyncedDate({ label, value, hint }: { label: string; value: string | nul
 }
 
 /** CSM-editable milestone date cell — persists into client.properties.__deal_dates. */
-function DealDateField({ label, value, onCommit, alertSeverity, pending }: { label: string; value: string | null; onCommit: (v: string | null) => void | Promise<void>; alertSeverity?: "red" | "yellow"; pending?: boolean }) {
+function DealDateField({ label, value, onCommit, alertSeverity, pending, dimmed }: { label: string; value: string | null; onCommit: (v: string | null) => void | Promise<void>; alertSeverity?: "red" | "yellow"; pending?: boolean; dimmed?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const empty = !value;
@@ -2685,7 +2702,7 @@ function DealDateField({ label, value, onCommit, alertSeverity, pending }: { lab
   }
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className={cn("flex flex-col gap-1 transition-opacity", dimmed && "opacity-50")}>
       <dt className="flex items-center gap-1.5 font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
         {label}
         {empty && <FieldAlert severity={alertSeverity} />}

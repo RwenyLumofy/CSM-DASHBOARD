@@ -107,6 +107,21 @@ export function applyDealOverrides(deal: Deal, override: Record<string, unknown>
   return { ...deal, ...override } as Deal;
 }
 
+/**
+ * Does this deal actually have a global library? `globalLibraryPackage` is a
+ * multi-select whose picklist includes a literal "None" option (see
+ * DEAL_FIELD_FALLBACK_OPTIONS above) — a deal can deliberately have no
+ * library. When it doesn't, the library's start/expiry dates are meaningless,
+ * so they're only required (and only shown at full opacity) when a real
+ * library IS selected. Both the deal-card date fields (ClientProfileTabs) and
+ * the account completeness badge (lib/profile-completeness.ts) key off this
+ * same check, so the two can never disagree about what "no library" means.
+ */
+export function hasGlobalLibrary(deal: Pick<Deal, "globalLibraryPackage">): boolean {
+  const pkg = deal.globalLibraryPackage;
+  return Array.isArray(pkg) && pkg.length > 0 && !pkg.includes("None");
+}
+
 /** Renewal = effective contract start + 1 year (auto, never stored). */
 export function computeRenewal(contractStart: string | null | undefined): string | null {
   if (!contractStart) return null;
