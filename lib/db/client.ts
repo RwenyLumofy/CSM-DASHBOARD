@@ -4,6 +4,7 @@ import * as schema from "@/lib/db/schema";
 import { env } from "@/lib/config";
 
 let _db: PostgresJsDatabase<typeof schema> | null = null;
+let _rawSql: postgres.Sql | null = null;
 
 /**
  * Lazily create the Drizzle client over the Supabase pooled connection.
@@ -67,9 +68,22 @@ export function getDb(): PostgresJsDatabase<typeof schema> {
       // rejection that crashes the dev server; postgres.js will reconnect.
       onnotice: () => {},
     });
+    _rawSql = sql;
     _db = drizzle(sql, { schema });
   }
   return _db;
+}
+
+/**
+ * The raw postgres.js client underlying getDb() — the SAME singleton pool
+ * (no second/duplicate pool). Needed for genuinely CANCELLABLE queries (see
+ * withCancellableDbTimeout below): a tagged-template call via this client
+ * (`getRawSql()\`select ...\``) returns a PendingQuery with `.cancel()`,
+ * which Drizzle's own query-builder result does not expose.
+ */
+export function getRawSql(): postgres.Sql {
+  getDb(); // ensures _rawSql is initialized as a side effect
+  return _rawSql!;
 }
 
 /**
@@ -102,6 +116,49 @@ export function withDbTimeout<T>(promise: Promise<T>, ms = 45_000): Promise<T> {
       }, ms),
     ),
   ]);
+}
+
+/**
+ * Like withDbTimeout, but for a RAW postgres.js query (a tagged-template
+ * call via getRawSql()`...`, which exposes `.cancel()`) instead of a Drizzle
+ * query-builder promise. On timeout this actually CANCELS the query — sends
+ * a real Postgres CancelRequest so the backend connection is freed and
+ * returned to the pool — instead of merely abandoning it the way
+ * withDbTimeout does (see its own comment above). That distinction matters:
+ * a live read of pg_stat_activity on 2026-07-06 caught connections orphaned
+ * by exactly that abandon-without-cancel gap sitting stuck for up to 24
+ * minutes, each one permanently unavailable to the pool until the lambda
+ * instance was recycled.
+ *
+ * DELIBERATELY NOT a drop-in replacement for withDbTimeout everywhere: it
+ * only works for a query whose result keys ALREADY match the DB's own column
+ * names. Verified empirically (a live side-by-side diff against Drizzle's
+ * own output, 2026-07-06): a plain multi-column `db.select().from(table)`
+ * does its camelCase remapping (e.g. `hubspot_id` -> `hubspotId`) inside
+ * Drizzle's own JS code, NOT via SQL aliasing — so bypassing Drizzle for a
+ * general multi-column select would silently hand every mapper function the
+ * wrong keys. Only reach for this where the column name and the desired JS
+ * key are identical (e.g. `role`, `id`) — confirmed case by case, not assumed.
+ */
+export function withCancellableDbTimeout<T>(query: { cancel(): void } & PromiseLike<T>, ms = 45_000): Promise<T> {
+  const stackHint = new Error().stack?.split("\n")[2]?.trim() ?? "unknown call site";
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      console.warn(`[db] query timed out after ${ms}ms, CANCELLING, called from: ${stackHint}`);
+      query.cancel();
+      reject(new Error(`DB read timed out after ${ms}ms (cancelled)`));
+    }, ms);
+    query.then(
+      (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 export { schema };

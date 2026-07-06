@@ -6,7 +6,7 @@
    status from the FULL ledger so reads stay a single cheap table scan. */
 
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { getDb, schema, withDbTimeout } from "@/lib/db/client";
+import { getDb, getRawSql, schema, withCancellableDbTimeout, withDbTimeout } from "@/lib/db/client";
 import type {
   ArrEvent,
   Attachment,
@@ -1112,10 +1112,19 @@ export async function getAppUsersFromDb(): Promise<AppUserRow[]> {
   return rows.map(appUserRowToObj);
 }
 
-/** Single-email role lookup — the hot path used on every request to resolve role. */
+/**
+ * Single-email role lookup — the hot path used on every request to resolve
+ * role. Raw + cancellable (see withCancellableDbTimeout): this was one of
+ * the connections a live probe caught stuck for 54s+ under pool pressure —
+ * self-bounding here means a stall frees its connection immediately instead
+ * of orphaning it, and callers no longer need their own withDbTimeout wrap.
+ * Safe to bypass Drizzle here ONLY because the sole selected column ("role")
+ * has the same name as its JS key — verified empirically, not assumed; see
+ * withCancellableDbTimeout's own comment for why this isn't done generally.
+ */
 export async function getAppUserRoleFromDb(email: string): Promise<string | null> {
-  const db = getDb();
-  const rows = await db.select({ role: schema.appUsers.role }).from(schema.appUsers).where(eq(schema.appUsers.email, email)).limit(1);
+  const sql = getRawSql();
+  const rows = await withCancellableDbTimeout(sql`select "role" from "app_users" where "email" = ${email} limit 1`);
   return rows[0]?.role ?? null;
 }
 
@@ -1282,12 +1291,20 @@ export async function getNotificationsForUserDb(email: string, limit = 50): Prom
 }
 
 /** Count unread (readAt null) notifications — drives the bell badge. */
+/**
+ * Raw + cancellable (see withCancellableDbTimeout) — this is the OTHER
+ * connection a live probe caught stuck for 3.5+ minutes under pool pressure,
+ * running exactly this query. Self-bounding means a stall frees its
+ * connection immediately instead of orphaning it; callers no longer need
+ * their own withDbTimeout wrap. Safe to bypass Drizzle here ONLY because the
+ * sole selected column ("id") has the same name as its JS key — verified
+ * empirically, not assumed.
+ */
 export async function getUnreadCountForUserDb(email: string): Promise<number> {
-  const db = getDb();
-  const rows = await db
-    .select({ id: schema.notifications.id })
-    .from(schema.notifications)
-    .where(and(eq(schema.notifications.recipientEmail, email.toLowerCase()), isNull(schema.notifications.readAt)));
+  const sql = getRawSql();
+  const rows = await withCancellableDbTimeout(
+    sql`select "id" from "notifications" where "recipient_email" = ${email.toLowerCase()} and "read_at" is null`,
+  );
   return rows.length;
 }
 

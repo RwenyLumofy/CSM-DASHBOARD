@@ -4,7 +4,6 @@
 import { cache } from "react";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { authEnabled, env, hasDatabase } from "@/lib/config";
-import { withDbTimeout } from "@/lib/db/client";
 import { DEFAULT_ROLE, isRole, teamForRole, type Role, type Team } from "@/lib/roles";
 import type { Client } from "@/lib/types";
 
@@ -76,7 +75,10 @@ export const getCurrentUserRole = cache(async (): Promise<Role | null> => {
   if (hasDatabase()) {
     try {
       const { getAppUserRoleFromDb } = await import("@/lib/repo/drizzle");
-      const r = await withDbTimeout(getAppUserRoleFromDb(email));
+      // Self-bounding + cancelling now (see its own comment) — no outer
+      // withDbTimeout wrap needed; a stall here frees its connection instead
+      // of racing a second, redundant timeout on top of the same query.
+      const r = await getAppUserRoleFromDb(email);
       if (isRole(r)) return r;
     } catch {
       /* app_users missing or DB down — fall through to the default tier */

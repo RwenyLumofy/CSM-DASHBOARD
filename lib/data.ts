@@ -617,7 +617,9 @@ export async function getMyUnreadCount(): Promise<number> {
   if (!email) return 0;
   try {
     const { getUnreadCountForUserDb } = await import("@/lib/repo/drizzle");
-    return await withDbTimeout(getUnreadCountForUserDb(email));
+    // Self-bounding + cancelling now (see its own comment) — no outer
+    // withDbTimeout wrap needed.
+    return await getUnreadCountForUserDb(email);
   } catch {
     return 0;
   }
