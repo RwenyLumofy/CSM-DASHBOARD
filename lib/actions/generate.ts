@@ -25,15 +25,18 @@ export interface ActionGenSummary {
  *  clients each doing a usage read + a Gemini call shouldn't fan out unbounded. */
 async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<number>): Promise<number> {
   let cursor = 0;
-  let total = 0;
+  // Each worker accumulates its OWN subtotal — a shared `total += await fn()`
+  // would race, since the await suspends between reading and writing `total`.
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    let local = 0;
     while (cursor < items.length) {
       const idx = cursor++;
-      total += await fn(items[idx]!);
+      local += await fn(items[idx]!);
     }
+    return local;
   });
-  await Promise.all(workers);
-  return total;
+  const subtotals = await Promise.all(workers);
+  return subtotals.reduce((a, b) => a + b, 0);
 }
 
 function stakeholderMappingsOf(client: Client): StakeholderMapping[] {
