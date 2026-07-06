@@ -868,7 +868,15 @@ export async function updateClientDetails(
     // A properties edit can be a __deal_overrides amount/contractStartDate
     // change, which affects ARR/renewal — re-materialize immediately so the
     // header doesn't show stale numbers until the next sync cycle.
-    await recomputeClient(clientId);
+    // recomputeClient is internally bounded (withDbTimeout), so it can't hang
+    // the save. Swallow a timeout/failure so a slow re-materialize still returns
+    // a successful save (derived ARR/status refresh on the next sync) rather
+    // than 500-ing the request the CSM just made.
+    try {
+      await recomputeClient(clientId);
+    } catch (err) {
+      console.warn("[data] recomputeClient after save failed:", err);
+    }
   }
 }
 

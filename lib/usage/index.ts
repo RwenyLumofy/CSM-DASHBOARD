@@ -168,7 +168,7 @@ async function resolveEnvironment(clientId: string): Promise<ResolvedEnv | { err
         const resolved: ResolvedEnv = { environmentId: envId, region, environmentName };
         try {
           const { setClientPropertyDb } = await import("@/lib/repo/drizzle");
-          await setClientPropertyDb(clientId, USAGE_ENV_KEY, { ...resolved, resolvedAt: new Date().toISOString() });
+          await withDbTimeout(setClientPropertyDb(clientId, USAGE_ENV_KEY, { ...resolved, resolvedAt: new Date().toISOString() }));
         } catch {
           /* caching is best-effort */
         }
@@ -295,7 +295,7 @@ async function fetchAndPersist(clientId: string, resolved: ResolvedEnv, owned: O
     cache.set(resolved.environmentId, { at: Date.now(), data });
     try {
       const { upsertClientUsageSnapshot } = await import("@/lib/repo/drizzle");
-      await upsertClientUsageSnapshot(clientId, data);
+      await withDbTimeout(upsertClientUsageSnapshot(clientId, data));
     } catch {
       /* persistence is best-effort — the live result below is still correct */
     }
@@ -304,7 +304,7 @@ async function fetchAndPersist(clientId: string, resolved: ResolvedEnv, owned: O
     const message = `Usage query failed: ${e}`;
     try {
       const { recordClientUsageSyncError } = await import("@/lib/repo/drizzle");
-      await recordClientUsageSyncError(clientId, message);
+      await withDbTimeout(recordClientUsageSyncError(clientId, message));
     } catch {
       /* best-effort */
     }
@@ -334,7 +334,7 @@ export async function getClientUsage(clientId: string, opts?: { forceRefresh?: b
 
     try {
       const { getClientUsageSnapshotFromDb } = await import("@/lib/repo/drizzle");
-      const persisted = await getClientUsageSnapshotFromDb(clientId);
+      const persisted = await withDbTimeout(getClientUsageSnapshotFromDb(clientId));
       if (persisted && Date.now() - new Date(persisted.fetchedAt).getTime() < DB_FRESH_MS) {
         cache.set(resolved.environmentId, { at: Date.now(), data: persisted });
         return withFreshScore(persisted);

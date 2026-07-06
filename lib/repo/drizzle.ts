@@ -6,7 +6,7 @@
    status from the FULL ledger so reads stay a single cheap table scan. */
 
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
-import { getDb, schema } from "@/lib/db/client";
+import { getDb, schema, withDbTimeout } from "@/lib/db/client";
 import type {
   ArrEvent,
   Attachment,
@@ -566,6 +566,15 @@ export async function persistEngagement(e: {
  * — it's set at sync/import time.
  */
 export async function recomputeClient(clientId: string): Promise<void> {
+  // A stalled read/write in here used to hang the CALLER — a profile/deal save,
+  // an ARR event, or a sync sweep — to Vercel's 300s ceiling while pinning a
+  // pooler backend the entire time. Enough held backends is what tipped the
+  // whole app into "everything loads forever". Bound the entire recompute so a
+  // stall fails fast (~45s) and releases the caller instead of hanging.
+  await withDbTimeout(recomputeClientBody(clientId));
+}
+
+async function recomputeClientBody(clientId: string): Promise<void> {
   const db = getDb();
   const [clientRow] = await db
     .select({ properties: schema.clients.properties })
