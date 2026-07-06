@@ -40,6 +40,14 @@ export interface IntercomConversation {
    * exactly what an un-escalated plain conversation is.
    */
   priority: "P1" | "P2" | "P3";
+  /**
+   * True when this workspace's own "Exclude from CSAT" conversation
+   * attribute is set (sampled 2026-07-07: 143/434 closed conversations —
+   * 33% — carry it). summarizeSupport() must honor this the same way
+   * Intercom's own CSAT reporting does, or our number diverges from what
+   * the support team already treats as ground truth.
+   */
+  excludedFromCsat: boolean;
 }
 
 /**
@@ -220,6 +228,9 @@ interface IntercomRawConversation {
   statistics?: { time_to_first_response?: number } | null;
   contacts?: { contacts?: { id: string }[] } | null;
   ticket?: { custom_attributes?: Record<string, { value?: string } | string | null> | null } | null;
+  // The conversation's OWN custom attributes (distinct from ticket.custom_attributes
+  // above) — this is where "Exclude from CSAT" lives, confirmed live 2026-07-07.
+  custom_attributes?: Record<string, unknown> | null;
 }
 
 /** Extracts "P1"/"P2"/"P3" from the ticket's Priority custom attribute (seen
@@ -242,6 +253,7 @@ function normalizeConversation(c: IntercomRawConversation): IntercomConversation
     updatedAt: new Date((c.updated_at ?? 0) * 1000).toISOString(),
     contactIds: (c.contacts?.contacts ?? []).map((x) => x.id),
     priority: classifyPriority(c),
+    excludedFromCsat: !!c.custom_attributes?.["Exclude from CSAT"],
   };
 }
 
@@ -274,7 +286,10 @@ export function summarizeSupport(
       if (now - new Date(c.updatedAt).getTime() <= 30 * 86_400_000) closed30 += 1;
     }
     if (c.firstResponseSeconds != null) firstResponses.push(c.firstResponseSeconds);
-    if (c.rating != null) ratings.push(c.rating);
+    // Respect the workspace's own "Exclude from CSAT" flag — 33% of closed
+    // conversations carry it (verified live 2026-07-07); counting them anyway
+    // would diverge from what the support team already treats as ground truth.
+    if (c.rating != null && !c.excludedFromCsat) ratings.push(c.rating);
     if (!lastConversationAt || c.updatedAt > lastConversationAt) lastConversationAt = c.updatedAt;
   }
 

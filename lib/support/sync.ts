@@ -8,11 +8,18 @@
    every 4 hours, and this is the only place `support` is ever written now
    (upsertClient/upsertClientFull explicitly exclude that column).
 
-   Checkpoint-based, mirroring the HubSpot sync's own incremental design
-   (lib/integrations/sync.ts runSyncInner): first run has no checkpoint, so
-   it fetches Intercom unconditionally (full backfill); every run after
-   fetches open conversations unconditionally (their current state is what
-   matters) plus anything updated since the last run (+1 day buffer).
+   Conversations are ALWAYS fetched in full (no incremental "since" window)
+   — every run recomputes SupportSummary (including CSAT) from the complete
+   conversation history, not just what changed. This was NOT always true:
+   an earlier incremental design fetched only open + recently-updated
+   conversations after the first backfill, which silently and permanently
+   dropped historical ratings from CSAT the moment a closed, rated
+   conversation aged out of the window (found + fixed 2026-07-07 — CSAT is
+   a lifetime metric here, not a rolling one, so it can't be computed from
+   a shrinking slice). At this workspace's current scale (~500 conversations)
+   a full fetch is a handful of paginated requests and comfortably inside
+   this route's maxDuration; the checkpoint below is kept only so
+   /api/sync can report when this last ran, not to bound what gets fetched.
    ========================================================================= */
 
 import "server-only";
@@ -79,21 +86,19 @@ export async function syncAllClientSupport(): Promise<SupportSyncSummary> {
   const lastSyncedAt = await withDbTimeout(getSyncCheckpoint(CHECKPOINT_KEY));
   const fullBackfill = !lastSyncedAt;
   const syncStartedAt = new Date().toISOString();
-  // +1 day buffer past the last checkpoint so a slow previous run (or clock
-  // skew) can't leave a gap between what it covered and what this run starts from.
-  const updatedSinceDays = fullBackfill
-    ? undefined
-    : Math.ceil((Date.now() - new Date(lastSyncedAt!).getTime()) / 86_400_000) + 1;
 
   const ic = new IntercomClient();
   const hs = new HubSpotClient();
 
   let icCompanies, contactIndex, conversations, appId;
   try {
+    // Always the full, unconditional history (no updatedSinceDays) — see the
+    // module comment above for why: CSAT/ratings are lifetime metrics and
+    // recomputing them from an incremental slice silently loses history.
     [icCompanies, contactIndex, conversations, appId] = await Promise.all([
       ic.listCompanies(),
       ic.fetchContactCompanyIndex(),
-      ic.searchConversations({ updatedSinceDays }),
+      ic.searchConversations({}),
       ic.fetchAppId().catch(() => null),
     ]);
   } catch (e) {
