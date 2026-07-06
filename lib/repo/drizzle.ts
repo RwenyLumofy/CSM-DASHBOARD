@@ -68,7 +68,12 @@ function rowToClient(r: Row): Client {
     logoUrl: r.logoUrl,
     hubspotUrl: r.hubspotUrl ?? undefined,
     health: (r.health as HealthScore) ?? emptyHealth(),
-    support: (r.support as SupportSummary) ?? emptySupport(),
+    // Spread onto emptySupport(), not `?? emptySupport()` — a client whose
+    // `support` predates a field added later (slaBreaches/supportLevelUsed,
+    // 2026-07-06) has a real, non-null JSONB blob that's just missing those
+    // keys; `??` would never fall back for it, leaving the field truly
+    // undefined at runtime and crashing the first reader that iterates it.
+    support: { ...emptySupport(), ...(r.support as Partial<SupportSummary> | null) },
     usage: (r.usage as UsageMetrics) ?? emptyUsage(),
     tags: r.tags ?? [],
     properties: (r.properties as Record<string, unknown>) ?? {},
