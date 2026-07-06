@@ -16,7 +16,6 @@ import type {
   UsageMetrics,
 } from "@/lib/types";
 import { HubSpotClient, deriveReferralSource, normalizeChannelValue, type HubspotCompany, type HubspotOwner } from "@/lib/integrations/hubspot";
-import { IntercomClient, summarizeSupport, type IntercomConversation } from "@/lib/integrations/intercom";
 import { MetabaseClient } from "@/lib/integrations/metabase";
 import { deriveComponents } from "@/lib/metrics/derive";
 import { buildHealth } from "@/lib/metrics/health";
@@ -60,71 +59,14 @@ export async function buildUnifiedData(opts?: { sinceDate?: string }): Promise<{
   warnings.push(...acquisition.warnings);
   const companies = acquisition.companies;
 
-  // --- Intercom: support summaries keyed by environment id (reliable),
-  // domain, and name (fallback for a company HubSpot hasn't linked yet) ----
-  // Intercom's external `company_id` for a company is the SAME UUID as
-  // HubSpot's `mixpanel_company_id` (== environments_environment.id, the key
-  // that already links Metabase usage) — verified via a live cross-check
-  // (2026-07-06) against real accounts. That match is exact and stable, unlike
-  // domain/name: most Intercom companies here have no website set at all, and
-  // names commonly differ from the HubSpot company name (e.g. Intercom "BBK"
-  // vs HubSpot "Bank of Bahrain & Kuwait") — either of which silently drops
-  // the match. Domain/name stay ONLY as a fallback for a company that hasn't
-  // been linked to a platform environment yet (mixpanel_company_id unset).
-  const supportByEnvironmentId = new Map<string, SupportSummary>();
-  const supportByDomain = new Map<string, SupportSummary>();
-  const supportByName = new Map<string, SupportSummary>();
-  if (integrations.intercom()) {
-    try {
-      const ic = new IntercomClient();
-      const [icCompanies, contactIndex, conversations] = await Promise.all([
-        ic.listCompanies(),
-        ic.fetchContactCompanyIndex(),
-        ic.searchConversations({ updatedSinceDays: 120 }),
-      ]);
-      const convByCompany = new Map<string, IntercomConversation[]>();
-      for (const conv of conversations) {
-        const companyIds = new Set<string>();
-        for (const cid of conv.contactIds) for (const co of contactIndex.get(cid) ?? []) companyIds.add(co);
-        for (const co of companyIds) {
-          const list = convByCompany.get(co) ?? [];
-          list.push(conv);
-          convByCompany.set(co, list);
-        }
-      }
-      // Merge conversations by KEY first, then summarize once per key — not
-      // "summarize per company, last one wins" — because this Intercom
-      // workspace has confirmed duplicate company records (e.g. multiple
-      // "Jisr", "Demo", "Arla Foods" entries). Summarizing-then-overwriting
-      // meant a duplicate with zero conversations could silently blank out
-      // a real company's actual support data, depending on Intercom's
-      // (unordered) scroll iteration order — intermittent data loss with no
-      // warning. Merging first means a duplicate only ever adds, never erases.
-      const convsByEnvironmentId = new Map<string, IntercomConversation[]>();
-      const convsByDomain = new Map<string, IntercomConversation[]>();
-      const convsByName = new Map<string, IntercomConversation[]>();
-      for (const co of icCompanies) {
-        const convs = convByCompany.get(co.id) ?? [];
-        if (co.companyId) {
-          const key = co.companyId.trim().toLowerCase();
-          convsByEnvironmentId.set(key, [...(convsByEnvironmentId.get(key) ?? []), ...convs]);
-        }
-        if (co.domain) {
-          const key = co.domain.toLowerCase();
-          convsByDomain.set(key, [...(convsByDomain.get(key) ?? []), ...convs]);
-        }
-        const nameKey = co.name.toLowerCase();
-        convsByName.set(nameKey, [...(convsByName.get(nameKey) ?? []), ...convs]);
-      }
-      for (const [key, convs] of convsByEnvironmentId) supportByEnvironmentId.set(key, summarizeSupport(convs));
-      for (const [key, convs] of convsByDomain) supportByDomain.set(key, summarizeSupport(convs));
-      for (const [key, convs] of convsByName) supportByName.set(key, summarizeSupport(convs));
-    } catch (e) {
-      warnings.push(`Intercom enrichment failed: ${e}`);
-    }
-  } else {
-    warnings.push("Intercom not configured — support metrics default to empty.");
-  }
+  // --- Intercom support/SLA data is no longer fetched here. It's a
+  // dedicated daily job (lib/support/sync.ts, /api/cron/intercom-sync) —
+  // Intercom's full-export endpoints are too heavy to re-pull every 4 hours,
+  // and SLA breach evaluation needs the ticket data fresh at most once a day.
+  // assembleClient() below always seeds a brand-new client with emptySupport();
+  // upsertClient()/upsertClientFull() explicitly exclude `support` from their
+  // UPDATE set so this 4-hourly sync never overwrites the daily job's data on
+  // an already-existing client.
 
   // --- Metabase: usage keyed by domain / hubspot id -----------------------
   // This is the OLD single-card usage fetch (METABASE_USAGE_CARD_ID), superseded
@@ -182,7 +124,7 @@ export async function buildUnifiedData(opts?: { sinceDate?: string }): Promise<{
       });
     }
 
-    return assembleClient(co, events, quarterStart, owners, supportByEnvironmentId, supportByDomain, supportByName, usageByKey);
+    return assembleClient(co, events, quarterStart, owners, usageByKey);
   });
 
   return {
@@ -471,19 +413,12 @@ function assembleClient(
   events: ArrEvent[],
   quarterStart: string,
   owners: Map<string, HubspotOwner>,
-  supportByEnvironmentId: Map<string, SupportSummary>,
-  supportByDomain: Map<string, SupportSummary>,
-  supportByName: Map<string, SupportSummary>,
   usageByKey: Map<string, Partial<UsageMetrics> & { seats: number; activeUsers: number }>,
 ): Client {
-  // Reliable UUID match first (see the Intercom block above for why); domain
-  // then name are only a fallback for a company not yet linked to a platform
-  // environment in HubSpot.
-  const support =
-    (co.mixpanelCompanyId ? supportByEnvironmentId.get(co.mixpanelCompanyId.trim().toLowerCase()) : undefined) ??
-    (co.domain ? supportByDomain.get(co.domain.toLowerCase()) : undefined) ??
-    supportByName.get(co.name.toLowerCase()) ??
-    emptySupport();
+  // Support/SLA data is filled in by the daily Intercom sync (lib/support/sync.ts),
+  // never here — see the comment above buildUnifiedData's Metabase block. A
+  // brand-new client starts empty until that job's next run picks it up.
+  const support = emptySupport();
 
   const usagePartial =
     (co.domain ? usageByKey.get(co.domain.toLowerCase()) : undefined) ?? usageByKey.get(co.id.toLowerCase());
@@ -562,7 +497,7 @@ function mergeUsage(p?: Partial<UsageMetrics> & { seats: number; activeUsers: nu
 }
 
 function emptySupport(): SupportSummary {
-  return { openTickets: 0, snoozedTickets: 0, closedLast30d: 0, oldestOpenDays: null, medianFirstResponseHours: null, csat: null, csatScale: "percent", csatResponses: 0, nps: null, npsResponses: 0, lastConversationAt: null };
+  return { openTickets: 0, snoozedTickets: 0, closedLast30d: 0, oldestOpenDays: null, medianFirstResponseHours: null, csat: null, csatScale: "percent", csatResponses: 0, nps: null, npsResponses: 0, lastConversationAt: null, supportLevelUsed: null, slaBreaches: [] };
 }
 function emptyUsage(): UsageMetrics {
   return { seats: 0, activeUsers: 0, adoptionRate: 0, wau: 0, mau: 0, stickiness: 0, lastActiveAt: null, featureAdoption: [], activityTrend: [] };

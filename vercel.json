@@ -10,6 +10,10 @@
       "schedule": "15 */4 * * *"
     },
     {
+      "path": "/api/cron/intercom-sync",
+      "schedule": "0 6 * * *"
+    },
+    {
       "path": "/api/cron/profile-completeness",
       "schedule": "0 7 * * *"
     },

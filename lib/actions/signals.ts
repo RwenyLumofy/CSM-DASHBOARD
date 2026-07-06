@@ -175,8 +175,37 @@ export function detectSignals(inputs: SignalInputs): ActionSignal[] {
     });
   }
 
-  // ── #4 Sentiment (NPS / CSAT) — dormant until a source is wired ─────────
   const s = client.support;
+
+  // ── #7 SLA breaches — one action per open ticket exceeding its target ──
+  // client.support.slaBreaches is computed by the daily Intercom sync
+  // (lib/support/sync.ts) against the account's resolved support level (see
+  // lib/sla.ts) — this just groups the flat breach list by ticket and words it.
+  const breachesByTicket = new Map<string, typeof s.slaBreaches>();
+  for (const b of s.slaBreaches) {
+    const arr = breachesByTicket.get(b.conversationId);
+    if (arr) arr.push(b);
+    else breachesByTicket.set(b.conversationId, [b]);
+  }
+  for (const [conversationId, bs] of breachesByTicket) {
+    const worst = bs.reduce((a, b) => (b.elapsedBusinessHours > a.elapsedBusinessHours ? b : a), bs[0]!);
+    const kinds = bs.map((b) => b.kind).join(" and ");
+    const overdueHours = Math.max(0, Math.round(worst.elapsedBusinessHours - worst.targetHours));
+    out.push({
+      category: "sla",
+      signalKey: `ticket:${conversationId}`,
+      priority: worst.priority === "P3" ? "medium" : "high",
+      title: `${worst.priority} ticket overdue at ${name}`,
+      insight:
+        `An open ${worst.priority} ticket has missed its ${kinds} SLA target (${s.supportLevelUsed ?? "support level"}: ` +
+        `${worst.targetHours}h business hours) — it's been open ${Math.round(worst.elapsedBusinessHours)} business ` +
+        `hours so far, ${overdueHours}h over. Respond or escalate.` +
+        (worst.url ? ` ${worst.url}` : ""),
+      facts: { conversationId, breaches: bs, supportLevel: s.supportLevelUsed },
+    });
+  }
+
+  // ── #4 Sentiment (NPS / CSAT) — dormant until a source is wired ─────────
   if (s.csat != null && s.csatResponses > 0) {
     const csat = normalizeCsat(s.csat, s.csatScale);
     if (csat < CSAT_LOW) {

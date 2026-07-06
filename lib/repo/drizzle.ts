@@ -736,9 +736,14 @@ async function upsertClient(c: Client, existingProperties?: Record<string, unkno
     csmSource: _csmSource,
     implementationOwner: _implementationOwner,
     implementationOwnerSource: _implementationOwnerSource,
+    // The HubSpot sync no longer fetches Intercom (that's the dedicated daily
+    // job, lib/support/sync.ts, via the narrow setClientSupportDb) — this
+    // sync's own `support` is always empty, so overwriting the column here
+    // would erase real support/SLA data every 4 hours between daily runs.
+    support: _support,
     ...rest
   } = row;
-  void _properties; void _csm; void _csmSource; void _implementationOwner; void _implementationOwnerSource;
+  void _properties; void _csm; void _csmSource; void _implementationOwner; void _implementationOwnerSource; void _support;
   const updateSet = dropOverriddenFields(rest, fieldOverridesSet(existingProperties));
   await db
     .insert(schema.clients)
@@ -771,9 +776,12 @@ async function upsertClientFull(c: Client): Promise<void> {
     csmSource: _csmSource,
     implementationOwner: _implementationOwner,
     implementationOwnerSource: _implementationOwnerSource,
+    // Same reasoning as upsertClient() — a re-import must not wipe real
+    // Intercom/SLA data with the empty placeholder import rows are seeded with.
+    support: _support,
     ...rest
   } = row;
-  void _properties; void _csm; void _csmSource; void _implementationOwner; void _implementationOwnerSource;
+  void _properties; void _csm; void _csmSource; void _implementationOwner; void _implementationOwnerSource; void _support;
   const updateSet = dropOverriddenFields(rest, fieldOverridesSet(existing?.properties as Record<string, unknown> | undefined));
   await db
     .insert(schema.clients)
@@ -1060,6 +1068,14 @@ export async function setClientPropertyDb(clientId: string, key: string, value: 
   if (value === null) delete props[key];
   else props[key] = value;
   await db.update(schema.clients).set({ properties: props, updatedAt: new Date() }).where(eq(schema.clients.id, clientId));
+}
+
+/** Overwrite a client's `support` snapshot (Intercom summary + SLA breaches)
+ *  — the daily Intercom sync's write path (lib/support/sync.ts). Narrow
+ *  single-column update, same shape as the other per-column setters here. */
+export async function setClientSupportDb(clientId: string, support: import("@/lib/types").SupportSummary): Promise<void> {
+  const db = getDb();
+  await db.update(schema.clients).set({ support, updatedAt: new Date() }).where(eq(schema.clients.id, clientId));
 }
 
 export async function assignCsmToClient(
@@ -1576,7 +1592,7 @@ function emptyHealth(): HealthScore {
   return { score: 0, tier: "at_risk", components: { usage: 0, sentiment: 0, support: 0, engagement: 0, relationship: 0 }, trend: 0, updatedAt: new Date(0).toISOString() };
 }
 function emptySupport(): SupportSummary {
-  return { openTickets: 0, snoozedTickets: 0, closedLast30d: 0, oldestOpenDays: null, medianFirstResponseHours: null, csat: null, csatScale: "percent", csatResponses: 0, nps: null, npsResponses: 0, lastConversationAt: null };
+  return { openTickets: 0, snoozedTickets: 0, closedLast30d: 0, oldestOpenDays: null, medianFirstResponseHours: null, csat: null, csatScale: "percent", csatResponses: 0, nps: null, npsResponses: 0, lastConversationAt: null, supportLevelUsed: null, slaBreaches: [] };
 }
 function emptyUsage(): UsageMetrics {
   return { seats: 0, activeUsers: 0, adoptionRate: 0, wau: 0, mau: 0, stickiness: 0, lastActiveAt: null, featureAdoption: [], activityTrend: [] };

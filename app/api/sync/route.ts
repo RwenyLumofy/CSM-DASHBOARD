@@ -23,18 +23,21 @@ function authorized(req: Request): boolean {
   return bearer === secret || qp === secret;
 }
 
-/** Report which sources are configured and the current sync checkpoint. */
+/** Report which sources are configured and the current sync checkpoints. */
 export async function GET() {
   let lastSyncedAt: string | null = null;
+  let lastIntercomSyncedAt: string | null = null;
   if (hasDatabase()) {
     const { getSyncCheckpoint } = await import("@/lib/repo/drizzle");
     lastSyncedAt = await withDbTimeout(getSyncCheckpoint("last_synced_at")).catch(() => null);
+    lastIntercomSyncedAt = await withDbTimeout(getSyncCheckpoint("last_intercom_synced_at")).catch(() => null);
   }
   return NextResponse.json({
     sources: { hubspot: integrations.hubspot(), intercom: integrations.intercom(), metabase: integrations.metabase() },
     database: hasDatabase(),
     mode: hasDatabase() ? "live" : "sample",
     lastSyncedAt,
+    lastIntercomSyncedAt,
   });
 }
 

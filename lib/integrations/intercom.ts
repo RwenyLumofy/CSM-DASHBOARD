@@ -31,6 +31,15 @@ export interface IntercomConversation {
   createdAt: string; // ISO
   updatedAt: string; // ISO
   contactIds: string[];
+  /**
+   * SLA severity tier. Only ~7% of open conversations are escalated to an
+   * actual Intercom "Ticket" object carrying a Priority attribute (sampled
+   * 2026-07-06: 2/30 open conversations had one); the rest default to P3 —
+   * not a technical fallback but the semantically right mapping, since P3's
+   * own definition ("minor issues... no fixed resolution deadline") is
+   * exactly what an un-escalated plain conversation is.
+   */
+  priority: "P1" | "P2" | "P3";
 }
 
 /**
@@ -70,6 +79,15 @@ export class IntercomClient {
 
   get configured(): boolean {
     return this.token.length > 0;
+  }
+
+  /** The workspace's app id (id_code), used to build a web-inbox deep link
+   *  for a conversation — see lib/sla.ts buildConversationUrl. */
+  async fetchAppId(): Promise<string | null> {
+    const res = await fetchRetrying(`${this.base}/me`, { headers: this.headers(), cache: "no-store" });
+    if (!res.ok) throw new Error(`Intercom me: ${res.status} ${await res.text()}`);
+    const data = (await res.json()) as { app?: { id_code?: string } };
+    return data.app?.id_code ?? null;
   }
 
   private headers() {
@@ -201,6 +219,16 @@ interface IntercomRawConversation {
   conversation_rating?: { rating?: number } | null;
   statistics?: { time_to_first_response?: number } | null;
   contacts?: { contacts?: { id: string }[] } | null;
+  ticket?: { custom_attributes?: Record<string, { value?: string } | string | null> | null } | null;
+}
+
+/** Extracts "P1"/"P2"/"P3" from the ticket's Priority custom attribute (seen
+ *  as e.g. "High - P1", "Medium - P2"). Defaults to P3 — see IntercomConversation.priority. */
+function classifyPriority(c: IntercomRawConversation): "P1" | "P2" | "P3" {
+  const raw = c.ticket?.custom_attributes?.Priority;
+  const value = raw && typeof raw === "object" ? raw.value : raw;
+  const m = typeof value === "string" ? /P([123])/i.exec(value) : null;
+  return m ? (`P${m[1]}` as "P1" | "P2" | "P3") : "P3";
 }
 
 function normalizeConversation(c: IntercomRawConversation): IntercomConversation {
@@ -213,6 +241,7 @@ function normalizeConversation(c: IntercomRawConversation): IntercomConversation
     createdAt: new Date((c.created_at ?? 0) * 1000).toISOString(),
     updatedAt: new Date((c.updated_at ?? 0) * 1000).toISOString(),
     contactIds: (c.contacts?.contacts ?? []).map((x) => x.id),
+    priority: classifyPriority(c),
   };
 }
 
@@ -265,6 +294,11 @@ export function summarizeSupport(
     nps: opts.nps ?? null,
     npsResponses: opts.npsResponses ?? 0,
     lastConversationAt,
+    // SLA fields aren't this function's concern — it only summarizes
+    // conversations. The daily sync (lib/support/sync.ts) overrides both
+    // after resolving the account's support level and checking its tickets.
+    supportLevelUsed: null,
+    slaBreaches: [],
   };
 }
 

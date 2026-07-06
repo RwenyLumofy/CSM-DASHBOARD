@@ -72,6 +72,24 @@ export interface SupportSummary {
   nps: number | null; // -100..100
   npsResponses: number;
   lastConversationAt: string | null; // ISO
+  /** The account-level support tier used to evaluate slaBreaches below (see
+   *  lib/sla.ts resolveAccountSupportLevel). Null when no tracked deal has a
+   *  support level set — SLA isn't evaluated for that account at all. */
+  supportLevelUsed: string | null;
+  /** Currently-open tickets exceeding their SLA response/resolution target,
+   *  computed during the daily Intercom sync (lib/support/sync.ts). */
+  slaBreaches: SlaBreach[];
+}
+
+/** One SLA target a currently-open ticket has missed — see lib/sla.ts. */
+export interface SlaBreach {
+  conversationId: string;
+  priority: "P1" | "P2" | "P3";
+  kind: "response" | "resolution";
+  targetHours: number;
+  elapsedBusinessHours: number;
+  createdAt: string; // ISO — conversation creation
+  url: string | null;
 }
 
 export type TicketState = "open" | "snoozed" | "closed";
@@ -434,15 +452,16 @@ export interface Notification {
 
 /* ---------- AI action feed (the revamped Action List) ------------------ */
 
-/** The six directive categories a CSM action can belong to. `sentiment`
- *  (low NPS/CSAT) is defined but dormant until a sentiment source is wired;
+/** The directive categories a CSM action can belong to. `sentiment` (low
+ *  NPS/CSAT) is defined but dormant until a sentiment source is wired;
  *  `projects` and stakeholder-engagement arrive with those features. */
 export type ActionCategory =
   | "incomplete_profile"
   | "usage"
   | "health"
   | "stakeholders"
-  | "sentiment";
+  | "sentiment"
+  | "sla";
 
 export type ActionPriority = "high" | "medium" | "low";
 /** open = active guidance; dismissed = CSM hid it (sticky across regens);

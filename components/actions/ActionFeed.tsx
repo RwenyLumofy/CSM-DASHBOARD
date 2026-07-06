@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Activity,
+  AlarmClockOff,
   ClipboardList,
   ExternalLink,
   HeartPulse,
@@ -53,6 +54,7 @@ const CATEGORY_META: Record<ActionCategory, { label: string; icon: LucideIcon; t
   health: { label: "Health", icon: HeartPulse, tone: "border-[#B23A57]/30 bg-[#FBE7ED] text-[#B23A57]" },
   stakeholders: { label: "Stakeholders", icon: Users, tone: "border-[#2DB47A]/30 bg-[#E6F9EF] text-[#1E8F61]" },
   sentiment: { label: "Sentiment", icon: MessageSquare, tone: "border-[#C99A14]/30 bg-[#FBF6E0] text-[#8A6A0A]" },
+  sla: { label: "SLA", icon: AlarmClockOff, tone: "border-[#E31B1B]/30 bg-[#FDE8E8] text-[#B91C1C]" },
 };
 
 const PRIORITY_META: Record<ActionPriority, { label: string; dot: string; order: number }> = {
