@@ -11,7 +11,7 @@ export const ALLOWED_ATTACHMENT_EXTENSIONS = [
   "pdf", "png", "jpg", "jpeg", "ppt", "pptx", "doc", "docx", "xls", "xlsx", "csv",
 ] as const;
 
-export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024; // 20MB
+export const MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024; // 30MB
 
 export function extensionOf(fileName: string): string {
   const dot = fileName.lastIndexOf(".");
