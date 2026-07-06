@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runSync } from "@/lib/integrations/sync";
 
-// Cadence + maxDuration below are BOTH temporarily throttled for Vercel
-// Hobby's free-plan limits (once/day cron, 300s function ceiling) — this is
-// not the original design. Original values, why, and the exact revert
-// checklist: see VERCEL-PLAN-CHANGES.md.
+// Runs every 4 hours (vercel.json) to keep auto-assignment and ARR/status
+// fresh through the day. maxDuration 800 gives a full sync headroom on Pro;
+// sync is idempotent + checkpoint-based, so a cut-off run just does less work
+// and the next cycle resumes cleanly.
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 export async function GET(req: NextRequest) {
   const secret = req.headers.get("authorization")?.replace("Bearer ", "");

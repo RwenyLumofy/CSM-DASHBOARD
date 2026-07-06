@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncAllClientUsage } from "@/lib/usage/sync";
 
-// Cadence + maxDuration below are BOTH temporarily throttled for Vercel
-// Hobby's free-plan limits — not the original design. See
-// VERCEL-PLAN-CHANGES.md for original values and the revert checklist.
+// Runs every 4 hours (vercel.json), 15 min after /api/cron/sync so it reflects
+// that cycle's fresh deal data. maxDuration 800 gives the per-client Metabase
+// fan-out headroom on Pro.
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 export async function GET(req: NextRequest) {
   const secret = req.headers.get("authorization")?.replace("Bearer ", "");

@@ -5,9 +5,9 @@ import { withDbTimeout } from "@/lib/db/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Temporarily throttled for Vercel Hobby's 300s function ceiling — original
-// design value was 800. See VERCEL-PLAN-CHANGES.md for the revert checklist.
-export const maxDuration = 300;
+// Manual/legacy sync trigger (not on a cron). maxDuration 800 matches the
+// scheduled sync route so a full manual run has the same headroom on Pro.
+export const maxDuration = 800;
 
 // Prefer a dedicated SYNC_SECRET, but fall back to CRON_SECRET (the secret
 // already required for /api/cron/*) so this endpoint — which includes a
