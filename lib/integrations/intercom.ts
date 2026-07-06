@@ -137,7 +137,20 @@ export class IntercomClient {
     return index;
   }
 
-  /** Conversations updated within the window, normalized. */
+  /**
+   * Conversations updated within the window, PLUS every currently-open
+   * conversation regardless of age, normalized.
+   *
+   * Applying the recency window to `open` conversations too was a real bug:
+   * a ticket a customer opened and that then sat completely untouched for
+   * longer than the window never advances its `updated_at`, so it silently
+   * dropped out of both the open-ticket count and `oldestOpenDays` — the
+   * exact stale-ticket case that metric exists to catch, made invisible by
+   * the very filter meant to keep the fetch small. Open tickets are fetched
+   * unconditionally now (their own current state is what matters, not how
+   * recently they were touched); the recency window still limits closed/
+   * snoozed history, which is what actually needs bounding for volume.
+   */
   async searchConversations(opts: { updatedSinceDays?: number } = {}): Promise<IntercomConversation[]> {
     const sinceSec = opts.updatedSinceDays
       ? Math.floor((Date.now() - opts.updatedSinceDays * 86_400_000) / 1000)
@@ -148,7 +161,13 @@ export class IntercomClient {
 
     for (let i = 0; i < 1000; i++) {
       const query = sinceSec
-        ? { field: "updated_at", operator: ">", value: sinceSec }
+        ? {
+            operator: "OR",
+            value: [
+              { field: "state", operator: "=", value: "open" },
+              { field: "updated_at", operator: ">", value: sinceSec },
+            ],
+          }
         : { field: "updated_at", operator: ">", value: 0 };
 
       const body = {

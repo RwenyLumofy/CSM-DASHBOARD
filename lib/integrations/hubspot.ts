@@ -129,6 +129,11 @@ export interface HubspotDeal {
   isTamkeen: string | null;
   /** `deal_child_campaign` enum on the deal (e.g. "Jisr", "Future X"). */
   childCampaign: string | null;
+  /** The deal's own `account_executive` property (a HubSpot owner id) — the
+   *  SOLE source for the deal-card "Account Executive" field (see
+   *  fetchClientEngagement's own comment). Resolved to a name/email via
+   *  `owners` when building the app-level Deal. */
+  accountExecutiveOwnerId: string | null;
   companyId: string | null;
 }
 
@@ -453,6 +458,7 @@ export class HubSpotClient {
             "dealstage",
             "tamkeen_subsidy",
             "deal_child_campaign",
+            "account_executive",
           ],
           limit: 100,
           ...(after ? { after } : {}),
@@ -466,6 +472,7 @@ export class HubSpotClient {
             pipeline: p.label,
             isTamkeen: r.properties.tamkeen_subsidy ?? null,
             childCampaign: r.properties.deal_child_campaign ?? null,
+            accountExecutiveOwnerId: r.properties.account_executive ?? null,
             companyId: null,
           });
         }
@@ -797,6 +804,7 @@ export class HubSpotClient {
         pipeline: won.label,
         isTamkeen: p.tamkeen_subsidy ?? null,
         childCampaign: p.deal_child_campaign ?? null,
+        accountExecutiveOwnerId: p.account_executive ?? null,
         companyId: coId,
       };
       deals.push({

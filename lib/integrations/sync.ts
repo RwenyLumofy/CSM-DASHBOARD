@@ -92,12 +92,33 @@ export async function buildUnifiedData(opts?: { sinceDate?: string }): Promise<{
           convByCompany.set(co, list);
         }
       }
+      // Merge conversations by KEY first, then summarize once per key — not
+      // "summarize per company, last one wins" — because this Intercom
+      // workspace has confirmed duplicate company records (e.g. multiple
+      // "Jisr", "Demo", "Arla Foods" entries). Summarizing-then-overwriting
+      // meant a duplicate with zero conversations could silently blank out
+      // a real company's actual support data, depending on Intercom's
+      // (unordered) scroll iteration order — intermittent data loss with no
+      // warning. Merging first means a duplicate only ever adds, never erases.
+      const convsByEnvironmentId = new Map<string, IntercomConversation[]>();
+      const convsByDomain = new Map<string, IntercomConversation[]>();
+      const convsByName = new Map<string, IntercomConversation[]>();
       for (const co of icCompanies) {
-        const summary = summarizeSupport(convByCompany.get(co.id) ?? []);
-        if (co.companyId) supportByEnvironmentId.set(co.companyId.trim().toLowerCase(), summary);
-        if (co.domain) supportByDomain.set(co.domain.toLowerCase(), summary);
-        supportByName.set(co.name.toLowerCase(), summary);
+        const convs = convByCompany.get(co.id) ?? [];
+        if (co.companyId) {
+          const key = co.companyId.trim().toLowerCase();
+          convsByEnvironmentId.set(key, [...(convsByEnvironmentId.get(key) ?? []), ...convs]);
+        }
+        if (co.domain) {
+          const key = co.domain.toLowerCase();
+          convsByDomain.set(key, [...(convsByDomain.get(key) ?? []), ...convs]);
+        }
+        const nameKey = co.name.toLowerCase();
+        convsByName.set(nameKey, [...(convsByName.get(nameKey) ?? []), ...convs]);
       }
+      for (const [key, convs] of convsByEnvironmentId) supportByEnvironmentId.set(key, summarizeSupport(convs));
+      for (const [key, convs] of convsByDomain) supportByDomain.set(key, summarizeSupport(convs));
+      for (const [key, convs] of convsByName) supportByName.set(key, summarizeSupport(convs));
     } catch (e) {
       warnings.push(`Intercom enrichment failed: ${e}`);
     }
@@ -135,7 +156,16 @@ export async function buildUnifiedData(opts?: { sinceDate?: string }): Promise<{
 
     // Deal objects (one per won deal)
     for (const d of co.wonDeals) {
-      const owner = d.companyId ? owners.get(co.ownerId ?? "") : undefined;
+      // Account Executive = the deal's OWN account_executive property, never
+      // the company's generic hubspot_owner_id (co.ownerId) — that's a
+      // different field entirely (often a CSM or salesperson assigned on the
+      // company record, not necessarily this deal's AE). Using co.ownerId
+      // here was a real bug: because upsertClientDeals inserts a deal row
+      // once and never overwrites it (onConflictDoNothing), a deal that got
+      // its AE from this WRONG source on its first sync kept it wrong
+      // forever — the correct value from fetchClientEngagement's own
+      // account_executive lookup could never win the race to be written first.
+      const owner = d.accountExecutiveOwnerId ? owners.get(d.accountExecutiveOwnerId) : undefined;
       deals.push({
         id: `hs-deal-${d.id}`,
         clientId: co.id,

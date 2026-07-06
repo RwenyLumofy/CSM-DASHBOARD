@@ -42,6 +42,15 @@ interface ResolvedEnv {
   environmentName: string | null;
 }
 
+/** How long a cached environment link is trusted before re-checking HubSpot's
+ *  CURRENT mixpanel_company_id against it. Below this, one manual correction
+ *  in HubSpot (a CSM fixing a wrong id) could otherwise be masked forever —
+ *  this happened for real once (BBK's Kuwait/Bahrain split) and needed a
+ *  manual DB fix to clear the stale cache. 24h bounds that gap without
+ *  paying an extra HubSpot round-trip on every single Usage-tab view (the
+ *  common case — nothing changed — still returns instantly from cache). */
+const ENV_LINK_REVALIDATE_MS = 24 * 60 * 60 * 1000;
+
 function withEnv(sql: string, envId: string): string {
   return sql.replaceAll(":ENV_ID", `'${envId}'`);
 }
@@ -132,11 +141,13 @@ async function resolveEnvironment(clientId: string): Promise<ResolvedEnv | { err
   if (!client) return { error: { status: "error", message: "Client not found." } };
 
   const cached = (client.properties as Record<string, unknown> | undefined)?.[USAGE_ENV_KEY] as
-    | { environmentId?: string; region?: "aws" | "ksa"; environmentName?: string | null }
+    | { environmentId?: string; region?: "aws" | "ksa"; environmentName?: string | null; resolvedAt?: string }
     | undefined;
-  if (cached?.environmentId && cached.region) {
-    return { environmentId: cached.environmentId, region: cached.region, environmentName: cached.environmentName ?? null };
-  }
+  const cachedResolved: ResolvedEnv | null =
+    cached?.environmentId && cached.region
+      ? { environmentId: cached.environmentId, region: cached.region, environmentName: cached.environmentName ?? null }
+      : null;
+  const cacheAgeMs = cached?.resolvedAt ? Date.now() - new Date(cached.resolvedAt).getTime() : Infinity;
 
   if (!integrations.metabase()) {
     return { error: { status: "not_configured", message: "Metabase isn't connected yet — set METABASE_URL and METABASE_API_KEY." } };
@@ -146,17 +157,41 @@ async function resolveEnvironment(clientId: string): Promise<ResolvedEnv | { err
   if (!hs.configured || !client.hubspotId) {
     return { error: { status: "unlinked", message: "No HubSpot company link, so the platform environment can't be resolved." } };
   }
+
+  // A recent cache is trusted outright — same fast path as before, no
+  // HubSpot call at all for the common (nothing changed) case.
+  if (cachedResolved && cacheAgeMs < ENV_LINK_REVALIDATE_MS) return cachedResolved;
+
+  // Cache is absent or stale (>24h) — check HubSpot's CURRENT mixpanel_company_id.
+  // This is what makes a HubSpot correction actually take effect instead of
+  // being masked by a stale cache indefinitely.
   let envId: string | null = null;
   try {
     envId = await hs.fetchCompanyMixpanelId(client.hubspotId);
   } catch (e) {
+    // A transient HubSpot hiccup shouldn't break an otherwise-working (if
+    // slightly stale) cached resolution.
+    if (cachedResolved) return cachedResolved;
     return { error: { status: "error", message: `Couldn't read the Mixpanel Company ID from HubSpot: ${e}` } };
   }
+
+  if (cachedResolved && envId && cachedResolved.environmentId.toLowerCase() === envId.toLowerCase()) {
+    // Still correct — bump resolvedAt so the next 24h window doesn't re-check.
+    try {
+      const { setClientPropertyDb } = await import("@/lib/repo/drizzle");
+      await withDbTimeout(setClientPropertyDb(clientId, USAGE_ENV_KEY, { ...cachedResolved, resolvedAt: new Date().toISOString() }));
+    } catch {
+      /* best-effort */
+    }
+    return cachedResolved;
+  }
+
   if (!envId || !UUID_RE.test(envId)) {
     return { error: { status: "unlinked", message: "This account has no Mixpanel Company ID in HubSpot yet, so it isn't linked to a platform environment." } };
   }
 
   const mb = new MetabaseClient();
+  let lastProbeError: unknown = null;
   for (const region of ["aws", "ksa"] as const) {
     try {
       const rows = await mb.runNativeQuery(
@@ -175,9 +210,14 @@ async function resolveEnvironment(clientId: string): Promise<ResolvedEnv | { err
         return resolved;
       }
     } catch (e) {
-      return { error: { status: "error", message: `Metabase probe failed: ${e}` } };
+      // A transient failure on ONE region must not prevent checking the
+      // other — previously this returned immediately here, so a timeout on
+      // the aws probe could mask a valid match sitting in ksa. Remember the
+      // error and keep going; only surface it if EVERY region failed.
+      lastProbeError = e;
     }
   }
+  if (lastProbeError) return { error: { status: "error", message: `Metabase probe failed: ${lastProbeError}` } };
   return { error: { status: "unlinked", message: "The account's Mixpanel Company ID doesn't match any Lumofy environment (AWS or KSA)." } };
 }
 
