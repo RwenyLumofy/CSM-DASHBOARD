@@ -33,6 +33,32 @@ export interface IntercomConversation {
   contactIds: string[];
 }
 
+/**
+ * Retry a single page fetch up to 3x on a network error/timeout or a 5xx —
+ * NOT on a 4xx (auth/bad-request), which retrying won't fix. A full export
+ * (companies/contacts/conversations) runs dozens of sequential page
+ * requests; even a healthy connection has a real chance that ONE of many
+ * pages is transiently slow, and without this a single flaky page discarded
+ * the entire, otherwise-successful multi-page fetch (confirmed live,
+ * 2026-07-06: two consecutive sync runs against a real, larger workspace
+ * both failed with the exact same "aborted due to timeout" on one page).
+ * 20s per attempt (was 15s, no retry) — still well under this route's
+ * overall maxDuration.
+ */
+async function fetchRetrying(url: string, init: RequestInit, attempts = 3): Promise<Response> {
+  for (let i = 0; i < attempts; i++) {
+    const last = i === attempts - 1;
+    try {
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
+      if (res.ok || last || (res.status >= 400 && res.status < 500)) return res;
+    } catch (e) {
+      if (last) throw e;
+    }
+    await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+  }
+  throw new Error("unreachable");
+}
+
 export class IntercomClient {
   private token: string;
   private base: string;
@@ -62,7 +88,7 @@ export class IntercomClient {
     // The scroll endpoint returns up to 60 records per call until empty.
     for (let i = 0; i < 1000; i++) {
       const url = `${this.base}/companies/scroll${scroll ? `?scroll_param=${scroll}` : ""}`;
-      const res = await fetch(url, { headers: this.headers(), cache: "no-store", signal: AbortSignal.timeout(15_000) });
+      const res = await fetchRetrying(url, { headers: this.headers(), cache: "no-store" });
       if (!res.ok) throw new Error(`Intercom companies/scroll: ${res.status} ${await res.text()}`);
       const data = (await res.json()) as {
         data?: { id: string; company_id?: string; name?: string; website?: string; user_count?: number }[];
@@ -95,7 +121,7 @@ export class IntercomClient {
     let startingAfter: string | undefined;
     for (let i = 0; i < 1000; i++) {
       const url = `${this.base}/contacts?per_page=150${startingAfter ? `&starting_after=${startingAfter}` : ""}`;
-      const res = await fetch(url, { headers: this.headers(), cache: "no-store", signal: AbortSignal.timeout(15_000) });
+      const res = await fetchRetrying(url, { headers: this.headers(), cache: "no-store" });
       if (!res.ok) throw new Error(`Intercom contacts: ${res.status} ${await res.text()}`);
       const data = (await res.json()) as {
         data?: { id: string; companies?: { data?: { id: string }[] } }[];
@@ -129,12 +155,11 @@ export class IntercomClient {
         query,
         pagination: { per_page: 150, ...(startingAfter ? { starting_after: startingAfter } : {}) },
       };
-      const res = await fetch(`${this.base}/conversations/search`, {
+      const res = await fetchRetrying(`${this.base}/conversations/search`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify(body),
         cache: "no-store",
-        signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) throw new Error(`Intercom conversations/search: ${res.status} ${await res.text()}`);
       const data = (await res.json()) as {
