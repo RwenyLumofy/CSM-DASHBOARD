@@ -13,20 +13,30 @@ let _db: PostgresJsDatabase<typeof schema> | null = null;
 export function getDb(): PostgresJsDatabase<typeof schema> {
   if (!env.databaseUrl) throw new Error("DATABASE_URL is not configured");
   if (!_db) {
-    // Pool size per lambda. Raised 3->6 on a theory that same-request query
-    // queueing (a single /clients render fires ~9-10 concurrent reads) was
-    // the cause of a super-admin's /clients read timing out and showing zero
-    // clients. That theory is UNCONFIRMED — a live check of the Supabase
-    // project found only 13/60 backend connections in use and no stuck
-    // queries, and the real, confirmed cause turned out to be a coverage gap
-    // (most DB reads across the app weren't wrapped in withDbTimeout at all,
-    // so they hung to Vercel's 300s ceiling regardless of pool size — see
-    // withDbTimeout below). Don't change this number again without pulling
-    // real Supabase pooler metrics (Dashboard -> Database -> Connection
-    // pooling) during an actual slow episode; guessing at it twice already
-    // didn't fix anything.
+    // Pool size per lambda. CONFIRMED (not guessed) via a live read of
+    // pg_stat_activity on 2026-07-06: max_connections is 60, and only ~18
+    // were in use — meaning the DB itself has 40+ spare slots. The actual
+    // bottleneck was this number: a single client-profile page fires ~8-9
+    // concurrent reads (attachments/deals/contacts/emails/meetings/property
+    // defs/team members/role labels/actions), so at max=6 at least 2 of them
+    // ALWAYS had to queue for a free connection on every single profile view.
+    // That queueing is what pushed queries past withDbTimeout's 45s bound —
+    // and because withDbTimeout only races the caller (see its own comment
+    // below), a query that loses that race keeps running orphaned: the same
+    // live read caught 4 backends stuck in `active`/`ClientRead` for 54s-24
+    // MINUTES, running exactly the queries this app issues (notifications,
+    // workspace_config, app_users role lookup, an emails scan) — connections
+    // that will never come back to the pool on their own. Raising max to 20
+    // gives a single page's peak concurrency room to run without queueing, so
+    // queries finish well under 45s and stop tripping withDbTimeout/orphaning
+    // connections in the first place — comfortably inside the 60-connection
+    // ceiling even with a few warm lambda instances at once. If this pool
+    // pressure returns, the next lever is making a stuck query cancellable
+    // (postgres.js queries expose .cancel(), but Drizzle's query builder
+    // doesn't forward it — would need raw sql`` at each hot call site), not
+    // another blind bump to this number.
     const isProd = process.env.NODE_ENV === "production";
-    const max = isProd ? 6 : 10;
+    const max = isProd ? 20 : 10;
     // Idle timeout = how long an unused connection stays open before it's closed.
     // The DB is remote (cross-region), so re-opening a connection pays a full
     // TLS+auth handshake (~700ms measured). In dev we keep connections warm for
