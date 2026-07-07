@@ -93,6 +93,7 @@ import type {
   HealthComponents,
   Meeting,
   PropertyDefinition,
+  SupportTicket,
   TimelineEvent,
 } from "@/lib/types";
 import { ActionFeed } from "@/components/actions/ActionFeed";
@@ -1389,8 +1390,45 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
 /* Support (Intercom)                                                     */
 /* ===================================================================== */
 
+const TICKET_STATE_TONE: Record<SupportTicket["state"], BadgeTone> = {
+  open: "nova",
+  snoozed: "stellar",
+  closed: "neutral",
+};
+
+const TICKET_PRIORITY_TONE: Record<SupportTicket["priority"], BadgeTone> = {
+  P1: "nova",
+  P2: "stellar",
+  P3: "neutral",
+};
+
+// Open+breaching first (most urgent), then open on-track, then snoozed, then
+// closed (most recent first) — matches how a CSM would want to scan this.
+function ticketSortKey(t: SupportTicket): number {
+  if (t.state === "open") return t.slaBreaches.length > 0 ? 0 : 1;
+  if (t.state === "snoozed") return t.slaBreaches.length > 0 ? 2 : 3;
+  return t.slaBreaches.length > 0 ? 4 : 5;
+}
+
+function TicketSlaCell({ ticket }: { ticket: SupportTicket }) {
+  if (ticket.slaBreaches.length === 0) {
+    return <Badge tone="aurora">On track</Badge>;
+  }
+  const worst = ticket.slaBreaches.reduce((a, b) => (b.elapsedBusinessHours > a.elapsedBusinessHours ? b : a), ticket.slaBreaches[0]!);
+  const overdueHours = Math.max(0, Math.round(worst.elapsedBusinessHours - worst.targetHours));
+  const kinds = ticket.slaBreaches.map((b) => b.kind).join(" + ");
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Badge tone="nova">Breached ({kinds})</Badge>
+      <span className="caption">{overdueHours}h over</span>
+    </span>
+  );
+}
+
 function SupportTab({ client }: { client: Client }) {
   const s = client.support;
+  const tickets = useMemo(() => [...s.tickets].sort((a, b) => ticketSortKey(a) - ticketSortKey(b) || b.createdAt.localeCompare(a.createdAt)), [s.tickets]);
+
   return (
     <>
       <Card>
@@ -1407,12 +1445,50 @@ function SupportTab({ client }: { client: Client }) {
         </div>
       </Card>
       <Card>
-        <CardEyebrow>Tickets</CardEyebrow>
-        <EmptyHint
-          icon={Inbox}
-          title="Ticket list coming from Intercom"
-          body="Individual tickets, priorities and assignees will appear here once the Intercom integration is connected. The metrics above reflect the synced summary."
-        />
+        <div className="mb-4 flex items-center justify-between">
+          <CardEyebrow>Tickets ({tickets.length})</CardEyebrow>
+          {!s.supportLevelUsed && (
+            <span className="caption">No support level set — SLA not evaluated</span>
+          )}
+        </div>
+        {tickets.length === 0 ? (
+          <EmptyHint
+            icon={Inbox}
+            title="No tickets yet"
+            body="Individual tickets will appear here once this account has Intercom conversations."
+          />
+        ) : (
+          <div className="max-h-[520px] overflow-y-auto rounded-lg border border-border">
+            <table className="w-full border-collapse">
+              <thead className="sticky top-0 bg-surface">
+                <tr className="border-b border-border">
+                  <th className="px-3 py-2 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Priority</th>
+                  <th className="px-3 py-2 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">State</th>
+                  <th className="px-3 py-2 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Created</th>
+                  <th className="px-3 py-2 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">SLA</th>
+                  <th className="px-3 py-2 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {tickets.map((t) => (
+                  <tr key={t.id} className="border-b border-border last:border-0">
+                    <td className="px-3 py-2.5"><Badge tone={TICKET_PRIORITY_TONE[t.priority]}>{t.priority}</Badge></td>
+                    <td className="px-3 py-2.5"><Badge tone={TICKET_STATE_TONE[t.state]}>{t.state}</Badge></td>
+                    <td className="px-3 py-2.5 font-body text-[12.5px] text-fg-muted">{formatDate(t.createdAt)}</td>
+                    <td className="px-3 py-2.5"><TicketSlaCell ticket={t} /></td>
+                    <td className="px-3 py-2.5 text-right">
+                      {t.url && (
+                        <a href={t.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-body text-[12px] font-semibold text-sirius hover:underline">
+                          Open <ExternalLink size={12} />
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
     </>
   );

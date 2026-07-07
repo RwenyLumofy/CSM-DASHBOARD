@@ -109,13 +109,19 @@ export function resolveAccountSupportLevel(trackedDeals: Pick<Deal, "supportLeve
 }
 
 /**
- * Check ONE open conversation against its account's support level. Callers
- * must only call this for conversations with state === "open" — the
- * response/resolution "still breaching" semantics below assume that.
+ * Check one conversation against its account's support level, as of `now`.
+ * For a still-open ticket, pass the current time — this answers "is there a
+ * breach the CSM needs to act on today." For a closed ticket, pass its
+ * closedAt/updatedAt instead — this answers "was this ticket ever in breach
+ * before it closed," a fixed historical fact (used by the ticket list, not
+ * the action-list signal, which only cares about open tickets).
  *
- * Response: only flagged while no first response has happened yet (once
- * admin has replied, the response clock is a closed historical fact, not an
- * ongoing thing the CSM needs to act on today).
+ * Response: only flagged while no first response had happened yet as of
+ * `now` (once admin has replied, whether that reply was itself late is a
+ * separate question this function doesn't answer — deliberately: the
+ * action list only needs "is a response still owed," and the ticket list
+ * reuses that same rule for consistency between the two views rather than
+ * introducing a second, retroactive "was the reply on time" calculation).
  * Resolution: only flagged for tiers with a strict numeric target (P2 at
  * every level) — P1/P3 resolution is "best effort" in the source table.
  */

@@ -310,10 +310,11 @@ export function summarizeSupport(
     npsResponses: opts.npsResponses ?? 0,
     lastConversationAt,
     // SLA fields aren't this function's concern — it only summarizes
-    // conversations. The daily sync (lib/support/sync.ts) overrides both
-    // after resolving the account's support level and checking its tickets.
+    // conversations. The daily sync (lib/support/sync.ts) overrides all
+    // three after resolving the account's support level and checking its tickets.
     supportLevelUsed: null,
     slaBreaches: [],
+    tickets: [],
   };
 }
 

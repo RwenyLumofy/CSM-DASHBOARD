@@ -53,7 +53,7 @@ interface Seed {
   tags?: string[];
   h: HealthComponents;
   trend?: number;
-  support: Omit<SupportSummary, "csatScale" | "supportLevelUsed" | "slaBreaches">;
+  support: Omit<SupportSummary, "csatScale" | "supportLevelUsed" | "slaBreaches" | "tickets">;
   usage: Omit<UsageMetrics, "adoptionRate" | "stickiness">;
 }
 
@@ -88,7 +88,7 @@ function makeClient(s: Seed): Client {
     logoUrl: null,
     hubspotUrl: `https://app.hubspot.com/contacts/${PORTAL}/record/0-2/${s.id}`,
     health: buildHealth(s.h, { trend: s.trend ?? 0, updatedAt: "2026-06-14T08:00:00.000Z" }),
-    support: { ...s.support, csatScale: "percent", supportLevelUsed: null, slaBreaches: [] },
+    support: { ...s.support, csatScale: "percent", supportLevelUsed: null, slaBreaches: [], tickets: [] },
     usage: { ...s.usage, adoptionRate, stickiness },
     tags: s.tags ?? [],
   };

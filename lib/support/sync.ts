@@ -27,7 +27,7 @@ import { HubSpotClient } from "@/lib/integrations/hubspot";
 import { IntercomClient, summarizeSupport, type IntercomConversation } from "@/lib/integrations/intercom";
 import { checkTicketSla, resolveAccountSupportLevel, buildConversationUrl } from "@/lib/sla";
 import { dealOverridesMap, applyDealOverrides } from "@/lib/deal-overrides";
-import type { Client, Deal, SlaBreach, SupportSummary } from "@/lib/types";
+import type { Client, Deal, SlaBreach, SupportSummary, SupportTicket } from "@/lib/types";
 import { integrations } from "@/lib/config";
 import { withDbTimeout } from "@/lib/db/client";
 
@@ -171,18 +171,31 @@ export async function syncAllClientSupport(): Promise<SupportSyncSummary> {
         .map((d) => applyDealOverrides(d, overrides[d.id]));
       const level = resolveAccountSupportLevel(tracked);
 
+      // Every ticket (open, snoozed, or closed — no age cap), each carrying
+      // its own SLA breach status. Open/snoozed tickets are checked as-of
+      // now (an ongoing fact); closed tickets are checked as-of when they
+      // closed (a fixed, retrospective fact) — see lib/sla.ts's doc comment
+      // on checkTicketSla for why this reuses the exact same rule either way.
+      const now = new Date();
       const breaches: SlaBreach[] = [];
-      if (level) {
-        const now = new Date();
-        for (const conv of convs) {
-          if (conv.state !== "open") continue;
-          for (const b of checkTicketSla(conv, level, now)) {
-            breaches.push({ ...b, url: buildConversationUrl(appId, b.conversationId) });
-          }
-        }
-      }
+      const tickets: SupportTicket[] = convs.map((conv) => {
+        const asOf = conv.state === "open" || conv.state === "snoozed" ? now : new Date(conv.updatedAt);
+        const ticketBreaches = level
+          ? checkTicketSla(conv, level, asOf).map((b) => ({ ...b, url: buildConversationUrl(appId, b.conversationId) }))
+          : [];
+        if (conv.state === "open") breaches.push(...ticketBreaches);
+        return {
+          id: conv.id,
+          state: conv.state,
+          priority: conv.priority,
+          createdAt: conv.createdAt,
+          updatedAt: conv.updatedAt,
+          url: buildConversationUrl(appId, conv.id),
+          slaBreaches: ticketBreaches,
+        };
+      });
 
-      const finalSupport: SupportSummary = { ...base, supportLevelUsed: level, slaBreaches: breaches };
+      const finalSupport: SupportSummary = { ...base, supportLevelUsed: level, slaBreaches: breaches, tickets };
       await withDbTimeout(setClientSupportDb(client.id, finalSupport));
       summary.synced++;
       summary.breachesFound += breaches.length;

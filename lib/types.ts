@@ -79,6 +79,11 @@ export interface SupportSummary {
   /** Currently-open tickets exceeding their SLA response/resolution target,
    *  computed during the daily Intercom sync (lib/support/sync.ts). */
   slaBreaches: SlaBreach[];
+  /** Every ticket (open, snoozed, or closed — no age cap) for this account,
+   *  computed during the daily Intercom sync. Each carries its own SLA
+   *  breach status: open tickets are checked as-of now, closed tickets are
+   *  checked as-of when they closed (a fixed, retrospective fact). */
+  tickets: SupportTicket[];
 }
 
 /** One SLA target a currently-open ticket has missed — see lib/sla.ts. */
@@ -92,18 +97,20 @@ export interface SlaBreach {
   url: string | null;
 }
 
-export type TicketState = "open" | "snoozed" | "closed";
-
-export interface Ticket {
-  id: string;
-  clientId: string;
-  subject: string;
-  state: TicketState;
-  priority: "low" | "normal" | "high" | "urgent" | null;
-  createdAt: string;
-  updatedAt: string;
-  assignee: string | null;
-  url?: string;
+/** One Intercom conversation, shown in the client profile's Tickets list —
+ *  see lib/support/sync.ts, which builds this from every conversation
+ *  matched to the account (open/snoozed/closed, no age cap). */
+export interface SupportTicket {
+  id: string; // Intercom conversation id
+  state: "open" | "snoozed" | "closed";
+  priority: "P1" | "P2" | "P3";
+  createdAt: string; // ISO
+  updatedAt: string; // ISO
+  url: string | null; // Intercom web-inbox deep link
+  /** SLA target(s) this ticket has missed, evaluated as-of now (open) or
+   *  as-of when it closed (closed) — empty when on track or when the
+   *  account has no resolved support level (see SupportSummary.supportLevelUsed). */
+  slaBreaches: SlaBreach[];
 }
 
 /** Metabase-derived product usage snapshot for an account. */
