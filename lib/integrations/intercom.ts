@@ -7,6 +7,7 @@
    ========================================================================= */
 
 import { env } from "@/lib/config";
+import { AST_OFFSET_MS } from "@/lib/sla";
 import type { SupportSummary } from "@/lib/types";
 
 const REGION_BASE: Record<"us" | "eu" | "au", string> = {
@@ -225,7 +226,12 @@ interface IntercomRawConversation {
   created_at?: number;
   updated_at?: number;
   conversation_rating?: { rating?: number } | null;
-  statistics?: { time_to_first_response?: number } | null;
+  // The real field is `time_to_admin_reply` — `time_to_first_response` does
+  // not exist anywhere in Intercom's actual statistics object (confirmed
+  // live 2026-07-08 against 30 real closed conversations, all with a full
+  // statistics object but none matching the old field name) — this had
+  // silently made firstResponseSeconds null for every conversation, ever.
+  statistics?: { time_to_admin_reply?: number } | null;
   contacts?: { contacts?: { id: string }[] } | null;
   ticket?: { custom_attributes?: Record<string, { value?: string } | string | null> | null } | null;
   // The conversation's OWN custom attributes (distinct from ticket.custom_attributes
@@ -248,7 +254,7 @@ function normalizeConversation(c: IntercomRawConversation): IntercomConversation
     id: c.id,
     state,
     rating: c.conversation_rating?.rating ?? null,
-    firstResponseSeconds: c.statistics?.time_to_first_response ?? null,
+    firstResponseSeconds: c.statistics?.time_to_admin_reply ?? null,
     createdAt: new Date((c.created_at ?? 0) * 1000).toISOString(),
     updatedAt: new Date((c.updated_at ?? 0) * 1000).toISOString(),
     contactIds: (c.contacts?.contacts ?? []).map((x) => x.id),
@@ -273,6 +279,7 @@ export function summarizeSupport(
   let oldestOpenDays: number | null = null;
   const firstResponses: number[] = [];
   const ratings: number[] = [];
+  const ratingsByMonth = new Map<string, number[]>(); // "YYYY-MM" -> ratings
   let lastConversationAt: string | null = null;
 
   for (const c of conversations) {
@@ -289,13 +296,30 @@ export function summarizeSupport(
     // Respect the workspace's own "Exclude from CSAT" flag — 33% of closed
     // conversations carry it (verified live 2026-07-07); counting them anyway
     // would diverge from what the support team already treats as ground truth.
-    if (c.rating != null && !c.excludedFromCsat) ratings.push(c.rating);
+    if (c.rating != null && !c.excludedFromCsat) {
+      ratings.push(c.rating);
+      // Bucket by the business's own AST calendar month, not raw UTC — a
+      // rating in the ~21:00-23:59 UTC window on a month's last day is
+      // already the 1st of the next month in AST (found in review, 2026-07-08).
+      const month = new Date(new Date(c.createdAt).getTime() + AST_OFFSET_MS).toISOString().slice(0, 7);
+      const bucket = ratingsByMonth.get(month);
+      if (bucket) bucket.push(c.rating);
+      else ratingsByMonth.set(month, [c.rating]);
+    }
     if (!lastConversationAt || c.updatedAt > lastConversationAt) lastConversationAt = c.updatedAt;
   }
 
   // CSAT: % of ratings that are 4 or 5 (satisfied).
   const satisfied = ratings.filter((r) => r >= 4).length;
   const csat = ratings.length ? Math.round((satisfied / ratings.length) * 100) : null;
+
+  const csatTrend = [...ratingsByMonth.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([period, monthRatings]) => ({
+      period,
+      value: Math.round((monthRatings.filter((r) => r >= 4).length / monthRatings.length) * 100),
+      responses: monthRatings.length,
+    }));
 
   return {
     openTickets: open,
@@ -306,8 +330,10 @@ export function summarizeSupport(
     csat,
     csatScale: "percent",
     csatResponses: ratings.length,
+    csatTrend,
     nps: opts.nps ?? null,
     npsResponses: opts.npsResponses ?? 0,
+    npsTrend: [], // no NPS data source exists yet — see module doc comment
     lastConversationAt,
     // SLA fields aren't this function's concern — it only summarizes
     // conversations. The daily sync (lib/support/sync.ts) overrides all

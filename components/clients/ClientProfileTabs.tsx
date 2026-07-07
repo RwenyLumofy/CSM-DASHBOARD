@@ -60,6 +60,7 @@ import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Progress } from "@/components/ui/Progress";
 import { Sparkline } from "@/components/ui/Sparkline";
+import { LineChart } from "@/components/ui/charts";
 import { HEALTH_WEIGHTS } from "@/lib/metrics/health";
 import { formatCurrency, formatDate, formatNumber, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -1425,9 +1426,34 @@ function TicketSlaCell({ ticket }: { ticket: SupportTicket }) {
   );
 }
 
+function TicketFilterSelect({ value, onChange, label, children }: { value: string; onChange: (v: string) => void; label: string; children: React.ReactNode }) {
+  return (
+    <select
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] font-medium text-fg-muted outline-none transition-colors hover:text-fg focus:border-sirius-200"
+    >
+      {children}
+    </select>
+  );
+}
+
 function SupportTab({ client }: { client: Client }) {
   const s = client.support;
-  const tickets = useMemo(() => [...s.tickets].sort((a, b) => ticketSortKey(a) - ticketSortKey(b) || b.createdAt.localeCompare(a.createdAt)), [s.tickets]);
+  const [stateFilter, setStateFilter] = useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [slaFilter, setSlaFilter] = useState<string>("all");
+
+  const sorted = useMemo(() => [...s.tickets].sort((a, b) => ticketSortKey(a) - ticketSortKey(b) || b.createdAt.localeCompare(a.createdAt)), [s.tickets]);
+  const tickets = useMemo(
+    () =>
+      sorted
+        .filter((t) => stateFilter === "all" || t.state === stateFilter)
+        .filter((t) => priorityFilter === "all" || t.priority === priorityFilter)
+        .filter((t) => slaFilter === "all" || (slaFilter === "breached" ? t.slaBreaches.length > 0 : t.slaBreaches.length === 0)),
+    [sorted, stateFilter, priorityFilter, slaFilter],
+  );
 
   return (
     <>
@@ -1445,18 +1471,41 @@ function SupportTab({ client }: { client: Client }) {
         </div>
       </Card>
       <Card>
-        <div className="mb-4 flex items-center justify-between">
-          <CardEyebrow>Tickets ({tickets.length})</CardEyebrow>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <CardEyebrow>Tickets ({tickets.length}{tickets.length !== sorted.length ? ` of ${sorted.length}` : ""})</CardEyebrow>
           {!s.supportLevelUsed && (
             <span className="caption">No support level set — SLA not evaluated</span>
           )}
         </div>
-        {tickets.length === 0 ? (
+        {sorted.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <TicketFilterSelect value={stateFilter} onChange={setStateFilter} label="State">
+              <option value="all">All states</option>
+              <option value="open">Open</option>
+              <option value="snoozed">Snoozed</option>
+              <option value="closed">Closed</option>
+            </TicketFilterSelect>
+            <TicketFilterSelect value={priorityFilter} onChange={setPriorityFilter} label="Priority">
+              <option value="all">All priorities</option>
+              <option value="P1">P1</option>
+              <option value="P2">P2</option>
+              <option value="P3">P3</option>
+            </TicketFilterSelect>
+            <TicketFilterSelect value={slaFilter} onChange={setSlaFilter} label="SLA">
+              <option value="all">All SLA</option>
+              <option value="breached">Breached</option>
+              <option value="on_track">On track</option>
+            </TicketFilterSelect>
+          </div>
+        )}
+        {sorted.length === 0 ? (
           <EmptyHint
             icon={Inbox}
             title="No tickets yet"
             body="Individual tickets will appear here once this account has Intercom conversations."
           />
+        ) : tickets.length === 0 ? (
+          <EmptyHint icon={Inbox} title="No tickets match these filters" body="Try clearing a filter to see more tickets." />
         ) : (
           <div className="max-h-[520px] overflow-y-auto rounded-lg border border-border">
             <table className="w-full border-collapse">
@@ -1498,6 +1547,38 @@ function SupportTab({ client }: { client: Client }) {
 /* Satisfaction indicator (NPS / CSAT — pending Intercom)                 */
 /* ===================================================================== */
 
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split("-");
+  const names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${names[Number(m)] ?? m} ${y}`;
+}
+
+function SatisfactionTrendCard({
+  title, trend, color, unit, emptyBody,
+}: {
+  title: string;
+  trend: { period: string; value: number; responses: number }[];
+  color: string;
+  unit: "%" | "";
+  emptyBody: string;
+}) {
+  return (
+    <Card>
+      <CardEyebrow>{title}</CardEyebrow>
+      {trend.length === 0 ? (
+        <EmptyHint icon={Gauge} title={`No ${title} data yet`} body={emptyBody} />
+      ) : (
+        <LineChart
+          series={[{ label: title, color, points: trend.map((t) => ({ month: t.period, value: t.value })) }]}
+          months={trend.map((t) => t.period)}
+          formatShort={monthLabel}
+          formatLong={monthLabel}
+        />
+      )}
+    </Card>
+  );
+}
+
 function SatisfactionTab({ client }: { client: Client }) {
   const s = client.support;
   return (
@@ -1517,14 +1598,20 @@ function SatisfactionTab({ client }: { client: Client }) {
           </div>
         </div>
       </Card>
-      <Card>
-        <CardEyebrow>Trend over time</CardEyebrow>
-        <EmptyHint
-          icon={Gauge}
-          title="CSAT & NPS trend coming soon"
-          body="A line chart of CSAT and NPS over time with response volumes will appear here once the Intercom integration and survey export are connected."
-        />
-      </Card>
+      <SatisfactionTrendCard
+        title="CSAT trend"
+        trend={s.csatTrend}
+        color="var(--color-sirius)"
+        unit="%"
+        emptyBody="No rated conversations yet for this account — a monthly CSAT line will appear here once Intercom conversations get a customer rating."
+      />
+      <SatisfactionTrendCard
+        title="NPS trend"
+        trend={s.npsTrend}
+        color="var(--color-eclipse)"
+        unit=""
+        emptyBody="No NPS data source is wired yet — this account's post-chat CSAT rating is real and tracked above, but NPS survey responses aren't currently reachable from Intercom for any account."
+      />
     </>
   );
 }

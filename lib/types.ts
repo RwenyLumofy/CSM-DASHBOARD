@@ -84,6 +84,20 @@ export interface SupportSummary {
    *  breach status: open tickets are checked as-of now, closed tickets are
    *  checked as-of when they closed (a fixed, retrospective fact). */
   tickets: SupportTicket[];
+  /** CSAT bucketed by month ("YYYY-MM"), computed from each rated (and not
+   *  Exclude-from-CSAT-flagged) conversation's creation date — a real
+   *  historical trend, not a single current snapshot. */
+  csatTrend: SatisfactionTrendPoint[];
+  /** Same shape as csatTrend, for NPS — always empty right now (no NPS data
+   *  source is wired; see lib/support/sync.ts). Kept as a real field, not
+   *  hardcoded in the UI, so it lights up automatically once a source exists. */
+  npsTrend: SatisfactionTrendPoint[];
+}
+
+export interface SatisfactionTrendPoint {
+  period: string; // "YYYY-MM"
+  value: number; // csat % (0-100) or nps (-100..100)
+  responses: number;
 }
 
 /** One SLA target a currently-open ticket has missed — see lib/sla.ts. */

@@ -21,7 +21,10 @@ import type { IntercomConversation } from "@/lib/integrations/intercom";
 export type SlaPriority = "P1" | "P2" | "P3";
 export type SupportLevel = "Level 1" | "Level 2" | "Level 3";
 
-const AST_OFFSET_MS = 3 * 60 * 60 * 1000; // UTC+3, no DST
+/** UTC+3, no DST — exported so other support-metric code (e.g. CSAT trend
+ *  bucketing in lib/integrations/intercom.ts) can bucket by the business's
+ *  actual operating day/month instead of a raw UTC calendar boundary. */
+export const AST_OFFSET_MS = 3 * 60 * 60 * 1000;
 const BUSINESS_START_HOUR = 8;
 const BUSINESS_END_HOUR = 17;
 const BUSINESS_HOURS_PER_DAY = BUSINESS_END_HOUR - BUSINESS_START_HOUR; // 9
