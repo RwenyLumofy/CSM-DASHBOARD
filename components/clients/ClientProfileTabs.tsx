@@ -1573,20 +1573,12 @@ function SatisfactionTrendCard({
       {trend.length === 0 ? (
         <EmptyHint icon={Gauge} title={`No ${title} data yet`} body={emptyBody} />
       ) : (
-        // overflow-hidden: LineChart's <svg> is deliberately overflow-visible
-        // (so hover dots/strokes can bleed slightly at the chart's edge) —
-        // without a clipping ancestor, its invisible hover-detection rects
-        // could extend past this card's own box and steal hover from the
-        // sticky sidebar tab nav below it. Clip here, not in the shared
-        // component, so UsageTab's own chart usage is unaffected.
-        <div className="overflow-hidden">
-          <LineChart
-            series={[{ label: title, color, points: trend.map((t) => ({ month: t.period, value: t.value })) }]}
-            months={trend.map((t) => t.period)}
-            formatShort={monthLabel}
-            formatLong={monthLabel}
-          />
-        </div>
+        <LineChart
+          series={[{ label: title, color, points: trend.map((t) => ({ month: t.period, value: t.value })) }]}
+          months={trend.map((t) => t.period)}
+          formatShort={monthLabel}
+          formatLong={monthLabel}
+        />
       )}
     </Card>
   );

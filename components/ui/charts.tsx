@@ -108,7 +108,13 @@ export function LineChart({
 
   return (
     <div className="relative w-full">
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" className="overflow-visible">
+      {/* overflow-hidden (not visible): the invisible per-point hover-hit
+          <rect>s below must never be interactive past this SVG's own drawn
+          box, or they can steal hover from unrelated UI stacked nearby (e.g.
+          a sticky sidebar tab nav) — found 2026-07-08. The floating Tooltip
+          below is a separate sibling <div>, not inside this <svg>, so it's
+          unaffected and free to render above the chart's own top edge. */}
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" className="overflow-hidden">
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={series[0]?.color ?? AXIS} stopOpacity="0.18" />
