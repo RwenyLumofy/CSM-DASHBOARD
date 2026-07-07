@@ -1462,12 +1462,17 @@ function SupportTab({ client }: { client: Client }) {
           <CardEyebrow>Support · Intercom</CardEyebrow>
           {s.lastConversationAt && <span className="caption">Last conversation {relativeTime(s.lastConversationAt)}</span>}
         </div>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-6">
           <Metric label="Open tickets" value={String(s.openTickets)} tone={s.openTickets > 3 ? "down" : undefined} icon={LifeBuoy} />
           <Metric label="Snoozed" value={String(s.snoozedTickets)} />
           <Metric label="Closed (30d)" value={String(s.closedLast30d)} />
           <Metric label="Oldest open" value={s.oldestOpenDays != null ? `${s.oldestOpenDays}d` : "—"} tone={(s.oldestOpenDays ?? 0) > 14 ? "down" : undefined} />
           <Metric label="Median first response" value={s.medianFirstResponseHours != null ? `${s.medianFirstResponseHours}h` : "—"} />
+          <Metric
+            label="Breached SLA"
+            value={String(s.tickets.filter((t) => t.state === "open" && t.slaBreaches.length > 0).length)}
+            tone={s.tickets.some((t) => t.state === "open" && t.slaBreaches.length > 0) ? "down" : undefined}
+          />
         </div>
       </Card>
       <Card>

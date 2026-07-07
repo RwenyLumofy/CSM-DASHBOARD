@@ -25,7 +25,7 @@ export const env = {
   // feed (lib/actions/*). Optional: without a key the feed still works with
   // deterministic templated wording; the key only adds AI-written phrasing.
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
-  geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+  geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
 
   syncSecret: process.env.SYNC_SECRET ?? "",
   cronSecret: process.env.CRON_SECRET ?? "",
