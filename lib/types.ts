@@ -42,14 +42,23 @@ export interface PropertyDefinition {
   isReadOnly: boolean;
 }
 
-/** The five inputs that compose a health score (each 0–100). */
-export interface HealthComponents {
-  usage: number; // product adoption / activity
-  support: number; // ticket load & resolution
-  sentiment: number; // CSAT / NPS
-  engagement: number; // logins, sessions, recency
-  relationship: number; // CSM touchpoints, renewal proximity
-}
+/** The 8 selectable health-score inputs — a super-admin picks a subset in
+ *  Settings → Workflows → Client health and assigns weights among them (see
+ *  lib/metrics/health-config.ts). */
+export type HealthMetricKey =
+  | "usage"
+  | "csat"
+  | "nps"
+  | "sla_breaches"
+  | "onboarding_period"
+  | "use_case_set"
+  | "profile_complete"
+  | "stakeholder_mapping";
+
+/** Per-metric 0–100 sub-score. A key is present only when that metric is
+ *  enabled AND had data for this client — an absent key means "no data",
+ *  never a faked zero (see lib/metrics/health.ts computeHealthScore). */
+export type HealthComponents = Partial<Record<HealthMetricKey, number>>;
 
 export interface HealthScore {
   score: number; // 0–100 composite

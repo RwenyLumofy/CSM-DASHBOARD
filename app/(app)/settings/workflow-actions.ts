@@ -16,6 +16,12 @@ import type {
   ImplementationAssignmentConfig,
 } from "@/lib/assignment/types";
 import type { AssignmentRunSummary } from "@/lib/assignment/run";
+import { setClientHealthConfig, type ClientHealthConfig } from "@/lib/metrics/health-config";
+
+// The health-formula save also runs a full recomputeAllClientHealth() sweep
+// (74 clients, each with a usage read) — same order of magnitude as the daily
+// client-actions cron, which needs the same generous ceiling in practice.
+export const maxDuration = 300;
 
 export interface ActionResult {
   ok: boolean;
@@ -57,6 +63,19 @@ export async function saveCapacityAction(cfg: CapacityConfig): Promise<ActionRes
   try {
     await setCapacityConfig(cfg);
     return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function saveClientHealthConfigAction(cfg: ClientHealthConfig): Promise<ActionResult & { clientsUpdated?: number }> {
+  const blocked = await guard();
+  if (blocked) return blocked;
+  try {
+    await setClientHealthConfig(cfg);
+    const { recomputeAllClientHealth } = await import("@/lib/repo/drizzle");
+    const { clients } = await recomputeAllClientHealth();
+    return { ok: true, clientsUpdated: clients };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

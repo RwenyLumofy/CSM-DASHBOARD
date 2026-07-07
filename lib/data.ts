@@ -733,6 +733,17 @@ export async function regenerateMyClientActions(): Promise<void> {
   await generateActionsForClients(clients.map((c) => c.id));
 }
 
+/** Recompute one client's health score on demand (the profile's "Recalculate"
+ *  button) — authorized by the client being visible to the caller. Covers
+ *  "I just fixed this account, show it now" without waiting for the daily
+ *  cron or a full-portfolio Settings save. */
+export async function recalculateClientHealth(clientId: string): Promise<void> {
+  if (!hasDatabase()) return;
+  if (!(await getClientById(clientId))) return; // authorize via visibility
+  const { recomputeClientHealth } = await import("@/lib/repo/drizzle");
+  await recomputeClientHealth(clientId);
+}
+
 /* --------------------------------------------------------- team members */
 
 /** A person who can own clients for a team, derived from their app_users role. */

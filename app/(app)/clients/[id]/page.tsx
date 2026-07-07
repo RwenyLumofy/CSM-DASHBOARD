@@ -21,6 +21,7 @@ import { integrations } from "@/lib/config";
 import { applyDealOverrides, computeRenewal, dealOverridesMap, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { getSupabaseProjectUrl } from "@/lib/integrations/supabase-storage";
+import { getClientHealthConfig } from "@/lib/metrics/health-config";
 
 // Per-request data + auth-gated — never static-generate this route.
 export const dynamic = "force-dynamic";
@@ -36,7 +37,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const client = await getClientForProfile(id);
   if (!client) notFound();
 
-  const [timeline, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions] =
+  const [timeline, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig] =
     await Promise.all([
       getTimelineForClient(id),
       getAttachmentsForClient(id),
@@ -50,6 +51,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       getRoleLabels(),
       isSuperAdmin(),
       getClientActionsFor(id),
+      getClientHealthConfig(),
     ]);
   const ownerOptions = (ms: typeof csmMembers) => ms.map((m) => ({ email: m.email, name: m.name ?? m.email, role: m.role }));
 
@@ -130,6 +132,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         propertyDefs={propertyDefs}
         supabaseUrl={supabaseUrl}
         clientActions={clientActions}
+        healthConfig={healthConfig}
       />
     </div>
   );

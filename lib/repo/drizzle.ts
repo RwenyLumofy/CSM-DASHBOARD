@@ -21,11 +21,15 @@ import type {
   SupportSummary,
   UsageMetrics,
 } from "@/lib/types";
-import { dealOverridesMap, applyDealOverrides, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
+import { dealOverridesMap, applyDealOverrides, computeUseCasesRollup, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
 import { FIELD_OVERRIDES_KEY, fieldOverridesSet } from "@/lib/client-overrides";
 import type { SyncBundle } from "@/lib/integrations/sync";
 import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
 import { computeClientStatus, STATUS_OVERRIDE_KEY } from "@/lib/status";
+import { computeHealthScore } from "@/lib/metrics/health";
+import { getClientHealthConfig } from "@/lib/metrics/health-config";
+import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
+import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import type { UsageSnapshot } from "@/lib/usage/types";
 
 type Row = typeof schema.clients.$inferSelect;
@@ -726,6 +730,96 @@ export async function recomputeClientReferral(clientId: string): Promise<void> {
     .update(schema.clients)
     .set({ properties: sql`${schema.clients.properties} || ${JSON.stringify(props)}::jsonb`, updatedAt: new Date() })
     .where(eq(schema.clients.id, clientId));
+}
+
+/**
+ * Recompute one client's health score from its CURRENT real signals — support
+ * (CSAT/SLA breaches, already on the row), usage (live/cached via
+ * getClientUsage), profile completeness, use-case rollup, stakeholder
+ * mapping, and onboarding period (the last two derived from deals + deal
+ * dates). Also refreshes the two read-only computed properties
+ * (use_cases_rollup, onboarding_period_days/_ongoing) that feed into it and
+ * are shown on the profile / clients list.
+ *
+ * Deliberately NOT called from recomputeClient()'s hot paths (deal edits, ARR
+ * events, bulk import — see that function's callers). getClientUsage() is a
+ * live/cached Metabase-backed call; adding it to every one of those sites
+ * would risk the exact "unbounded op pins a pooler backend" class of bug this
+ * project already spent an audit pass fixing. Health instead runs on its own
+ * cadence: a daily cron, on demand (per-client "Recalculate"), and a full
+ * sweep right after a super-admin saves a new formula in Settings.
+ */
+export async function recomputeClientHealth(clientId: string): Promise<void> {
+  await withDbTimeout(recomputeClientHealthBody(clientId));
+}
+
+async function recomputeClientHealthBody(clientId: string): Promise<void> {
+  const client = await getClientByIdFromDb(clientId);
+  if (!client) return;
+
+  const overrides = dealOverridesMap(client.properties);
+  const dealDates = (client.properties?.[DEAL_DATES_KEY] as DealDatesMap | undefined) ?? {};
+  const deals = await getDealsByClient(clientId);
+  const tracked = deals.filter((d) => d.tracked !== false).map((d) => applyDealOverrides(d, overrides[d.id]));
+
+  const onboarding = computeOnboardingPeriod(tracked, dealDates);
+  const useCasesRollup = computeUseCasesRollup(tracked);
+  const { severity } = computeProfileCompleteness(client, tracked, dealDates);
+  const mappings = Array.isArray(client.properties?.stakeholder_mappings)
+    ? (client.properties!.stakeholder_mappings as { contactId?: unknown }[])
+    : [];
+  const stakeholderMapped = mappings.some((m) => m && m.contactId != null && m.contactId !== "");
+
+  // Dynamic import: lib/usage/index.ts is `"server-only"`-guarded, and this
+  // file (unlike lib/actions/*) is imported directly by plain Node scripts
+  // (e.g. scripts/apply-status-recompute.mts) — a static import here would
+  // make loading ANY export of this module throw outside a Next.js server
+  // context, breaking every one of those scripts, not just this function.
+  const { getClientUsage } = await import("@/lib/usage");
+  const usage = await getClientUsage(clientId).catch(() => ({ status: "error" as const, message: "usage fetch failed" }));
+  const usageScore = usage.status === "ok" ? usage.score.score : null;
+
+  const config = await getClientHealthConfig();
+  const computed = computeHealthScore(
+    {
+      support: client.support,
+      usageScore,
+      profileSeverity: severity,
+      useCasesSet: useCasesRollup.length > 0,
+      stakeholderMapped,
+      onboarding,
+    },
+    config,
+    { updatedAt: new Date().toISOString() },
+  );
+  const previousScore = client.health?.score ?? computed.score;
+  const health: HealthScore = { ...computed, trend: computed.score - previousScore };
+
+  const propPatch = {
+    use_cases_rollup: useCasesRollup,
+    onboarding_period_days: onboarding.days,
+    onboarding_period_ongoing: onboarding.ongoing,
+  };
+
+  const db = getDb();
+  await db
+    .update(schema.clients)
+    .set({
+      health,
+      properties: sql`${schema.clients.properties} || ${JSON.stringify(propPatch)}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.clients.id, clientId));
+}
+
+/** Recompute health for every client — the daily cron, and right after a
+ *  super-admin saves a new formula in Settings (so the effect is immediate,
+ *  not "starting tomorrow"). Bounded concurrency, same pattern as
+ *  generateAllClientActions (lib/actions/generate.ts). */
+export async function recomputeAllClientHealth(): Promise<{ clients: number }> {
+  const clients = await getClientsFromDb();
+  await mapLimit(clients, 5, (c) => recomputeClientHealth(c.id));
+  return { clients: clients.length };
 }
 
 /** Remove any column the CSM has manually pinned (client.properties.__field_overrides)
@@ -1634,7 +1728,10 @@ export async function recordClientUsageSyncError(clientId: string, message: stri
 /* ------------------------------------------------------------- empties */
 
 function emptyHealth(): HealthScore {
-  return { score: 0, tier: "at_risk", components: { usage: 0, sentiment: 0, support: 0, engagement: 0, relationship: 0 }, trend: 0, updatedAt: new Date(0).toISOString() };
+  // Empty `components` is the honest default under the new partial-record
+  // shape — it means "not computed yet" (recomputeClientHealth fills it in),
+  // not a faked score of 0 across fixed metrics like the old 5-key shape.
+  return { score: 0, tier: "at_risk", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
 }
 function emptySupport(): SupportSummary {
   return { openTickets: 0, snoozedTickets: 0, closedLast30d: 0, oldestOpenDays: null, medianFirstResponseHours: null, csat: null, csatScale: "percent", csatResponses: 0, csatTrend: [], nps: null, npsResponses: 0, npsTrend: [], lastConversationAt: null, supportLevelUsed: null, slaBreaches: [], tickets: [] };

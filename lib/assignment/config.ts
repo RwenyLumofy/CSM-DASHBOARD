@@ -49,7 +49,10 @@ export const DEFAULT_CAPACITY: CapacityConfig = {
   maxWhiteGlove: 5,
 };
 
-async function readConfig<T>(key: string, fallback: T): Promise<T> {
+/** Generic workspace_config read: merges a stored partial over `fallback` so
+ *  callers never see a partial config. Shared by every super-admin-editable
+ *  workspace setting (assignment rules, capacity, client health formula). */
+export async function readConfig<T>(key: string, fallback: T): Promise<T> {
   if (hasDatabase() && dbHealthy()) {
     try {
       const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
@@ -64,7 +67,7 @@ async function readConfig<T>(key: string, fallback: T): Promise<T> {
   return fallback;
 }
 
-async function writeConfig(key: string, value: unknown): Promise<void> {
+export async function writeConfig(key: string, value: unknown): Promise<void> {
   if (!hasDatabase()) throw new Error("Database not configured");
   const { setWorkspaceConfigDb } = await import("@/lib/repo/drizzle");
   await setWorkspaceConfigDb(key, value);

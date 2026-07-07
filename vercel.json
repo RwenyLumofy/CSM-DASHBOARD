@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/client-actions",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/client-health",
+      "schedule": "0 9 * * *"
     }
   ]
 }

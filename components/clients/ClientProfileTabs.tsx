@@ -42,6 +42,7 @@ import {
   Pencil,
   Phone,
   Receipt,
+  RefreshCw,
   Search,
   MapPin,
   Sparkles,
@@ -61,7 +62,8 @@ import { Button } from "@/components/ui/Button";
 import { Progress } from "@/components/ui/Progress";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { LineChart } from "@/components/ui/charts";
-import { HEALTH_WEIGHTS } from "@/lib/metrics/health";
+import { HEALTH_METRIC_LABELS, type ClientHealthConfig } from "@/lib/metrics/health-config";
+import { recalculateClientHealthAction } from "@/app/(app)/clients/[id]/health-actions";
 import { formatCurrency, formatDate, formatNumber, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { ATTACHMENTS_BUCKET, ALLOWED_ATTACHMENT_EXTENSIONS, MAX_ATTACHMENT_BYTES, extensionOf, isAllowedAttachmentExtension } from "@/lib/attachments";
@@ -91,7 +93,6 @@ import type {
   Contact,
   Deal,
   Email,
-  HealthComponents,
   Meeting,
   PropertyDefinition,
   SupportTicket,
@@ -124,10 +125,13 @@ interface Props {
   supabaseUrl: string | null;
   /** Open AI actions for this client (the "Action list" tab). */
   clientActions: ClientAction[];
+  /** The formula that produced client.health — shown (read-only) on the
+   *  Action list tab's Health signals card. Edited in Settings → Workflows. */
+  healthConfig: ClientHealthConfig;
 }
 
 export function ClientProfileTabs(props: Props) {
-  const { client, deals, emails, meetings, contacts, attachments, timeline, propertyDefs, supabaseUrl, clientActions } = props;
+  const { client, deals, emails, meetings, contacts, attachments, timeline, propertyDefs, supabaseUrl, clientActions, healthConfig } = props;
   const [active, setActive] = useState<TabKey>("general");
 
   const commCount = contacts.length + emails.length + meetings.length;
@@ -186,7 +190,7 @@ export function ClientProfileTabs(props: Props) {
         {active === "satisfaction" && <SatisfactionTab client={client} />}
         {active === "projects" && <ProjectsTab />}
         {active === "notes" && <NotesTab timeline={timeline} />}
-        {active === "actions" && <ActionsTab client={client} actions={clientActions} />}
+        {active === "actions" && <ActionsTab client={client} actions={clientActions} healthConfig={healthConfig} />}
       </div>
     </div>
   );
@@ -1670,7 +1674,22 @@ function NotesTab({ timeline }: { timeline: TimelineEvent[] }) {
 /* Action list — health breakdown + auto-calc placeholder                 */
 /* ===================================================================== */
 
-function ActionsTab({ client, actions }: { client: Client; actions: ClientAction[] }) {
+function ActionsTab({ client, actions, healthConfig }: { client: Client; actions: ClientAction[]; healthConfig: ClientHealthConfig }) {
+  const router = useRouter();
+  const [recalculating, setRecalculating] = useState(false);
+
+  async function recalculate() {
+    setRecalculating(true);
+    try {
+      await recalculateClientHealthAction(client.id);
+      router.refresh();
+    } finally {
+      setRecalculating(false);
+    }
+  }
+
+  const enabledMetrics = healthConfig.metrics.filter((m) => m.enabled);
+
   return (
     <>
       <Card>
@@ -1697,11 +1716,28 @@ function ActionsTab({ client, actions }: { client: Client; actions: ClientAction
         />
       </Card>
       <Card>
-        <CardEyebrow>Health signals</CardEyebrow>
+        <div className="flex items-center justify-between gap-3">
+          <CardEyebrow>Health signals</CardEyebrow>
+          <button
+            onClick={recalculate}
+            disabled={recalculating}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-body text-[12px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius disabled:opacity-50"
+          >
+            {recalculating ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Recalculate
+          </button>
+        </div>
+        <p className="mb-1 mt-0.5 font-body text-[12px] leading-relaxed text-fg-subtle">
+          Weighted per the formula set in Settings → Workflows → Client health. A signal with no data for this account
+          shows as &ldquo;No data&rdquo; rather than a guessed value.
+        </p>
         <div className="mt-2 flex flex-col gap-3.5">
-          {(Object.keys(HEALTH_WEIGHTS) as (keyof HealthComponents)[]).map((k) => (
-            <ComponentBar key={k} label={componentLabel(k)} value={client.health.components[k]} weight={HEALTH_WEIGHTS[k]} />
-          ))}
+          {enabledMetrics.length === 0 ? (
+            <p className="font-body text-[12.5px] text-fg-subtle">No signals are enabled in the health formula.</p>
+          ) : (
+            enabledMetrics.map((m) => (
+              <ComponentBar key={m.key} label={HEALTH_METRIC_LABELS[m.key]} value={client.health.components[m.key] ?? null} weight={m.weight} />
+            ))
+          )}
         </div>
       </Card>
     </>
@@ -2271,14 +2307,22 @@ function EditInput({
   );
 }
 
-function ComponentBar({ label, value, weight }: { label: string; value: number; weight: number }) {
-  const tone = value >= 75 ? "aurora" : value >= 55 ? "stellar" : "nova";
+function ComponentBar({ label, value, weight }: { label: string; value: number | null; weight: number }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="w-28 shrink-0 font-body text-[13px] text-fg-muted">{label}</span>
-      <Progress value={value} tone={tone} />
-      <span className="tabular w-8 shrink-0 text-right font-body text-[13px] font-semibold text-fg">{value}</span>
-      <span className="caption tabular w-10 shrink-0 text-right">{Math.round(weight * 100)}%</span>
+      <span className="w-32 shrink-0 font-body text-[13px] text-fg-muted">{label}</span>
+      {value == null ? (
+        <>
+          <div className="h-1.5 flex-1 rounded-pill bg-bg-muted" />
+          <span className="w-16 shrink-0 text-right font-body text-[12px] italic text-fg-subtle">No data</span>
+        </>
+      ) : (
+        <>
+          <Progress value={value} tone={value >= 75 ? "aurora" : value >= 55 ? "stellar" : "nova"} />
+          <span className="tabular w-8 shrink-0 text-right font-body text-[13px] font-semibold text-fg">{value}</span>
+        </>
+      )}
+      <span className="caption tabular w-10 shrink-0 text-right">{Math.round(weight * 10) / 10}%</span>
     </div>
   );
 }
@@ -3012,8 +3056,4 @@ function TimelineRow({ event }: { event: TimelineEvent }) {
       </div>
     </li>
   );
-}
-
-function componentLabel(k: keyof HealthComponents): string {
-  return { usage: "Usage", sentiment: "Sentiment", support: "Support", engagement: "Engagement", relationship: "Relationship" }[k];
 }

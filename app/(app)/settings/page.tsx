@@ -186,11 +186,13 @@ async function WorkspaceTab({
 async function WorkflowsTab({ roleLabels }: { roleLabels: Record<string, string> }) {
   const { getCsmAssignmentConfig, getImplementationAssignmentConfig, getCapacityConfig } = await import("@/lib/assignment/config");
   const { getTeamHealth } = await import("@/lib/assignment/health");
-  const [csm, impl, capacity, teamHealth] = await Promise.all([
+  const { getClientHealthConfig } = await import("@/lib/metrics/health-config");
+  const [csm, impl, capacity, teamHealth, clientHealth] = await Promise.all([
     getCsmAssignmentConfig(),
     getImplementationAssignmentConfig(),
     getCapacityConfig(),
     getTeamHealth(),
+    getClientHealthConfig(),
   ]);
 
   return (
@@ -198,11 +200,12 @@ async function WorkflowsTab({ roleLabels }: { roleLabels: Record<string, string>
       <div className="mb-5">
         <h2 className="font-display text-base font-semibold text-fg">Assignment workflows</h2>
         <p className="mt-1 font-body text-sm text-fg-muted">
-          Define how new clients are routed to a CSM and an Implementation owner. Rules run automatically when a new
-          client is synced from HubSpot; you can also run them on demand.
+          Define how new clients are routed to a CSM and an Implementation owner, and how every account&apos;s health
+          score is calculated. Assignment rules run automatically when a new client is synced from HubSpot; you can
+          also run them on demand.
         </p>
       </div>
-      <WorkflowManager initialCsm={csm} initialImpl={impl} initialCapacity={capacity} teamHealth={teamHealth} roleLabels={roleLabels} />
+      <WorkflowManager initialCsm={csm} initialImpl={impl} initialCapacity={capacity} teamHealth={teamHealth} initialClientHealth={clientHealth} roleLabels={roleLabels} />
     </div>
   );
 }

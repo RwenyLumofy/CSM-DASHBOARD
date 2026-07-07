@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, Trash2, Save, Play, Workflow, Wrench, Activity, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, Trash2, Save, Play, Workflow, Wrench, Activity, HeartPulse, CheckCircle2, AlertTriangle } from "lucide-react";
 import {
   CSM_TEAM_ROLES,
   IMPLEMENTATION_TEAM_ROLES,
@@ -16,15 +16,17 @@ import type {
   ImplementationAssignmentConfig,
 } from "@/lib/assignment/types";
 import type { MemberHealth } from "@/lib/assignment/health";
+import { HEALTH_METRIC_LABELS, type ClientHealthConfig, type HealthMetricConfig } from "@/lib/metrics/health-config";
 import {
   saveCapacityAction,
   saveCsmAssignmentAction,
   saveImplementationAssignmentAction,
+  saveClientHealthConfigAction,
   runAssignmentNowAction,
 } from "@/app/(app)/settings/workflow-actions";
 import { cn } from "@/lib/cn";
 
-type Tab = "csm" | "implementation" | "health";
+type Tab = "csm" | "implementation" | "health" | "clientHealth";
 
 const ALL_TIER_ROLES: Role[] = [...CSM_TEAM_ROLES, ...IMPLEMENTATION_TEAM_ROLES];
 
@@ -33,12 +35,14 @@ export function WorkflowManager({
   initialImpl,
   initialCapacity,
   teamHealth,
+  initialClientHealth,
   roleLabels = DEFAULT_ROLE_LABELS,
 }: {
   initialCsm: CsmAssignmentConfig;
   initialImpl: ImplementationAssignmentConfig;
   initialCapacity: CapacityConfig;
   teamHealth: MemberHealth[];
+  initialClientHealth: ClientHealthConfig;
   roleLabels?: Record<string, string>;
 }) {
   const router = useRouter();
@@ -54,6 +58,7 @@ export function WorkflowManager({
           ["csm", "CSM assignment", Workflow],
           ["implementation", "Implementation assignment", Wrench],
           ["health", "Team health", Activity],
+          ["clientHealth", "Client health", HeartPulse],
         ] as const).map(([key, label, Icon]) => (
           <button
             key={key}
@@ -71,6 +76,7 @@ export function WorkflowManager({
       {tab === "csm" && <CsmPanel initial={initialCsm} lbl={lbl} onSaved={() => router.refresh()} />}
       {tab === "implementation" && <ImplPanel initial={initialImpl} lbl={lbl} onSaved={() => router.refresh()} />}
       {tab === "health" && <HealthPanel initialCapacity={initialCapacity} teamHealth={teamHealth} lbl={lbl} onSaved={() => router.refresh()} />}
+      {tab === "clientHealth" && <ClientHealthPanel initial={initialClientHealth} onSaved={() => router.refresh()} />}
     </div>
   );
 }
@@ -306,6 +312,170 @@ function HealthPanel({ initialCapacity, teamHealth, lbl, onSaved }: { initialCap
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------ Client health */
+
+function ClientHealthPanel({ initial, onSaved }: { initial: ClientHealthConfig; onSaved: () => void }) {
+  const [metrics, setMetrics] = useState<HealthMetricConfig[]>(initial.metrics);
+  const [thresholds, setThresholds] = useState(initial.thresholds);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const enabledTotal = metrics.filter((m) => m.enabled).reduce((s, m) => s + m.weight, 0);
+  const totalRounded = Math.round(enabledTotal * 10) / 10;
+
+  function updateMetric(key: HealthMetricConfig["key"], patch: Partial<HealthMetricConfig>) {
+    setMetrics((prev) => prev.map((m) => (m.key === key ? { ...m, ...patch } : m)));
+  }
+
+  function normalize() {
+    setMetrics((prev) => {
+      const total = prev.filter((m) => m.enabled).reduce((s, m) => s + m.weight, 0);
+      if (total <= 0) return prev;
+      return prev.map((m) => (m.enabled ? { ...m, weight: Math.round((m.weight / total) * 1000) / 10 } : m));
+    });
+  }
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const r = await saveClientHealthConfigAction({ metrics, thresholds });
+      if (!r.ok) setError(r.error ?? "Failed.");
+      else {
+        setResult(`Saved · recomputed ${r.clientsUpdated ?? 0} clients.`);
+        onSaved();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
+        <p className="font-display text-sm font-semibold text-fg">Formula</p>
+        <p className="mb-4 mt-1 font-body text-[12.5px] text-fg-muted">
+          Turn on the signals that should count toward every account&apos;s health score, and weight them against each
+          other. A signal with no data for a given account (e.g. NPS, with no source wired up yet) is skipped for that
+          account only — the rest reweight to fill the gap, never a faked neutral value.
+        </p>
+        <div className="flex flex-col gap-2">
+          {metrics.map((m) => (
+            <MetricRow key={m.key} metric={m} onChange={(patch) => updateMetric(m.key, patch)} />
+          ))}
+        </div>
+        <div className="mt-4 flex items-center justify-between rounded-lg border border-border-subtle px-3 py-2">
+          <span className={cn("font-body text-[12.5px] font-semibold", totalRounded === 100 ? "text-[#2DB47A]" : "text-[#C99A14]")}>
+            Total (enabled): {totalRounded}%
+          </span>
+          <button onClick={normalize} className="font-body text-[12px] font-semibold text-sirius hover:underline">
+            Normalize to 100%
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
+        <p className="font-display text-sm font-semibold text-fg">Health tiers</p>
+        <p className="mb-4 mt-1 font-body text-[12.5px] text-fg-muted">Score cutoffs for the three tiers shown across the app.</p>
+        <div className="flex flex-wrap items-center gap-5">
+          <label className="flex items-center gap-2">
+            <span className="font-body text-[12.5px] text-fg-muted">Healthy at ≥</span>
+            <input
+              type="number" min={0} max={100}
+              value={thresholds.healthy}
+              onChange={(e) => setThresholds((t) => ({ ...t, healthy: Number(e.target.value) }))}
+              className={cn(inputCls, "w-16 text-right")}
+            />
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="font-body text-[12.5px] text-fg-muted">Watch at ≥</span>
+            <input
+              type="number" min={0} max={100}
+              value={thresholds.watch}
+              onChange={(e) => setThresholds((t) => ({ ...t, watch: Number(e.target.value) }))}
+              className={cn(inputCls, "w-16 text-right")}
+            />
+          </label>
+        </div>
+        <TierPreview thresholds={thresholds} />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button onClick={save} disabled={busy} className="inline-flex items-center gap-2 rounded-lg bg-sirius px-4 py-2 font-body text-sm font-semibold text-white disabled:opacity-50">
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save
+        </button>
+        {result && <span className="font-body text-[12.5px] text-[#2DB47A]">{result}</span>}
+        {error && <span className="font-body text-[12.5px] text-[#B23A57]">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
+function MetricRow({ metric, onChange }: { metric: HealthMetricConfig; onChange: (patch: Partial<HealthMetricConfig>) => void }) {
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-[220px_1fr_48px_160px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-opacity",
+        metric.enabled ? "border-border-subtle" : "border-border-subtle/60 opacity-55",
+      )}
+    >
+      <Toggle checked={metric.enabled} onChange={(v) => onChange({ enabled: v })} label={HEALTH_METRIC_LABELS[metric.key]} />
+      <input
+        type="range" min={0} max={100} step={0.5}
+        disabled={!metric.enabled}
+        value={metric.weight}
+        onChange={(e) => onChange({ weight: Number(e.target.value) })}
+        className="h-1.5 accent-sirius disabled:cursor-not-allowed"
+      />
+      <span className="tabular text-right font-body text-[12.5px] font-semibold text-fg">{Math.round(metric.weight * 10) / 10}%</span>
+      {metric.key === "sla_breaches" ? (
+        <label className="flex items-center gap-1.5" title="Open-breach count at which this signal bottoms out at 0">
+          <span className="font-body text-[11px] text-fg-subtle">breaches→0:</span>
+          <input
+            type="number" min={1}
+            value={metric.params?.maxBreaches ?? 5}
+            onChange={(e) => onChange({ params: { ...metric.params, maxBreaches: Number(e.target.value) } })}
+            className={cn(inputCls, "w-14 text-right")}
+          />
+        </label>
+      ) : metric.key === "onboarding_period" ? (
+        <div className="flex items-center gap-1" title="Days at/under = 100, days at/over = 0, linear between">
+          <input
+            type="number" min={0}
+            value={metric.params?.targetDays ?? 30}
+            onChange={(e) => onChange({ params: { ...metric.params, targetDays: Number(e.target.value) } })}
+            className={cn(inputCls, "w-14 text-right")}
+          />
+          <span className="font-body text-[11px] text-fg-subtle">–</span>
+          <input
+            type="number" min={0}
+            value={metric.params?.maxDays ?? 90}
+            onChange={(e) => onChange({ params: { ...metric.params, maxDays: Number(e.target.value) } })}
+            className={cn(inputCls, "w-14 text-right")}
+          />
+          <span className="font-body text-[11px] text-fg-subtle">d</span>
+        </div>
+      ) : (
+        <span />
+      )}
+    </div>
+  );
+}
+
+function TierPreview({ thresholds }: { thresholds: { healthy: number; watch: number } }) {
+  const watch = Math.max(0, Math.min(thresholds.watch, thresholds.healthy));
+  const healthy = Math.max(watch, Math.min(100, thresholds.healthy));
+  return (
+    <div className="mt-4 flex h-2.5 overflow-hidden rounded-pill">
+      <div className="bg-[#D14B6B]" style={{ width: `${watch}%` }} title="At risk" />
+      <div className="bg-[#C99A14]" style={{ width: `${healthy - watch}%` }} title="Watch" />
+      <div className="bg-[#2DB47A]" style={{ width: `${100 - healthy}%` }} title="Healthy" />
     </div>
   );
 }

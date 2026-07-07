@@ -5,15 +5,14 @@ import type {
   Contact,
   Deal,
   Email,
+  HealthScore,
   Meeting,
-  HealthComponents,
   Playbook,
   PlaybookTask,
   SupportSummary,
   TimelineEvent,
   UsageMetrics,
 } from "@/lib/types";
-import { buildHealth } from "@/lib/metrics/health";
 import { csmById } from "@/lib/sample/csms";
 import { arrAsOf, currentQuarter, deriveClientArr, periodBounds, withRunningBalance } from "@/lib/metrics/arr";
 
@@ -51,13 +50,29 @@ interface Seed {
   status?: Client["status"];
   churnedAt?: string | null;
   tags?: string[];
-  h: HealthComponents;
+  /** A handful of illustrative 0–100 signal numbers, averaged into a demo
+   *  score below — sample mode doesn't run the real (admin-configurable,
+   *  8-metric) health engine, so these are cosmetic only, not tied to
+   *  HealthMetricKey. */
+  h: Record<string, number>;
   trend?: number;
   support: Omit<SupportSummary, "csatScale" | "supportLevelUsed" | "slaBreaches" | "tickets" | "csatTrend" | "npsTrend">;
   usage: Omit<UsageMetrics, "adoptionRate" | "stickiness">;
 }
 
 const PORTAL = "7385921";
+
+/** Sample-mode-only stand-in for the real (admin-configurable) health engine
+ *  — averages the seed's illustrative signal numbers into a score/tier.
+ *  `components` is intentionally empty: sample mode has no real per-metric
+ *  breakdown to show, and an absent key already means "no data" under the
+ *  new HealthComponents shape (see lib/metrics/health.ts). */
+function sampleHealth(h: Record<string, number>, trend: number): HealthScore {
+  const values = Object.values(h);
+  const score = values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
+  const tier: HealthScore["tier"] = score >= 75 ? "healthy" : score >= 55 ? "watch" : "at_risk";
+  return { score, tier, components: {}, trend, updatedAt: "2026-06-14T08:00:00.000Z" };
+}
 
 function makeClient(s: Seed): Client {
   const status = s.status ?? "active";
@@ -87,7 +102,7 @@ function makeClient(s: Seed): Client {
     segment: segmentFor(s.employees),
     logoUrl: null,
     hubspotUrl: `https://app.hubspot.com/contacts/${PORTAL}/record/0-2/${s.id}`,
-    health: buildHealth(s.h, { trend: s.trend ?? 0, updatedAt: "2026-06-14T08:00:00.000Z" }),
+    health: sampleHealth(s.h, s.trend ?? 0),
     support: { ...s.support, csatScale: "percent", supportLevelUsed: null, slaBreaches: [], tickets: [], csatTrend: [], npsTrend: [] },
     usage: { ...s.usage, adoptionRate, stickiness },
     tags: s.tags ?? [],
@@ -125,7 +140,7 @@ interface RawClient {
   csmId?: string | null;
   arr: number;
   startedAt?: string | null;
-  h?: Partial<HealthComponents>;
+  h?: Partial<Record<string, number>>;
   trend?: number;
   tags?: string[];
 }
@@ -135,7 +150,7 @@ function autoSeed(r: RawClient): Seed {
   const seats = Math.max(5, Math.round(emp * 0.7));
   const active = Math.max(3, Math.round(seats * 0.6));
   const base = r.arr > 50000 ? 74 : r.arr > 10000 ? 67 : r.arr > 3000 ? 62 : 56;
-  const h: HealthComponents = {
+  const h: Record<string, number> = {
     usage: r.h?.usage ?? base,
     sentiment: r.h?.sentiment ?? base + 3,
     support: r.h?.support ?? base + 5,

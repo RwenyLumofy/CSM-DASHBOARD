@@ -21,8 +21,6 @@ import type {
   SupportSummary,
   UsageMetrics,
 } from "@/lib/types";
-import { deriveComponents } from "@/lib/metrics/derive";
-import { buildHealth } from "@/lib/metrics/health";
 
 /* ------------------------------------------------------------- columns */
 
@@ -444,13 +442,13 @@ export function rowsToRecords(rows: ClientImportRow[], csmByEmail: Map<string, C
     const csm = row.csmEmail ? csmByEmail.get(row.csmEmail) ?? null : null;
     const segment = row.segment ?? segmentFor(row.employees);
     const renewalDate = row.renewalDate ?? addYear(row.startedAt ?? today);
-    const daysToRenewal = renewalDate ? Math.ceil((new Date(renewalDate).getTime() - Date.now()) / 86_400_000) : null;
     const support = emptySupport();
     const usage = emptyUsage();
-    const health = buildHealth(deriveComponents({ support, usage, hasCsm: !!csm, daysToRenewal, tags: ["imported"] }), {
-      trend: 0,
-      updatedAt: now,
-    });
+    // Placeholder — health needs live usage/support/profile signals together
+    // (see lib/repo/drizzle.ts recomputeClientHealth), not available at import
+    // time. This row gets its first real score from the daily client-health
+    // cron (or sooner, from a Settings formula save).
+    const health: HealthScore = { score: 0, tier: "at_risk", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
 
     clients.push({
       id,
@@ -585,5 +583,5 @@ function emptyUsage(): UsageMetrics {
 
 // re-exported for callers that want the empty health shape
 export function emptyHealth(): HealthScore {
-  return { score: 0, tier: "at_risk", components: { usage: 0, sentiment: 0, support: 0, engagement: 0, relationship: 0 }, trend: 0, updatedAt: new Date(0).toISOString() };
+  return { score: 0, tier: "at_risk", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
 }

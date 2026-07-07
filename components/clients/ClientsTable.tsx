@@ -14,7 +14,7 @@ import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
 import { ImportDialog } from "@/components/clients/ImportDialog";
 
-type SortKey = "name" | "arr" | "health" | "renewal";
+type SortKey = "name" | "arr" | "health" | "renewal" | "onboarding";
 type SortDir = "asc" | "desc";
 type Csm = { id: string; name: string };
 /** "all" is a view filter (no filtering); the other four match
@@ -92,6 +92,20 @@ function channelOf(c: Client): string | null {
 function accountTierOf(c: Client): string | null {
   const v = c.properties?.tier;
   return typeof v === "string" && v.trim() ? v : null;
+}
+
+/** Days from kickoff to launch (or kickoff to now if still onboarding) —
+ *  auto-computed by recomputeClientHealth (lib/repo/drizzle.ts) from the
+ *  deal-card's Kick-off/Launch dates, refreshed daily. Null = no kickoff
+ *  date recorded yet on any tracked deal. */
+function onboardingDaysOf(c: Client): number | null {
+  const v = c.properties?.onboarding_period_days;
+  return typeof v === "number" ? v : null;
+}
+function onboardingLabel(c: Client): string {
+  const days = onboardingDaysOf(c);
+  if (days == null) return "—";
+  return c.properties?.onboarding_period_ongoing === true ? `${days}d (ongoing)` : `${days}d`;
 }
 
 /** Fields available for bulk edit. kind drives the PATCH payload shape. */
@@ -195,6 +209,11 @@ export function ClientsTable({
         case "renewal": {
           const av = a.renewalDate ? new Date(a.renewalDate).getTime() : Number.POSITIVE_INFINITY;
           const bv = b.renewalDate ? new Date(b.renewalDate).getTime() : Number.POSITIVE_INFINITY;
+          cmp = av - bv; break;
+        }
+        case "onboarding": {
+          const av = onboardingDaysOf(a) ?? Number.POSITIVE_INFINITY;
+          const bv = onboardingDaysOf(b) ?? Number.POSITIVE_INFINITY;
           cmp = av - bv; break;
         }
       }
@@ -417,6 +436,7 @@ export function ClientsTable({
             <Th>Implementation</Th>
             <Th onClick={() => toggleSort("arr")} active={sortKey === "arr"} dir={sortDir} align="right">ARR</Th>
             <Th onClick={() => toggleSort("renewal")} active={sortKey === "renewal"} dir={sortDir}>Renewal</Th>
+            <Th onClick={() => toggleSort("onboarding")} active={sortKey === "onboarding"} dir={sortDir}>Onboarding</Th>
             <Th onClick={() => toggleSort("health")} active={sortKey === "health"} dir={sortDir}>Health</Th>
             <Th />
           </tr>
@@ -440,7 +460,7 @@ export function ClientsTable({
           ))}
           {filtered.length === 0 && (
             <tr>
-              <td colSpan={8} className="px-5 py-16 text-center">
+              <td colSpan={9} className="px-5 py-16 text-center">
                 {clients.length === 0 ? (
                   <div className="flex flex-col items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-bg-muted"><Plus size={20} className="text-fg-subtle" /></div>
@@ -560,6 +580,9 @@ const ClientRow = memo(function ClientRow({
       </Td>
       <Td>
         <span className={cn("tabular font-body text-[13px]", renewalSoon ? "font-semibold text-[#8A6A0A]" : "text-fg-muted")}>{formatDate(c.renewalDate)}</span>
+      </Td>
+      <Td>
+        <span className="tabular font-body text-[13px] text-fg-muted">{onboardingLabel(c)}</span>
       </Td>
       <Td>{c.status === "churned" ? <Badge tone="neutral">Churned</Badge> : <HealthPill health={c.health} compact />}</Td>
       <Td align="right">

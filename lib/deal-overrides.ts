@@ -122,6 +122,17 @@ export function hasGlobalLibrary(deal: Pick<Deal, "globalLibraryPackage">): bool
   return Array.isArray(pkg) && pkg.length > 0 && !pkg.includes("None");
 }
 
+/** Union of every tracked deal's use cases (already override-applied by the
+ *  caller — see applyDealOverrides). Feeds the "use_case_set" health metric
+ *  and the read-only use_cases_rollup client property. */
+export function computeUseCasesRollup(trackedDeals: Pick<Deal, "useCases">[]): string[] {
+  const set = new Set<string>();
+  for (const d of trackedDeals) {
+    for (const uc of d.useCases ?? []) set.add(uc);
+  }
+  return [...set].sort();
+}
+
 /** Renewal = effective contract start + 1 year (auto, never stored). */
 export function computeRenewal(contractStart: string | null | undefined): string | null {
   if (!contractStart) return null;

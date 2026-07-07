@@ -1,24 +1,24 @@
 /* =========================================================================
    Sync orchestrator — assembles the unified client list from HubSpot
    acquisition data (Closed Won deals in Direct/Indirect pipelines), enriched
-   with Intercom support signals and Metabase usage, then computes a health
-   score. Each won deal seeds a `new_business` ARR event; the client's ARR is
-   the running balance of its ledger. In-app ARR events (renewal/expansion/…)
-   are preserved across syncs. Persists to the database when configured.
+   with Metabase usage (support/SLA and health are filled in separately — see
+   lib/support/sync.ts and lib/repo/drizzle.ts recomputeClientHealth). Each
+   won deal seeds a `new_business` ARR event; the client's ARR is the running
+   balance of its ledger. In-app ARR events (renewal/expansion/…) are
+   preserved across syncs. Persists to the database when configured.
    ========================================================================= */
 
 import type {
   ArrEvent,
   Client,
   Deal,
+  HealthScore,
   PropertyDefinition,
   SupportSummary,
   UsageMetrics,
 } from "@/lib/types";
 import { HubSpotClient, deriveReferralSource, normalizeChannelValue, type HubspotCompany, type HubspotOwner } from "@/lib/integrations/hubspot";
 import { MetabaseClient } from "@/lib/integrations/metabase";
-import { deriveComponents } from "@/lib/metrics/derive";
-import { buildHealth } from "@/lib/metrics/health";
 import { arrAsOf, deriveClientArr, periodBounds, currentQuarter, withRunningBalance } from "@/lib/metrics/arr";
 import { env, integrations, hasDatabase } from "@/lib/config";
 
@@ -443,10 +443,13 @@ function assembleClient(
   const arr = derived.arr;
   const previousArr = arrAsOf(events, quarterStart);
   const renewalDate = derived.renewalDate ?? co.renewalDate;
-  const daysToRenewal = renewalDate ? Math.ceil((new Date(renewalDate).getTime() - Date.now()) / 86_400_000) : null;
 
-  const components = deriveComponents({ support, usage, hasCsm: false, daysToRenewal, tags: [] });
-  const health = buildHealth(components, { trend: 0, updatedAt: new Date().toISOString() });
+  // Health is no longer computed here — deriving it needs live usage/support/
+  // profile signals together (see lib/repo/drizzle.ts recomputeClientHealth),
+  // which this per-company sync loop doesn't have. A brand-new client starts
+  // with an empty placeholder and gets its first real score from the daily
+  // client-health cron (or sooner, from a Settings formula save).
+  const health: HealthScore = { score: 0, tier: "at_risk", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
 
   return {
     id: co.id,

@@ -63,10 +63,13 @@ const NPS_HIGH = 50;
 
 const COMPONENT_LABEL: Record<string, string> = {
   usage: "product usage",
-  support: "support load",
-  sentiment: "sentiment (NPS/CSAT)",
-  engagement: "engagement/recency",
-  relationship: "relationship touchpoints",
+  csat: "CSAT",
+  nps: "NPS",
+  sla_breaches: "breached SLA tickets",
+  onboarding_period: "onboarding period",
+  use_case_set: "use case",
+  profile_complete: "profile completeness",
+  stakeholder_mapping: "stakeholder mapping",
 };
 
 function lowestHealthComponent(client: Client): string {
