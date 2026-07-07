@@ -51,6 +51,14 @@ type FieldCheck =
        *  as missing — e.g. a global library date isn't required on a deal
        *  that has no global library at all. */
       requiredWhen?: (deal: Deal) => boolean;
+      /** Account-wide fallback: if this returns a real value, the field
+       *  counts as present for every tracked deal. launch_date predates the
+       *  per-deal milestone system — most of the book still only has the
+       *  legacy client.properties.launch_date, not a per-deal one — and
+       *  lib/status.ts already treats that legacy value as a genuine known
+       *  launch. Without this, nearly every account would show red for a
+       *  launch date it actually has, just under the older key. */
+      legacyFallback?: (client: Client) => unknown;
     };
 
 const RED_FIELDS: FieldCheck[] = [
@@ -68,6 +76,7 @@ const RED_FIELDS: FieldCheck[] = [
   { key: "implementationOwner", label: "Implementation assignee", scope: "client", get: (c) => c.implementationOwner },
   { key: "global_library_start_date", label: "Global library start", scope: "dealDate", dateKey: "global_library_start_date", requiredWhen: hasGlobalLibrary },
   { key: "global_library_expiry_date", label: "Global library expiry", scope: "dealDate", dateKey: "global_library_expiry_date", requiredWhen: hasGlobalLibrary },
+  { key: "launch_date", label: "Launch date", scope: "dealDate", dateKey: "launch_date", legacyFallback: (c) => c.properties?.launch_date },
 ];
 
 const YELLOW_FIELDS: FieldCheck[] = [
@@ -96,6 +105,7 @@ function isMissing(field: FieldCheck, client: Client, trackedDeals: Deal[], deal
   if (trackedDeals.length === 0) return true; // no deal to ever hold this field
   if (field.scope === "deal") return trackedDeals.some((d) => !hasValue(field.get(d)));
   // scope === "dealDate"
+  if (field.legacyFallback && hasValue(field.legacyFallback(client))) return false;
   return trackedDeals.some((d) => {
     if (field.requiredWhen && !field.requiredWhen(d)) return false;
     return !hasValue(dealDates[d.id]?.[field.dateKey]);

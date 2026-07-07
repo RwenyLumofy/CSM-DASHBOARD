@@ -296,7 +296,7 @@ function GeneralTab({
   const id = client.id;
   const props = client.properties ?? {};
   // Surfaced in the summary header → excluded from the Account grid.
-  const HEADER_KEYS = new Set(["tier"]);
+  const HEADER_KEYS = new Set(["tier", "use_cases_rollup"]);
   // Per-deal now — shown on each deal card, not at the account level. Includes
   // the deal-scoped picklist definitions (deal_*), which exist only to hold the
   // sync-managed option lists for the deal-card editors — never shown here.

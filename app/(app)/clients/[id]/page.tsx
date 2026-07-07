@@ -58,6 +58,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const props = client.properties ?? {};
   const industry = client.industry;
   const tier = typeof props.tier === "string" && props.tier.trim() ? props.tier : null;
+  const useCases = Array.isArray(props.use_cases_rollup) ? (props.use_cases_rollup as string[]) : [];
   const trackedDeals = deals.filter((d) => d.tracked !== false);
   // Effective deals = synced values with any CSM inline override applied (the
   // same merge the deal card itself displays) — the header must agree with
@@ -118,6 +119,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         profileSeverity={completeness.severity}
         missingRed={completeness.missingRed.map((f) => f.label)}
         missingYellow={completeness.missingYellow.map((f) => f.label)}
+        useCases={useCases}
       />
 
       {/* ── Tabs ─────────────────────────────────────────────────────── */}

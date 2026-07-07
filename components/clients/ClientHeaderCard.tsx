@@ -211,6 +211,9 @@ export interface ClientHeaderCardProps {
   profileSeverity: "red" | "yellow" | "none";
   missingRed: string[];
   missingYellow: string[];
+  /** Auto-rolled-up from every tracked deal's Use Case field (read-only —
+   *  see the deal card to change it). */
+  useCases: string[];
 }
 
 export function ClientHeaderCard({
@@ -238,6 +241,7 @@ export function ClientHeaderCard({
   profileSeverity,
   missingRed,
   missingYellow,
+  useCases,
 }: ClientHeaderCardProps) {
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
@@ -300,6 +304,22 @@ export function ClientHeaderCard({
           <span className="font-body text-[13px] font-semibold text-fg">
             {formatDate(upcomingRenewal)}
           </span>
+        </div>
+
+        {/* Use case(s) — auto-rolled up from every tracked deal, read-only */}
+        <div className="flex flex-1 flex-col justify-center px-5 py-4">
+          <div className="mb-1.5 font-body text-[10.5px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">
+            Use Case(s)
+          </div>
+          {useCases.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {useCases.map((uc) => (
+                <Badge key={uc} tone="neutral" className="whitespace-nowrap">{uc}</Badge>
+              ))}
+            </div>
+          ) : (
+            <span className="font-body text-[13px] text-fg-subtle">Not set</span>
+          )}
         </div>
 
         {/* CSM */}
