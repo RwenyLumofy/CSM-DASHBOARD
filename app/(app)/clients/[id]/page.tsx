@@ -14,10 +14,10 @@ import {
   getPropertyDefinitions,
   getRoleLabels,
   getTeamMembers,
-  getTimelineForClient,
 } from "@/lib/data";
 import { getCurrentUserRole, isSuperAdmin } from "@/lib/auth";
 import { getProjectBoard, getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
+import { getNotesForClient } from "@/lib/notes/data";
 import { hasDatabase, integrations } from "@/lib/config";
 import { applyDealOverrides, computeRenewal, dealOverridesMap, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
@@ -39,9 +39,9 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const client = await getClientForProfile(id);
   if (!client) notFound();
 
-  const [timeline, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates] =
+  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates] =
     await Promise.all([
-      getTimelineForClient(id),
+      getNotesForClient(id),
       getAttachmentsForClient(id),
       getDealsForClient(id),
       getContactsForClient(id),
@@ -147,7 +147,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         meetings={meetings}
         contacts={contacts}
         attachments={attachments}
-        timeline={timeline}
+        notes={notes}
         propertyDefs={propertyDefs}
         supabaseUrl={supabaseUrl}
         clientActions={clientActions}

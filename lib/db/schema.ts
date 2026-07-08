@@ -191,6 +191,24 @@ export const clientDeals = pgTable("client_deals", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("client_deals_client_id_idx").on(t.clientId)]);
 
+/** Free-text CSM notes on a client, optionally tagged to one of its deals.
+ *  `body` is sanitized HTML from the Notes tab's rich-text editor (cleaned at
+ *  the server-action boundary before it ever reaches this table — see
+ *  lib/notes/sanitize.ts). */
+export const clientNotes = pgTable("client_notes", {
+  id: text("id").primaryKey(), // "note-{uuid}"
+  clientId: text("client_id").notNull(),
+  dealId: text("deal_id"),
+  body: text("body").notNull(),
+  createdByEmail: text("created_by_email"),
+  createdByName: text("created_by_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("client_notes_client_id_idx").on(t.clientId),
+  index("client_notes_deal_id_idx").on(t.dealId),
+]);
+
 /** Email engagements associated with the won deal (CRM emails). */
 export const clientEmails = pgTable("client_emails", {
   id: text("id").primaryKey(), // "hse-{hubspotEmailId}"

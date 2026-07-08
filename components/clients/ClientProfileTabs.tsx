@@ -100,9 +100,10 @@ import type {
   Meeting,
   PropertyDefinition,
   SupportTicket,
-  TimelineEvent,
 } from "@/lib/types";
 import { ActionFeed } from "@/components/actions/ActionFeed";
+import { NotesTab } from "@/components/clients/notes/NotesTab";
+import type { Note } from "@/lib/notes/types";
 
 type TabKey =
   | "general"
@@ -122,7 +123,7 @@ interface Props {
   meetings: Meeting[];
   contacts: Contact[];
   attachments: Attachment[];
-  timeline: TimelineEvent[];
+  notes: Note[];
   propertyDefs: PropertyDefinition[];
   /** Supabase project URL for direct-to-storage attachment uploads, or null
    *  when SUPABASE_SERVICE_ROLE_KEY / NEXT_PUBLIC_SUPABASE_ANON_KEY aren't set. */
@@ -143,7 +144,7 @@ interface Props {
 }
 
 export function ClientProfileTabs(props: Props) {
-  const { client, deals, emails, meetings, contacts, attachments, timeline, propertyDefs, supabaseUrl, clientActions, healthConfig } = props;
+  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthConfig } = props;
   const [active, setActive] = useState<TabKey>("general");
 
   const commCount = contacts.length + emails.length + meetings.length;
@@ -156,7 +157,7 @@ export function ClientProfileTabs(props: Props) {
     { key: "support", label: "Support", icon: LifeBuoy, count: client.support.openTickets || undefined },
     { key: "satisfaction", label: "Satisfaction indicator", icon: Gauge },
     { key: "projects", label: "Project Management", icon: FolderKanban },
-    { key: "notes", label: "Notes", icon: StickyNote },
+    { key: "notes", label: "Notes", icon: StickyNote, count: notes.length || undefined },
     { key: "actions", label: "Action list", icon: ListChecks, count: clientActions.length || undefined },
   ];
 
@@ -213,7 +214,7 @@ export function ClientProfileTabs(props: Props) {
             dbEnabled={props.projectDbEnabled}
           />
         )}
-        {active === "notes" && <NotesTab timeline={timeline} />}
+        {active === "notes" && <NotesTab clientId={client.id} deals={deals} notes={notes} />}
         {active === "actions" && <ActionsTab client={client} actions={clientActions} healthConfig={healthConfig} />}
       </div>
     </div>
@@ -1658,29 +1659,6 @@ function SatisfactionTab({ client }: { client: Client }) {
 }
 
 /* ===================================================================== */
-/* Notes — activity feed + designed empty state                           */
-/* ===================================================================== */
-
-function NotesTab({ timeline }: { timeline: TimelineEvent[] }) {
-  return (
-    <Card>
-      <CardEyebrow>Notes & activity</CardEyebrow>
-      {timeline.length === 0 ? (
-        <EmptyHint
-          icon={StickyNote}
-          title="Notes coming soon"
-          body="Capture call summaries, account updates and pinned context here — a running notes feed like HubSpot, authored by the CS team."
-        />
-      ) : (
-        <ul className="mt-2 flex flex-col gap-4">
-          {timeline.map((e) => <TimelineRow key={e.id} event={e} />)}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-/* ===================================================================== */
 /* Action list — health breakdown + auto-calc placeholder                 */
 /* ===================================================================== */
 
@@ -3061,21 +3039,5 @@ function TagsInput({ value, saving, onCommit, onCancel }: { value: string[]; sav
         </button>
       </span>
     </div>
-  );
-}
-
-function TimelineRow({ event }: { event: TimelineEvent }) {
-  return (
-    <li className="flex gap-3">
-      <span className="mt-1.5 size-2 shrink-0 rounded-pill bg-sirius" />
-      <div>
-        <div className="font-body text-[13px] font-semibold leading-snug text-fg">{event.title}</div>
-        {event.body && <p className="caption mt-0.5 leading-relaxed">{event.body}</p>}
-        <div className="caption mt-0.5">
-          {event.author ? `${event.author} · ` : ""}
-          {relativeTime(event.at)}
-        </div>
-      </div>
-    </li>
   );
 }
