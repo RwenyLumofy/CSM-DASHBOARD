@@ -404,18 +404,18 @@ function ProjectTable({
 }) {
   const allState: "on" | "off" | "some" = checked.size === 0 ? "off" : checked.size >= projects.length ? "on" : "some";
   return (
-    <div className="overflow-hidden rounded-2xl border border-border">
+    <div className="overflow-hidden rounded-2xl border border-border bg-surface">
       <table className="w-full border-collapse font-body">
         <thead>
-          <tr className="border-b border-border bg-bg-muted/60">
-            {ctx.canManage && <th className="w-10 px-4 py-2.5"><TriCheck state={allState} onClick={onToggleAll} label="Select all projects" /></th>}
-            <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Project</th>
-            <th className="w-[168px] px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Status</th>
-            <th className="w-[210px] px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Owner</th>
-            <th className="w-[150px] px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Delivery</th>
+          <tr className="border-b border-border bg-bg-subtle/60">
+            {ctx.canManage && <th className="w-12 px-4 py-3"><TriCheck state={allState} onClick={onToggleAll} label="Select all projects" /></th>}
+            <th className="px-4 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">Project</th>
+            <th className="w-[168px] px-4 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">Status</th>
+            <th className="w-[210px] px-4 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">Owner</th>
+            <th className="w-[150px] px-4 py-3 text-left text-[10.5px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">Delivery</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/60">
+        <tbody className="divide-y divide-border-subtle">
           {projects.map((p) => {
             const progress = projectProgress(p, ctx.config);
             const complete = progress.total > 0 && progress.done === progress.total;
@@ -424,25 +424,26 @@ function ProjectTable({
             return (
               <tr key={p.id} onClick={() => onOpen(p.id)} className={cn("pm-in group cursor-pointer transition-colors", isChecked ? "bg-accent-soft/50" : "hover:bg-bg-muted/40")}>
                 {ctx.canManage && (
-                  <td className="px-4 py-3"><TriCheck state={isChecked ? "on" : "off"} onClick={() => onToggle(p.id)} label={`Select ${p.name}`} /></td>
+                  <td className="px-4 py-3.5"><TriCheck state={isChecked ? "on" : "off"} onClick={() => onToggle(p.id)} label={`Select ${p.name}`} /></td>
                 )}
-                <td className="px-4 py-3">
+                <td className="px-4 py-3.5">
                   <div className="flex items-center gap-2">
                     {p.type && <OptionDot ctx={ctx} typeId={p.type} />}
-                    <span className="font-body text-[13.5px] font-semibold text-fg transition-colors group-hover:text-sirius">{p.name}</span>
+                    <span className="font-body text-[14px] font-semibold text-fg transition-colors group-hover:text-sirius">{p.name}</span>
+                    {typeLabel(ctx, p.type) && <span className="hidden font-body text-[11.5px] text-fg-subtle sm:inline">· {typeLabel(ctx, p.type)}</span>}
                   </div>
                   {progress.total > 0 && (
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <div className="h-1 w-28 overflow-hidden rounded-full bg-bg-muted">
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="h-1 w-32 overflow-hidden rounded-full bg-bg-muted">
                         <div className={cn("h-full rounded-full transition-all duration-500", complete ? "bg-[#2DB47A]" : "bg-sirius")} style={{ width: `${progress.pct}%` }} />
                       </div>
-                      <span className="tabular-nums font-body text-[10.5px] font-semibold text-fg-subtle">{progress.done}/{progress.total}</span>
+                      <span className="tabular-nums font-body text-[10.5px] font-medium text-fg-subtle">{progress.done}/{progress.total} tasks</span>
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3"><StatusSelect options={ctx.config.projectStatuses} value={p.status} onChange={(s) => onStatus(p.id, s)} disabled={!ctx.canManage} /></td>
-                <td className="px-4 py-3"><OwnerSelect members={ctx.csms} value={p.ownerEmail} onChange={(e) => onOwner(p.id, e)} disabled={!ctx.canManage} /></td>
-                <td className="px-4 py-3"><span className={cn("whitespace-nowrap font-body text-[13px]", overdue ? "font-semibold text-[#B23A57]" : "text-fg-muted")}>{formatDate(p.deliveryDate)}</span></td>
+                <td className="px-4 py-3.5"><StatusSelect options={ctx.config.projectStatuses} value={p.status} onChange={(s) => onStatus(p.id, s)} disabled={!ctx.canManage} /></td>
+                <td className="px-4 py-3.5"><OwnerSelect members={ctx.csms} value={p.ownerEmail} onChange={(e) => onOwner(p.id, e)} disabled={!ctx.canManage} /></td>
+                <td className="px-4 py-3.5"><span className={cn("whitespace-nowrap font-body text-[13px]", overdue ? "font-semibold text-[#B23A57]" : "text-fg-muted")}>{formatDate(p.deliveryDate)}</span></td>
               </tr>
             );
           })}
@@ -450,6 +451,11 @@ function ProjectTable({
       </table>
     </div>
   );
+}
+
+function typeLabel(ctx: ProjectsContext, typeId: string | null): string | null {
+  if (!typeId) return null;
+  return ctx.config.projectTypes.find((t) => t.id === typeId)?.label ?? null;
 }
 
 /** Tiny coloured dot for the project type, matching the type option's colour. */

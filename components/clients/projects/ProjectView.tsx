@@ -74,14 +74,14 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-stretch justify-center p-0 sm:items-center sm:p-6">
-      <div className="pm-fade absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+    <div className="fixed inset-0 z-40 flex items-stretch justify-center p-0 sm:items-center sm:p-5">
+      <div className="pm-fade absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="pm-overlay-in relative z-10 flex h-full w-full max-w-[1160px] flex-col overflow-hidden border-border bg-bg shadow-xl sm:h-auto sm:max-h-[92vh] sm:rounded-2xl sm:border">
+      <div className="pm-overlay-in relative z-10 flex h-full w-full max-w-[1280px] flex-col overflow-hidden border-border bg-bg shadow-xl sm:h-[90vh] sm:rounded-2xl sm:border">
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-border px-5 py-3.5 sm:px-6">
           {project.type && <OptionPill options={config.projectTypes} id={project.type} />}
-          <h1 className="min-w-0 flex-1 truncate font-display text-[18px] font-semibold text-fg">{project.name}</h1>
+          <h1 className="min-w-0 flex-1 truncate font-display text-[19px] font-semibold text-fg">{project.name}</h1>
           {canManage && (
             <>
               <button onClick={() => setEditProject(true)} title="Edit project" className="rounded-lg p-2 text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg">
@@ -106,24 +106,29 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
         </div>
 
         {/* Meta strip */}
-        <div className="border-b border-border bg-bg-subtle/60 px-5 py-3.5 sm:px-6">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4 lg:grid-cols-7">
+        <div className="border-b border-border bg-bg-subtle/50 px-5 py-4 sm:px-7">
+          <div className="flex flex-wrap items-start gap-x-10 gap-y-4">
             <Meta label="Status"><StatusSelect options={config.projectStatuses} value={project.status} onChange={(s) => void api.updateProject({ status: s })} disabled={!canManage} /></Meta>
             <Meta label="Owner (CSM)"><OwnerSelect members={ctx.csms} value={project.ownerEmail} onChange={(e) => void api.updateProject({ ownerEmail: e })} disabled={!canManage} /></Meta>
             <Meta label="Implementer"><OwnerSelect members={ctx.implementers} value={project.implementerEmail} onChange={(e) => void api.updateProject({ implementerEmail: e })} disabled={!canManage} /></Meta>
             <Meta label="Contact"><Person name={ctx.contacts.find((c) => c.id === project.contactId)?.name ?? null} /></Meta>
-            <Meta label="Start"><span className="font-body text-[13px] text-fg">{formatDate(project.startDate)}</span></Meta>
-            <Meta label="Delivery"><span className={cn("font-body text-[13px]", isOverdue(project.deliveryDate) && !complete ? "font-semibold text-[#B23A57]" : "text-fg")}>{formatDate(project.deliveryDate)}</span></Meta>
+            <Meta label="Timeline">
+              <span className="whitespace-nowrap font-body text-[13px] text-fg">
+                {formatDate(project.startDate)}
+                <span className="mx-1.5 text-fg-subtle">→</span>
+                <span className={cn(isOverdue(project.deliveryDate) && !complete && "font-semibold text-[#B23A57]")}>{formatDate(project.deliveryDate)}</span>
+              </span>
+            </Meta>
             <Meta label="Progress">
               <div className="flex items-center gap-2">
-                <div className="h-1.5 w-16 overflow-hidden rounded-full bg-bg-muted">
+                <div className="h-1.5 w-32 overflow-hidden rounded-full bg-bg-muted">
                   <div className={cn("h-full rounded-full transition-all duration-500", complete ? "bg-[#2DB47A]" : "bg-sirius")} style={{ width: `${progress.pct}%` }} />
                 </div>
-                <span className="tabular-nums font-body text-[12px] font-semibold text-fg-muted">{progress.done}/{progress.total}</span>
+                <span className="tabular-nums font-body text-[12px] font-semibold text-fg-muted">{progress.pct}%<span className="ml-1 font-normal text-fg-subtle">· {progress.done}/{progress.total}</span></span>
               </div>
             </Meta>
           </div>
-          {project.description && <p className="mt-3 border-t border-border-subtle pt-3 font-body text-[13px] leading-relaxed text-fg-muted">{project.description}</p>}
+          {project.description && <p className="mt-4 border-t border-border-subtle pt-3 font-body text-[13px] leading-relaxed text-fg-muted">{project.description}</p>}
         </div>
 
         {/* Toolbar */}
@@ -148,7 +153,7 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
               {canManage && <Button size="sm" variant="secondary" iconLeft={Plus} onClick={() => setAddMilestone(true)} className="mt-4">Add milestone</Button>}
             </div>
           ) : view === "checklist" ? (
-            <div className="mx-auto flex max-w-3xl flex-col gap-4 pt-1">
+            <div className="mx-auto flex max-w-4xl flex-col gap-4 pt-2">
               {project.milestones.map((m) => (
                 <MilestoneSection
                   key={m.id}
@@ -246,20 +251,26 @@ function MilestoneSection({
   onDeleteMilestone: () => void;
 }) {
   const [open, setOpen] = useState(true);
+  const total = milestone.tasks.length;
   const doneCount = doneStatusId ? milestone.tasks.filter((t) => t.status === doneStatusId).length : 0;
+  const pct = total === 0 ? 0 : Math.round((doneCount / total) * 100);
+  const mComplete = total > 0 && doneCount === total;
 
   return (
-    <div className="pm-in overflow-hidden rounded-2xl border border-border">
-      <div className="flex items-center gap-2 bg-bg-muted/40 px-4 py-2.5">
+    <div className="pm-in overflow-hidden rounded-2xl border border-border bg-surface">
+      <div className="flex items-center gap-3 border-b border-border-subtle bg-bg-subtle/60 px-4 py-3">
         <button onClick={() => setOpen((o) => !o)} className="text-fg-subtle transition-colors hover:text-fg">
-          <ChevronDown size={15} className={cn("transition-transform duration-200", !open && "-rotate-90")} />
+          <ChevronDown size={16} className={cn("transition-transform duration-200", !open && "-rotate-90")} />
         </button>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate font-body text-[14px] font-semibold text-fg">{milestone.name}</span>
-          <span className="tabular-nums shrink-0 rounded-full bg-bg-muted px-1.5 py-px font-body text-[10.5px] font-semibold text-fg-subtle">{doneCount}/{milestone.tasks.length}</span>
+        <span className="min-w-0 flex-1 truncate font-body text-[14px] font-semibold text-fg">{milestone.name}</span>
+        <div className="hidden items-center gap-2 sm:flex">
+          <div className="h-1 w-20 overflow-hidden rounded-full bg-bg-muted">
+            <div className={cn("h-full rounded-full transition-all duration-500", mComplete ? "bg-[#2DB47A]" : "bg-sirius")} style={{ width: `${pct}%` }} />
+          </div>
+          <span className="tabular-nums font-body text-[11px] font-semibold text-fg-subtle">{doneCount}/{total}</span>
         </div>
         {milestone.dueDate && (
-          <span className={cn("inline-flex items-center gap-1 font-body text-[11.5px]", isOverdue(milestone.dueDate) ? "text-[#B23A57]" : "text-fg-muted")}>
+          <span className={cn("inline-flex items-center gap-1 whitespace-nowrap font-body text-[11.5px]", isOverdue(milestone.dueDate) && !mComplete ? "text-[#B23A57]" : "text-fg-muted")}>
             <CalendarDays size={12} /> {formatDate(milestone.dueDate)}
           </span>
         )}
