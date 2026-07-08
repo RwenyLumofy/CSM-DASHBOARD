@@ -1419,6 +1419,38 @@ export async function insertNotificationsDb(rows: NewNotification[]): Promise<vo
     .onConflictDoNothing({ target: schema.notifications.id });
 }
 
+/**
+ * Insert-or-refresh notifications by id: unlike insertNotificationsDb's
+ * onConflictDoNothing (silently no-ops if the id already exists), this
+ * updates title/body/dueDate and reopens the row (status: "open") on
+ * conflict. Used only by the project-deadline sync, whose ids are date-keyed
+ * (one per recipient per day) — a same-day re-run must refresh/reopen that
+ * exact row rather than getting silently dropped once the daily reconcile
+ * has resolved a stale prior-day row sharing no id with today's.
+ */
+export async function upsertOpenNotificationsDb(rows: NewNotification[]): Promise<void> {
+  if (rows.length === 0) return;
+  const db = getDb();
+  for (const n of rows) {
+    await db
+      .insert(schema.notifications)
+      .values({
+        id: n.id,
+        recipientEmail: n.recipientEmail.toLowerCase(),
+        type: n.type,
+        title: n.title,
+        body: n.body ?? null,
+        clientId: n.clientId ?? null,
+        dueDate: n.dueDate ?? null,
+        createdByEmail: n.createdByEmail ?? null,
+      })
+      .onConflictDoUpdate({
+        target: schema.notifications.id,
+        set: { title: n.title, body: n.body ?? null, dueDate: n.dueDate ?? null, status: "open" },
+      });
+  }
+}
+
 /** Recent notifications for a recipient (newest first). */
 export async function getNotificationsForUserDb(email: string, limit = 50): Promise<import("@/lib/types").Notification[]> {
   const db = getDb();

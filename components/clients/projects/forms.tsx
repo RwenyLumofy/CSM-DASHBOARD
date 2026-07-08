@@ -224,6 +224,7 @@ export function TaskFormModal({
   initial,
   milestones,
   defaultMilestoneId,
+  defaultStatusId,
   onClose,
   onSubmit,
 }: {
@@ -231,13 +232,15 @@ export function TaskFormModal({
   initial?: Task | null;
   milestones: { id: string; name: string }[];
   defaultMilestoneId: string;
+  /** Pre-select a status (e.g. the kanban column an "Add task" was clicked from). Ignored when editing. */
+  defaultStatusId?: string;
   onClose: () => void;
   onSubmit: (values: TaskInput & { milestoneId: string }) => Promise<SubmitResult>;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [type, setType] = useState(initial?.type ?? "");
-  const [status, setStatus] = useState(initial?.status ?? defaultTaskStatusId(ctx.config));
+  const [status, setStatus] = useState(initial?.status ?? defaultStatusId ?? defaultTaskStatusId(ctx.config));
   const [milestoneId, setMilestoneId] = useState(initial?.milestoneId ?? defaultMilestoneId);
   const [startDate, setStartDate] = useState(dateInputValue(initial?.startDate));
   const [deliveryDate, setDeliveryDate] = useState(dateInputValue(initial?.deliveryDate));

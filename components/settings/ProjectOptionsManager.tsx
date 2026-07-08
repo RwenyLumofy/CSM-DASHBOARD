@@ -142,7 +142,11 @@ function OptionListEditor({
       options.map((o, i) => {
         const s = o as StatusOption;
         if (i === idx) return { ...s, terminal: on ? statusKind : undefined };
-        return s.terminal ? { ...s, terminal: undefined } : s;
+        // Only task "done" needs a single answer (the checklist's per-task
+        // checkbox and doneStatusId both pick ONE status) — project
+        // "complete" statuses can coexist (e.g. both Completed and Cancelled
+        // read as done), so don't clear siblings there.
+        return statusKind === "done" && s.terminal ? { ...s, terminal: undefined } : s;
       }),
     );
   }

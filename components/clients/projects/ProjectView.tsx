@@ -56,7 +56,7 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
   const [editProject, setEditProject] = useState(false);
   const [addMilestone, setAddMilestone] = useState(false);
   const [editMilestone, setEditMilestone] = useState<MilestoneWithTasks | null>(null);
-  const [taskModal, setTaskModal] = useState<{ milestoneId: string; task: Task | null } | null>(null);
+  const [taskModal, setTaskModal] = useState<{ milestoneId: string; task: Task | null; statusId?: string } | null>(null);
   const [saveTemplate, setSaveTemplate] = useState(false);
   const anyModalOpen = editProject || addMilestone || !!editMilestone || !!taskModal || saveTemplate;
 
@@ -183,7 +183,13 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
               ))}
             </div>
           ) : (
-            <TaskBoard ctx={ctx} project={project} api={api} onEditTask={(t) => setTaskModal({ milestoneId: t.milestoneId, task: t })} />
+            <TaskBoard
+              ctx={ctx}
+              project={project}
+              api={api}
+              onEditTask={(t) => setTaskModal({ milestoneId: t.milestoneId, task: t })}
+              onAddTask={(statusId) => setTaskModal({ milestoneId: milestoneOptions[0]?.id ?? "", task: null, statusId })}
+            />
           )}
         </div>
       </div>
@@ -204,6 +210,7 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
           initial={taskModal.task}
           milestones={milestoneOptions}
           defaultMilestoneId={taskModal.milestoneId}
+          defaultStatusId={taskModal.statusId}
           onClose={() => setTaskModal(null)}
           onSubmit={async (values) => {
             const { milestoneId, ...rest } = values;
@@ -377,7 +384,19 @@ function TaskRow({
 
 /* ---------------------------------------------------------------- board view */
 
-function TaskBoard({ ctx, project, api, onEditTask }: { ctx: ProjectsContext; project: ProjectDetail; api: ProjectApi; onEditTask: (t: Task) => void }) {
+function TaskBoard({
+  ctx,
+  project,
+  api,
+  onEditTask,
+  onAddTask,
+}: {
+  ctx: ProjectsContext;
+  project: ProjectDetail;
+  api: ProjectApi;
+  onEditTask: (t: Task) => void;
+  onAddTask: (statusId: string) => void;
+}) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
   const didDrag = useRef(false);
@@ -409,6 +428,7 @@ function TaskBoard({ ctx, project, api, onEditTask }: { ctx: ProjectsContext; pr
         ctx.canManage ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
         dragId === t.id && "opacity-40",
         t.id === api.lastMovedTaskId && "pm-land",
+        t.id === api.justCompletedTaskId && "pm-complete",
       )}
     >
       <div className="font-body text-[12.5px] font-medium leading-snug text-fg">{t.name}</div>
@@ -437,10 +457,18 @@ function TaskBoard({ ctx, project, api, onEditTask }: { ctx: ProjectsContext; pr
       )}
     >
       <div className="flex items-center gap-2 px-3 py-2.5">{label}<span className="tabular-nums ml-auto font-body text-[11px] font-semibold text-fg-subtle">{tasks.length}</span></div>
-      <div className="flex min-h-[80px] flex-col gap-2 px-2 pb-2">
+      <div className="flex min-h-[80px] flex-col gap-2 px-2 pb-1">
         {tasks.map(card)}
         {tasks.length === 0 && <div className="rounded-lg border border-dashed border-border/60 px-1 py-4 text-center font-body text-[11px] text-fg-subtle">Drop here</div>}
       </div>
+      {droppable && ctx.canManage && (
+        <button
+          onClick={() => onAddTask(statusId)}
+          className="mx-2 mb-2 flex items-center justify-center gap-1.5 rounded-lg py-1.5 font-body text-[11.5px] font-medium text-fg-subtle transition-colors hover:bg-bg-muted hover:text-sirius"
+        >
+          <Plus size={13} /> Add task
+        </button>
+      )}
     </div>
   );
 

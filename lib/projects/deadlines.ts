@@ -45,7 +45,13 @@ function daysUntil(from: Date, iso: string): number | null {
 export function computeProjectDeadlines(board: ProjectDetail[], config: ProjectConfig, now: Date = new Date()): ProjectDeadlineItem[] {
   const out: ProjectDeadlineItem[] = [];
   for (const p of board) {
-    if (!isProjectComplete(config, p.status) && p.deliveryDate) {
+    // Completing/cancelling a project doesn't cascade to its tasks (they keep
+    // whatever status they were in), so a terminal project's tasks must be
+    // skipped explicitly here too — otherwise a stale open task under a
+    // cancelled project would flag "overdue" forever (nothing ever completes
+    // it to clear the signal).
+    if (isProjectComplete(config, p.status)) continue;
+    if (p.deliveryDate) {
       const du = daysUntil(now, p.deliveryDate);
       if (du != null && du <= PROJECT_DUE_SOON_DAYS) {
         out.push({ kind: "project", id: p.id, name: p.name, projectId: p.id, projectName: p.name, deliveryDate: p.deliveryDate, state: du < 0 ? "overdue" : "due_soon", daysUntil: du, ownerEmail: p.ownerEmail });

@@ -116,8 +116,16 @@ export function normalizeProjectConfig(raw: unknown): ProjectConfig {
     return arr.length > 0 ? arr : fallback;
   };
   return {
-    projectStatuses: singleTerminal(list(src.projectStatuses, cleanStatus, DEFAULT_PROJECT_CONFIG.projectStatuses) as StatusOption[]),
+    // Project statuses may have MULTIPLE "complete" statuses (e.g. both
+    // "Completed" and "Cancelled") — isProjectComplete() checks a status by
+    // its own id, and the "Mark complete" button only ever needs ONE target,
+    // so nothing here requires a single answer the way task-done does.
+    projectStatuses: list(src.projectStatuses, cleanStatus, DEFAULT_PROJECT_CONFIG.projectStatuses) as StatusOption[],
     projectTypes: list(src.projectTypes, cleanOption, DEFAULT_PROJECT_CONFIG.projectTypes),
+    // Task statuses ARE constrained to one "done" status: the checklist's
+    // per-task checkbox and doneStatusId both need a single answer, while
+    // projectProgress() sums every terminal status — multiple "done" statuses
+    // would make the progress bar and the checkbox disagree.
     taskStatuses: singleTerminal(list(src.taskStatuses, cleanStatus, DEFAULT_PROJECT_CONFIG.taskStatuses) as StatusOption[]),
     taskTypes: list(src.taskTypes, cleanOption, DEFAULT_PROJECT_CONFIG.taskTypes),
   };
