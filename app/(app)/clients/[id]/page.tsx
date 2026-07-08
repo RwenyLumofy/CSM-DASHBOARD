@@ -83,12 +83,14 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const statusTone: "sirius" | "neutral" = client.status === "churned" ? "neutral" : "sirius";
   const dealDates = (props[DEAL_DATES_KEY] as DealDatesMap | undefined) ?? {};
   const completeness = computeProfileCompleteness(client, effectiveTrackedDeals, dealDates);
-  // Onboarding period (kickoff→launch, or →today while ongoing) as a header
-  // badge — computed live from the deals + milestone dates the page already
-  // has, so it's current without waiting for the daily health recompute.
+  // Onboarding period (averaged across the account's deals) as a header badge —
+  // computed live from the deals + milestone dates the page already has. The
+  // badge is a live-state chip, so it's shown ONLY while the account is still
+  // onboarding; once it's active/renewal/churned the chip disappears (the
+  // health score still keeps scoring onboarding — that's a separate surface).
   const onboarding = computeOnboardingPeriod(effectiveTrackedDeals, dealDates);
   const onboardingLabel =
-    onboarding.days == null ? null : onboarding.ongoing ? `${onboarding.days}d · ongoing` : `${onboarding.days}d`;
+    client.status === "onboarding" && onboarding.days != null ? `${onboarding.days}d` : null;
   // Attachment uploads go straight from the browser to Supabase Storage — the
   // project URL is safe to hand down (it's not a secret), but only once the
   // two Supabase keys are actually configured.
