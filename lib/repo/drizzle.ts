@@ -854,9 +854,19 @@ async function upsertClient(c: Client, existingProperties?: Record<string, unkno
     // sync's own `support` is always empty, so overwriting the column here
     // would erase real support/SLA data every 4 hours between daily runs.
     support: _support,
+    // Same rule as `support`: lib/integrations/sync.ts can't compute a real
+    // score (needs live usage/support/profile signals it doesn't have), so it
+    // always builds each synced Client with a hardcoded empty placeholder
+    // ({score:0, tier:"—"}). Without this exclusion, every 4-hourly sync of a
+    // changed HubSpot record silently clobbered that client's real score back
+    // to the placeholder until the next 09:00 health cron — so an actively-
+    // edited-in-HubSpot account could show a broken health score most of the
+    // day. The health cron / Settings formula-save recompute are the only
+    // writers of this column now.
+    health: _health,
     ...rest
   } = row;
-  void _properties; void _csm; void _csmSource; void _implementationOwner; void _implementationOwnerSource; void _support;
+  void _properties; void _csm; void _csmSource; void _implementationOwner; void _implementationOwnerSource; void _support; void _health;
   const updateSet = dropOverriddenFields(rest, fieldOverridesSet(existingProperties));
   await db
     .insert(schema.clients)
