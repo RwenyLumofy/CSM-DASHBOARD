@@ -186,6 +186,10 @@ function useSaver<T>(fn: (v: T) => Promise<{ ok: boolean; error?: string }>, onS
 
 const inputCls = "rounded-lg border border-border bg-bg px-3 py-2 font-body text-sm text-fg outline-none ring-sirius focus:ring-2";
 const selectCls = inputCls;
+// Hide the native number-input spinner arrows — they overlap right-aligned
+// values in narrow boxes (e.g. "12.5" clipping to "12.!"). Firefox uses
+// appearance:textfield; WebKit/Chrome needs the ::-webkit-*-spin-button rules.
+const noSpin = "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 /* ----------------------------------------------------------- CSM panel */
 
@@ -445,7 +449,7 @@ function ClientHealthPanel({ initial, onSaved }: { initial: ClientHealthConfig; 
                 type="number" min={0} max={100}
                 value={t.minScore}
                 onChange={(e) => updateTier(t.id, { minScore: Number(e.target.value) })}
-                className={cn(inputCls, "text-right")}
+                className={cn(inputCls, noSpin, "px-2.5 text-right tabular")}
               />
               <input
                 type="color"
@@ -518,7 +522,7 @@ function MetricRow({ metric, onChange }: { metric: HealthMetricConfig; onChange:
             disabled={!metric.enabled}
             value={metric.weight}
             onChange={(e) => onChange({ weight: Math.max(0, Math.min(100, Number(e.target.value))) })}
-            className={cn(inputCls, "w-16 text-right disabled:cursor-not-allowed")}
+            className={cn(inputCls, noSpin, "w-20 px-2.5 text-right tabular disabled:cursor-not-allowed")}
           />
           <span className="font-body text-[12px] text-fg-subtle">%</span>
         </div>
@@ -529,7 +533,7 @@ function MetricRow({ metric, onChange }: { metric: HealthMetricConfig; onChange:
               type="number" min={1}
               value={metric.params?.maxBreaches ?? 5}
               onChange={(e) => onChange({ params: { ...metric.params, maxBreaches: Number(e.target.value) } })}
-              className={cn(inputCls, "w-14 text-right")}
+              className={cn(inputCls, noSpin, "w-14 px-2 text-right tabular")}
             />
           </label>
         ) : metric.key === "onboarding_period" ? (
@@ -538,14 +542,14 @@ function MetricRow({ metric, onChange }: { metric: HealthMetricConfig; onChange:
               type="number" min={0}
               value={metric.params?.targetDays ?? 30}
               onChange={(e) => onChange({ params: { ...metric.params, targetDays: Number(e.target.value) } })}
-              className={cn(inputCls, "w-14 text-right")}
+              className={cn(inputCls, noSpin, "w-14 px-2 text-right tabular")}
             />
             <span className="font-body text-[11px] text-fg-subtle">–</span>
             <input
               type="number" min={0}
               value={metric.params?.maxDays ?? 90}
               onChange={(e) => onChange({ params: { ...metric.params, maxDays: Number(e.target.value) } })}
-              className={cn(inputCls, "w-14 text-right")}
+              className={cn(inputCls, noSpin, "w-14 px-2 text-right tabular")}
             />
             <span className="font-body text-[11px] text-fg-subtle">d</span>
           </div>
