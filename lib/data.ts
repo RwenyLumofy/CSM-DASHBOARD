@@ -567,22 +567,32 @@ export const getAppUsers = cache(async (): Promise<AppUser[]> => {
   for (const e of env.superAdminEmails) {
     byEmail.set(e, { email: e, name: null, role: "super_admin", bootstrap: true });
   }
-  if (hasDatabase() && dbHealthy()) {
+  // app_users and csm_users are independent reads (the csm_users merge below
+  // doesn't need anything from app_users) — fire them concurrently instead of
+  // one after the other, same reasoning as loadSource()'s role-priming above.
+  // Sequentially, a slow DB moment could trip withDbTimeout here TWICE back to
+  // back (up to ~90s: this call, then getCsmUsers()'s own internal one) on a
+  // function every /clients (and team-member) load depends on.
+  const appUsersPromise = (async () => {
+    if (!hasDatabase() || !dbHealthy()) return [];
     try {
       const { getAppUsersFromDb } = await import("@/lib/repo/drizzle");
-      for (const r of await withDbTimeout(getAppUsersFromDb())) {
-        if (byEmail.get(r.email)?.bootstrap) continue; // permanent super-admin wins
-        byEmail.set(r.email, { email: r.email, name: r.name, role: isRole(r.role) ? r.role : DEFAULT_ROLE, bootstrap: false });
-      }
+      return await withDbTimeout(getAppUsersFromDb());
     } catch (err) {
       console.warn("[data] getAppUsers failed:", err);
+      return [];
     }
+  })();
+  const csmsPromise = getCsmUsers();
+
+  for (const r of await appUsersPromise) {
+    if (byEmail.get(r.email)?.bootstrap) continue; // permanent super-admin wins
+    byEmail.set(r.email, { email: r.email, name: r.name, role: isRole(r.role) ? r.role : DEFAULT_ROLE, bootstrap: false });
   }
   // Merge in CSMs from csm_users (synced from HubSpot) who have an email but
   // aren't already in app_users. They appear with their default role so the
   // super-admin can assign the right tier without having to add them manually.
-  const csms = await getCsmUsers();
-  for (const csm of csms) {
+  for (const csm of await csmsPromise) {
     if (!csm.email) continue;
     const key = csm.email.toLowerCase();
     if (!byEmail.has(key)) {
