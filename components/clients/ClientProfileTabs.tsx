@@ -312,6 +312,11 @@ function GeneralTab({
     ...g,
     defs: propertyDefs.filter((d) => d.group === g.key && !hidden.has(d.key)).sort((a, b) => a.sortOrder - b.sortOrder),
   })).filter((g) => g.defs.length > 0);
+  // The account "Tier" property (Tier 1–4) — surfaced as a badge in the header
+  // for a quick glance, and editable here in the Account section (same dual
+  // treatment as Status). Rendered explicitly rather than via a group, since
+  // its "client" group isn't one of the rendered property groups above.
+  const tierDef = propertyDefs.find((d) => d.key === "tier");
 
   // Per-deal CSM data lives here (keyed by deal id) — never shown as raw "Other" props.
   const dealOverrides = (props[DEAL_OVERRIDES_KEY] as DealOverridesMap | undefined) ?? {};
@@ -329,6 +334,9 @@ function GeneralTab({
           <EditableField clientId={id} label="Industry" value={client.industry} type="single_select" options={INDUSTRY_OPTIONS} target={{ core: "industry" }} alertSeverity={FIELD_SEVERITY.industry} />
           <EditableField clientId={id} label="Country" value={client.country} type="single_select" options={COUNTRY_OPTIONS} target={{ core: "country" }} alertSeverity={FIELD_SEVERITY.country} />
           <EditableField clientId={id} label="Employees" value={client.employees} type="number" target={{ core: "employees" }} alertSeverity={FIELD_SEVERITY.employees} />
+          {tierDef && (
+            <EditableField clientId={id} label={tierDef.label} value={props[tierDef.key]} type={tierDef.type} options={selectOpts(tierDef.options)} target={{ prop: tierDef.key }} />
+          )}
           <StatusField clientId={id} status={client.status} manuallyChurned={props[STATUS_OVERRIDE_KEY] === "churned"} />
         </FieldGrid>
         {client.tags.length > 0 && (

@@ -50,7 +50,10 @@ export function HealthPill({ health, size = 44, compact = false }: { health: Hea
           {health.tier || "—"}
         </span>
         {health.trend !== 0 && (
-          <span className={cn("caption tabular", health.trend > 0 ? "text-[#1E8F61]" : "text-[#B23A57]")}>
+          <span
+            title="Change in the health score (0–100) since the previous calculation"
+            className={cn("caption tabular", health.trend > 0 ? "text-[#1E8F61]" : "text-[#B23A57]")}
+          >
             {health.trend > 0 ? "▲" : "▼"} {Math.abs(health.trend)} pts
           </span>
         )}
