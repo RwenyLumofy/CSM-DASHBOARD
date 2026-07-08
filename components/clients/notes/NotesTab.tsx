@@ -162,6 +162,11 @@ function NoteFormModal({
         return;
       }
       onClose();
+    } catch (e) {
+      // Belt-and-suspenders: a thrown (not returned) error from the server
+      // action should still surface here rather than leave the button
+      // silently re-enabled with no note saved and no explanation.
+      setError(String(e));
     } finally {
       setBusy(false);
     }

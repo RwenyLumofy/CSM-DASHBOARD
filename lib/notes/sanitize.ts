@@ -2,27 +2,30 @@
    tab's Tiptap editor) is cleaned before it's allowed to reach the database
    or, later, another CSM's browser via dangerouslySetInnerHTML. Call this
    in the server action that receives a note body from the client — never
-   trust that the browser-side editor already sanitized its own output. */
+   trust that the browser-side editor already sanitized its own output.
 
-import DOMPurify from "isomorphic-dompurify";
+   Uses sanitize-html (pure JS, no jsdom) rather than isomorphic-dompurify:
+   the latter's server-side path pulls in jsdom -> html-encoding-sniffer,
+   which on Vercel's Node runtime crashed every save with
+   "require() of ES Module .../@exodus/bytes/encoding-lite.js ... not
+   supported" the instant a note was created — a jsdom-side ESM/CJS
+   incompatibility, not anything about the sanitized content itself. */
+
+import sanitizeHtml from "sanitize-html";
 
 const ALLOWED_TAGS = [
   "p", "br", "strong", "b", "em", "i", "s", "strike", "del", "u",
   "ul", "ol", "li", "blockquote", "code", "pre",
   "h1", "h2", "h3", "a",
 ];
-const ALLOWED_ATTR = ["href"];
-
-// Force every surviving link to open safely in a new tab, regardless of what
-// the editor produced — added via a DOMPurify hook (not a post-hoc regex)
-// so it runs on the parsed DOM, after href has already been scheme-checked.
-DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-  if (node.tagName === "A" && node.hasAttribute("href")) {
-    node.setAttribute("target", "_blank");
-    node.setAttribute("rel", "noopener noreferrer");
-  }
-});
 
 export function sanitizeNoteBody(html: string): string {
-  return DOMPurify.sanitize(html, { ALLOWED_TAGS, ALLOWED_ATTR });
+  return sanitizeHtml(html, {
+    allowedTags: ALLOWED_TAGS,
+    allowedAttributes: { a: ["href", "target", "rel"] },
+    // Disallowed-scheme hrefs (javascript:, data:, etc.) are dropped by default.
+    transformTags: {
+      a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }),
+    },
+  });
 }

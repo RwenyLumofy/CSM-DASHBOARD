@@ -44,9 +44,9 @@ async function resolveDealId(clientId: string, dealId: string | null | undefined
 export async function createNoteAction(clientId: string, input: NoteInput): Promise<NoteActionResult & { note?: Note }> {
   const blocked = await guard(clientId);
   if (blocked) return blocked;
-  const body = sanitizeNoteBody(input.body).trim();
-  if (!body) return { ok: false, error: "The note can't be empty." };
   try {
+    const body = sanitizeNoteBody(input.body).trim();
+    if (!body) return { ok: false, error: "The note can't be empty." };
     const actor = await getCurrentActor();
     const note = await createNote({
       clientId,
@@ -63,14 +63,14 @@ export async function createNoteAction(clientId: string, input: NoteInput): Prom
 export async function updateNoteAction(clientId: string, noteId: string, patch: Partial<NoteInput>): Promise<NoteActionResult> {
   const blocked = await guardOwned(clientId, noteId);
   if (blocked) return blocked;
-  const clean: Partial<NoteInput> = { ...patch };
-  if (patch.body !== undefined) {
-    const body = sanitizeNoteBody(patch.body).trim();
-    if (!body) return { ok: false, error: "The note can't be empty." };
-    clean.body = body;
-  }
-  if (patch.dealId !== undefined) clean.dealId = await resolveDealId(clientId, patch.dealId);
   try {
+    const clean: Partial<NoteInput> = { ...patch };
+    if (patch.body !== undefined) {
+      const body = sanitizeNoteBody(patch.body).trim();
+      if (!body) return { ok: false, error: "The note can't be empty." };
+      clean.body = body;
+    }
+    if (patch.dealId !== undefined) clean.dealId = await resolveDealId(clientId, patch.dealId);
     await editNote(noteId, clean);
     return { ok: true };
   } catch (e) {
