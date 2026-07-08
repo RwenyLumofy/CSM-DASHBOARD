@@ -80,11 +80,7 @@ function rowToClient(r: Row): Client {
     // haven't been extended since their original definition — no writer today
     // produces a partial blob for either — but this is cheap, forward-looking
     // insurance against the exact same class of bug recurring.
-    health: {
-      ...emptyHealth(),
-      ...(r.health as Partial<HealthScore> | null),
-      components: { ...emptyHealth().components, ...(r.health as Partial<HealthScore> | null)?.components },
-    },
+    health: normalizeHealth(r.health as Partial<HealthScore> | null),
     support: { ...emptySupport(), ...(r.support as Partial<SupportSummary> | null) },
     usage: { ...emptyUsage(), ...(r.usage as Partial<UsageMetrics> | null) },
     tags: r.tags ?? [],
@@ -1731,7 +1727,33 @@ function emptyHealth(): HealthScore {
   // Empty `components` is the honest default under the new partial-record
   // shape — it means "not computed yet" (recomputeClientHealth fills it in),
   // not a faked score of 0 across fixed metrics like the old 5-key shape.
-  return { score: 0, tier: "at_risk", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
+  return { score: 0, tier: "—", tierColor: "#B0B4BC", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
+}
+
+/** Legacy display names/colors for the three tiers that predate admin-defined,
+ *  colored tiers — so rows stored before that change (which carry the old
+ *  lowercase enum tier and no tierColor) still render as a proper labelled,
+ *  colored badge until the next health recompute overwrites them. */
+const LEGACY_TIER: Record<string, { name: string; color: string }> = {
+  healthy: { name: "Healthy", color: "#2DB47A" },
+  watch: { name: "Watch", color: "#C99A14" },
+  at_risk: { name: "At risk", color: "#D14B6B" },
+};
+
+/** Coerce a possibly-partial / legacy-shaped health blob into a complete
+ *  HealthScore (tier name + color always present). */
+function normalizeHealth(raw: Partial<HealthScore> | null): HealthScore {
+  const base = emptyHealth();
+  if (!raw) return base;
+  const legacy = typeof raw.tier === "string" ? LEGACY_TIER[raw.tier] : undefined;
+  return {
+    score: raw.score ?? base.score,
+    tier: raw.tier ? (legacy?.name ?? raw.tier) : base.tier,
+    tierColor: raw.tierColor ?? legacy?.color ?? base.tierColor,
+    components: { ...base.components, ...raw.components },
+    trend: raw.trend ?? base.trend,
+    updatedAt: raw.updatedAt ?? base.updatedAt,
+  };
 }
 function emptySupport(): SupportSummary {
   return { openTickets: 0, snoozedTickets: 0, closedLast30d: 0, oldestOpenDays: null, medianFirstResponseHours: null, csat: null, csatScale: "percent", csatResponses: 0, csatTrend: [], nps: null, npsResponses: 0, npsTrend: [], lastConversationAt: null, supportLevelUsed: null, slaBreaches: [], tickets: [] };

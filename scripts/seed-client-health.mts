@@ -55,7 +55,7 @@ if (stored) {
   console.log("  · Already configured — left untouched.");
 } else {
   await setWorkspaceConfigDb(CLIENT_HEALTH_CONFIG_KEY, DEFAULT_CLIENT_HEALTH_CONFIG);
-  console.log("  ✓ Seeded default formula (8 metrics enabled, equal weight, 75/55 thresholds).");
+  console.log("  ✓ Seeded default formula (8 metrics enabled, equal weight; Healthy≥75 / Watch≥55 / At risk tiers).");
 }
 
 console.log("\n✓ Properties + config ready. Now trigger a recompute via the running app:");

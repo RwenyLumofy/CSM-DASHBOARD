@@ -1,5 +1,6 @@
-import type { HealthComponents, HealthScore, HealthTier, SupportSummary } from "@/lib/types";
-import type { ClientHealthConfig, HealthMetricConfig } from "@/lib/metrics/health-config";
+import type { HealthComponents, HealthScore, SupportSummary } from "@/lib/types";
+import type { ClientHealthConfig, HealthMetricConfig, HealthTierDef } from "@/lib/metrics/health-config";
+import { DEFAULT_HEALTH_TIERS } from "@/lib/metrics/health-config";
 import type { OnboardingPeriod } from "@/lib/metrics/onboarding";
 import type { CompletenessSeverity } from "@/lib/profile-completeness";
 import { normalizeCsat } from "@/lib/metrics/portfolio";
@@ -70,11 +71,12 @@ function subscoreFor(m: HealthMetricConfig, inputs: HealthComputeInputs): number
   }
 }
 
-/** Score cutoffs → tier. Thresholds are admin-configurable (ClientHealthConfig.thresholds). */
-export function tierForScore(score: number, thresholds: { healthy: number; watch: number }): HealthTier {
-  if (score >= thresholds.healthy) return "healthy";
-  if (score >= thresholds.watch) return "watch";
-  return "at_risk";
+/** Resolve a 0–100 score to its tier: the highest tier whose minScore it meets.
+ *  Tiers are admin-defined (ClientHealthConfig.tiers) and may be any set of
+ *  names/cutoffs. Falls back to a sane default if the config somehow has none. */
+export function resolveTier(score: number, tiers: HealthTierDef[]): HealthTierDef {
+  const ordered = [...(tiers.length ? tiers : DEFAULT_HEALTH_TIERS)].sort((a, b) => b.minScore - a.minScore);
+  return ordered.find((t) => score >= t.minScore) ?? ordered[ordered.length - 1]!;
 }
 
 /**
@@ -104,34 +106,13 @@ export function computeHealthScore(
   }
 
   const score = weightTotal > 0 ? Math.round(weightedSum / weightTotal) : 0;
+  const tier = resolveTier(score, config.tiers);
   return {
     score,
-    tier: tierForScore(score, config.thresholds),
+    tier: tier.name,
+    tierColor: tier.color,
     components,
     trend: opts.trend ?? 0,
     updatedAt: opts.updatedAt ?? new Date().toISOString(),
   };
-}
-
-/** Brand tone token for a health tier (drives Badge / accents). */
-export function tierTone(tier: HealthTier): "aurora" | "stellar" | "nova" {
-  switch (tier) {
-    case "healthy":
-      return "aurora";
-    case "watch":
-      return "stellar";
-    case "at_risk":
-      return "nova";
-  }
-}
-
-export function tierLabel(tier: HealthTier): string {
-  switch (tier) {
-    case "healthy":
-      return "Healthy";
-    case "watch":
-      return "Watch";
-    case "at_risk":
-      return "At risk";
-  }
 }

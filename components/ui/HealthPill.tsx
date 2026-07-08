@@ -1,17 +1,11 @@
-import type { HealthScore, HealthTier } from "@/lib/types";
-import { tierLabel, tierTone } from "@/lib/metrics/health";
-import { Badge } from "@/components/ui/Badge";
+import type { HealthScore } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
-const RING: Record<HealthTier, string> = {
-  healthy: "text-[#2DB47A]",
-  watch: "text-[#C99A14]",
-  at_risk: "text-[#D14B6B]",
-};
-
-/** Score dial + tier badge. Compact mode shows just the number + dot. */
+/** Score dial + tier badge, colored by the resolved tier's own color (which is
+ *  admin-defined — see Settings → Workflows → Client health). Compact mode
+ *  shows just the number + dot. */
 export function HealthPill({ health, size = 44, compact = false }: { health: HealthScore; size?: number; compact?: boolean }) {
-  const tone = tierTone(health.tier);
+  const color = health.tierColor || "#D14B6B";
   const r = (size - 6) / 2;
   const c = 2 * Math.PI * r;
   const offset = c * (1 - health.score / 100);
@@ -19,7 +13,7 @@ export function HealthPill({ health, size = 44, compact = false }: { health: Hea
   if (compact) {
     return (
       <span className="inline-flex items-center gap-2">
-        <span className={cn("size-2 rounded-pill", health.tier === "healthy" ? "bg-[#2DB47A]" : health.tier === "watch" ? "bg-[#C99A14]" : "bg-[#D14B6B]")} />
+        <span className="size-2 rounded-pill" style={{ backgroundColor: color }} />
         <span className="tabular font-body text-sm font-semibold text-fg">{health.score}</span>
       </span>
     );
@@ -35,8 +29,7 @@ export function HealthPill({ health, size = 44, compact = false }: { health: Hea
             cy={size / 2}
             r={r}
             fill="none"
-            className={RING[health.tier]}
-            stroke="currentColor"
+            stroke={color}
             strokeWidth={3}
             strokeLinecap="round"
             strokeDasharray={c}
@@ -46,9 +39,13 @@ export function HealthPill({ health, size = 44, compact = false }: { health: Hea
         <span className="absolute tabular font-display text-sm font-bold text-fg">{health.score}</span>
       </div>
       <div className="flex flex-col gap-1">
-        <Badge tone={tone} dot>
-          {tierLabel(health.tier)}
-        </Badge>
+        <span
+          className="inline-flex w-fit items-center gap-1.5 rounded-pill px-2.5 py-1 font-body text-[11px] font-semibold leading-none"
+          style={{ backgroundColor: `${color}1F`, color }}
+        >
+          <span className="size-1.5 rounded-pill" style={{ backgroundColor: color }} />
+          {health.tier || "—"}
+        </span>
         {health.trend !== 0 && (
           <span className={cn("caption tabular", health.trend > 0 ? "text-[#1E8F61]" : "text-[#B23A57]")}>
             {health.trend > 0 ? "▲" : "▼"} {Math.abs(health.trend)} pts

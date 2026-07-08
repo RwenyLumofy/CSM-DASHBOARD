@@ -174,6 +174,18 @@ export function ClientsTable({
   const channels = useMemo(() => [...new Set(clients.map(channelOf).filter(Boolean) as string[])].sort(), [clients]);
   const countries = useMemo(() => [...new Set(clients.map((c) => c.country).filter(Boolean) as string[])].sort(), [clients]);
   const accountTiers = useMemo(() => [...new Set(clients.map(accountTierOf).filter(Boolean) as string[])].sort(), [clients]);
+  // Health tiers are admin-defined (Settings → Workflows → Client health), so
+  // the filter options come from whatever tier names are actually present,
+  // ordered high→low by the top score seen in each.
+  const healthTiers = useMemo(() => {
+    const top = new Map<string, number>();
+    for (const c of clients) {
+      const name = c.health.tier;
+      if (!name || name === "—") continue;
+      top.set(name, Math.max(top.get(name) ?? 0, c.health.score));
+    }
+    return [...top.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  }, [clients]);
   const propOptions = (key: string) => propertyDefs.find((d) => d.key === key)?.options ?? [];
 
   // Recomputed only when the filter/custom dates actually change, not on
@@ -343,9 +355,7 @@ export function ClientsTable({
         />
         <FilterSelect value={tier} onChange={setTier} label="Health">
           <option value="all">All health</option>
-          <option value="healthy">Healthy</option>
-          <option value="watch">Watch</option>
-          <option value="at_risk">At risk</option>
+          {healthTiers.map((t) => <option key={t} value={t}>{t}</option>)}
         </FilterSelect>
         <FilterSelect value={csm} onChange={setCsm} label="CSM">
           <option value="all">All CSMs</option>

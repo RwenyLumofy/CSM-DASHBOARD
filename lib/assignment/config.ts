@@ -15,8 +15,10 @@ import type {
 import {
   CLIENT_HEALTH_CONFIG_KEY,
   DEFAULT_CLIENT_HEALTH_CONFIG,
+  DEFAULT_HEALTH_TIERS,
   HEALTH_METRIC_ORDER,
   type ClientHealthConfig,
+  type HealthTierDef,
 } from "@/lib/metrics/health-config";
 
 export const CSM_CONFIG_KEY = "csm_assignment";
@@ -96,10 +98,46 @@ export const setCapacityConfig = (c: CapacityConfig) => writeConfig(CAPACITY_CON
  *  new metric existed still gets every current key (new ones default to
  *  disabled) rather than a caller having to guard against a missing entry. */
 export async function getClientHealthConfig(): Promise<ClientHealthConfig> {
-  const stored = await readConfig(CLIENT_HEALTH_CONFIG_KEY, DEFAULT_CLIENT_HEALTH_CONFIG);
-  const byKey = new Map(stored.metrics.map((m) => [m.key, m]));
+  // Read the RAW stored value (not readConfig's merge-over-default): tier
+  // migration below must see whether the stored config actually carried `tiers`
+  // or the legacy `thresholds`, which a shallow merge with the default would
+  // hide by leaking default tiers in.
+  const raw = (await readRawConfig(CLIENT_HEALTH_CONFIG_KEY)) as Partial<StoredHealthConfig> | null;
+  const metricsSrc = raw?.metrics ?? DEFAULT_CLIENT_HEALTH_CONFIG.metrics;
+  const byKey = new Map(metricsSrc.map((m) => [m.key, m]));
   const metrics = HEALTH_METRIC_ORDER.map((key) => byKey.get(key) ?? { key, enabled: false, weight: 0 });
-  return { metrics, thresholds: stored.thresholds ?? DEFAULT_CLIENT_HEALTH_CONFIG.thresholds };
+  return { metrics, tiers: resolveTiers(raw) };
+}
+
+type StoredHealthConfig = ClientHealthConfig & { thresholds?: { healthy: number; watch: number } };
+
+/** Back-compat: the first shipped config stored `thresholds: {healthy, watch}`
+ *  instead of `tiers`. Synthesize the three classic tiers from those cutoffs so
+ *  an environment seeded before the dynamic-tier change still reads correctly;
+ *  otherwise use stored tiers, or the default. */
+function resolveTiers(stored: Partial<StoredHealthConfig> | null): HealthTierDef[] {
+  if (stored && Array.isArray(stored.tiers) && stored.tiers.length > 0) return stored.tiers;
+  const t = stored?.thresholds;
+  if (t) {
+    return [
+      { id: "healthy", name: "Healthy", minScore: t.healthy, color: "#2DB47A" },
+      { id: "watch", name: "Watch", minScore: t.watch, color: "#C99A14" },
+      { id: "at_risk", name: "At risk", minScore: 0, color: "#D14B6B" },
+    ];
+  }
+  return DEFAULT_HEALTH_TIERS;
+}
+
+/** Raw workspace_config read (no default merge) — for callers that must
+ *  distinguish "key absent" / "field absent" from a defaulted value. */
+async function readRawConfig(key: string): Promise<unknown> {
+  if (!(hasDatabase() && dbHealthy())) return null;
+  try {
+    const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
+    return await withDbTimeout(getWorkspaceConfigFromDb(key));
+  } catch {
+    return null;
+  }
 }
 
 export const setClientHealthConfig = (c: ClientHealthConfig) => writeConfig(CLIENT_HEALTH_CONFIG_KEY, c);

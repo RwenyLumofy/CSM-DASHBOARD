@@ -23,8 +23,12 @@ export function buildPortfolioSummary(
   for (const c of active) {
     totalArr += c.arr;
     healthSum += c.health.score;
-    if (c.health.tier === "healthy") healthy += 1;
-    else if (c.health.tier === "watch") watch += 1;
+    // Portfolio rollup uses fixed high/mid/low score bands (75/55) rather than
+    // the admin's custom tier NAMES, so this three-way distribution stays
+    // stable and comparable even when tiers are renamed/added/removed in
+    // Settings. Per-client displays (HealthPill) use the real resolved tier.
+    if (c.health.score >= 75) healthy += 1;
+    else if (c.health.score >= 55) watch += 1;
     else atRisk += 1;
 
     openTickets += c.support.openTickets;

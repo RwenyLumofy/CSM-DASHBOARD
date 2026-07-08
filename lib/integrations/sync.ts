@@ -449,7 +449,7 @@ function assembleClient(
   // which this per-company sync loop doesn't have. A brand-new client starts
   // with an empty placeholder and gets its first real score from the daily
   // client-health cron (or sooner, from a Settings formula save).
-  const health: HealthScore = { score: 0, tier: "at_risk", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
+  const health: HealthScore = { score: 0, tier: "—", tierColor: "#B0B4BC", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
 
   return {
     id: co.id,

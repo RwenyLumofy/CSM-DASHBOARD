@@ -16,7 +16,7 @@ import type {
   ImplementationAssignmentConfig,
 } from "@/lib/assignment/types";
 import type { MemberHealth } from "@/lib/assignment/health";
-import { HEALTH_METRIC_LABELS, type ClientHealthConfig, type HealthMetricConfig } from "@/lib/metrics/health-config";
+import { HEALTH_METRIC_LABELS, HEALTH_METRIC_HELP, DEFAULT_HEALTH_TIERS, type ClientHealthConfig, type HealthMetricConfig, type HealthTierDef } from "@/lib/metrics/health-config";
 import {
   saveCapacityAction,
   saveCsmAssignmentAction,
@@ -347,9 +347,12 @@ function HealthPanel({ initialCapacity, teamHealth, lbl, onSaved }: { initialCap
 
 /* ------------------------------------------------------ Client health */
 
+let tierSeq = 0;
+const newTierId = () => `tier_${tierSeq++}_${DEFAULT_HEALTH_TIERS.length}`;
+
 function ClientHealthPanel({ initial, onSaved }: { initial: ClientHealthConfig; onSaved: () => void }) {
   const [metrics, setMetrics] = useState<HealthMetricConfig[]>(initial.metrics);
-  const [thresholds, setThresholds] = useState(initial.thresholds);
+  const [tiers, setTiers] = useState<HealthTierDef[]>(initial.tiers.length ? initial.tiers : DEFAULT_HEALTH_TIERS);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -369,15 +372,23 @@ function ClientHealthPanel({ initial, onSaved }: { initial: ClientHealthConfig; 
     });
   }
 
+  function updateTier(id: string, patch: Partial<HealthTierDef>) {
+    setTiers((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  }
+
   async function save() {
     setBusy(true);
     setError(null);
     setResult(null);
     try {
-      const r = await saveClientHealthConfigAction({ metrics, thresholds });
+      // Persist tiers ordered high→low by minScore so the engine's "highest
+      // tier the score meets" is unambiguous.
+      const sortedTiers = [...tiers].sort((a, b) => b.minScore - a.minScore);
+      const r = await saveClientHealthConfigAction({ metrics, tiers: sortedTiers });
       if (!r.ok) setError(r.error ?? "Failed.");
       else {
         setResult(`Saved · recomputed ${r.clientsUpdated ?? 0} clients.`);
+        setTiers(sortedTiers);
         onSaved();
       }
     } finally {
@@ -385,14 +396,16 @@ function ClientHealthPanel({ initial, onSaved }: { initial: ClientHealthConfig; 
     }
   }
 
+  const sortedForPreview = [...tiers].sort((a, b) => b.minScore - a.minScore);
+
   return (
     <div className="flex flex-col gap-5">
       <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
         <p className="font-display text-sm font-semibold text-fg">Formula</p>
         <p className="mb-4 mt-1 font-body text-[12.5px] text-fg-muted">
-          Turn on the signals that should count toward every account&apos;s health score, and weight them against each
-          other. A signal with no data for a given account (e.g. NPS, with no source wired up yet) is skipped for that
-          account only — the rest reweight to fill the gap, never a faked neutral value.
+          Turn on the signals that should count toward every account&apos;s health score, and weight them — drag the
+          slider or type an exact number. A signal with no data for a given account (e.g. NPS, with no source wired up
+          yet) is skipped for that account only, and the rest reweight to fill the gap — never a faked neutral value.
         </p>
         <div className="flex flex-col gap-2">
           {metrics.map((m) => (
@@ -411,28 +424,64 @@ function ClientHealthPanel({ initial, onSaved }: { initial: ClientHealthConfig; 
 
       <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
         <p className="font-display text-sm font-semibold text-fg">Health tiers</p>
-        <p className="mb-4 mt-1 font-body text-[12.5px] text-fg-muted">Score cutoffs for the three tiers shown across the app.</p>
-        <div className="flex flex-wrap items-center gap-5">
-          <label className="flex items-center gap-2">
-            <span className="font-body text-[12.5px] text-fg-muted">Healthy at ≥</span>
-            <input
-              type="number" min={0} max={100}
-              value={thresholds.healthy}
-              onChange={(e) => setThresholds((t) => ({ ...t, healthy: Number(e.target.value) }))}
-              className={cn(inputCls, "w-16 text-right")}
-            />
-          </label>
-          <label className="flex items-center gap-2">
-            <span className="font-body text-[12.5px] text-fg-muted">Watch at ≥</span>
-            <input
-              type="number" min={0} max={100}
-              value={thresholds.watch}
-              onChange={(e) => setThresholds((t) => ({ ...t, watch: Number(e.target.value) }))}
-              className={cn(inputCls, "w-16 text-right")}
-            />
-          </label>
+        <p className="mb-4 mt-1 font-body text-[12.5px] text-fg-muted">
+          Name each tier, set the minimum score it starts at, and pick its color. Add or remove tiers freely — a score
+          lands in the highest tier whose minimum it reaches. Keep one tier at 0 so every score has a home.
+        </p>
+
+        <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-[1fr_120px_56px_auto] gap-2 px-1 font-body text-[11px] font-semibold uppercase tracking-[0.04em] text-fg-subtle">
+            <span>Tier name</span><span>Min score (≥)</span><span>Color</span><span />
+          </div>
+          {tiers.map((t) => (
+            <div key={t.id} className="grid grid-cols-[1fr_120px_56px_auto] items-center gap-2">
+              <input
+                value={t.name}
+                onChange={(e) => updateTier(t.id, { name: e.target.value })}
+                placeholder="Tier name"
+                className={inputCls}
+              />
+              <input
+                type="number" min={0} max={100}
+                value={t.minScore}
+                onChange={(e) => updateTier(t.id, { minScore: Number(e.target.value) })}
+                className={cn(inputCls, "text-right")}
+              />
+              <input
+                type="color"
+                value={t.color}
+                onChange={(e) => updateTier(t.id, { color: e.target.value })}
+                className="h-9 w-full cursor-pointer rounded-lg border border-border bg-bg p-1"
+                aria-label={`${t.name} color`}
+              />
+              <button
+                onClick={() => setTiers((prev) => (prev.length > 1 ? prev.filter((x) => x.id !== t.id) : prev))}
+                disabled={tiers.length <= 1}
+                className="grid size-9 place-items-center rounded-md text-fg-subtle hover:bg-[#B23A57]/10 hover:text-[#B23A57] disabled:opacity-40"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={() => setTiers((prev) => [...prev, { id: newTierId(), name: "New tier", minScore: 0, color: "#6E7BFF" }])}
+            className="mt-1 flex items-center gap-1.5 self-start rounded-lg border border-dashed border-border px-3 py-1.5 font-body text-[12.5px] font-medium text-fg-muted hover:border-sirius hover:text-sirius"
+          >
+            <Plus size={14} /> Add tier
+          </button>
         </div>
-        <TierPreview thresholds={thresholds} />
+
+        {/* Live preview band (high score on the right) */}
+        <div className="mt-4 flex h-2.5 overflow-hidden rounded-pill">
+          {sortedForPreview
+            .slice()
+            .reverse()
+            .map((t, i, arr) => {
+              const next = arr[i + 1];
+              const width = (next ? next.minScore : 100) - Math.max(0, Math.min(100, t.minScore));
+              return <div key={t.id} style={{ width: `${Math.max(0, width)}%`, backgroundColor: t.color }} title={`${t.name} (≥${t.minScore})`} />;
+            })}
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
@@ -450,61 +499,61 @@ function MetricRow({ metric, onChange }: { metric: HealthMetricConfig; onChange:
   return (
     <div
       className={cn(
-        "grid grid-cols-[220px_1fr_48px_160px] items-center gap-3 rounded-lg border px-3 py-2.5 transition-opacity",
+        "rounded-lg border px-3 py-2.5 transition-opacity",
         metric.enabled ? "border-border-subtle" : "border-border-subtle/60 opacity-55",
       )}
     >
-      <Toggle checked={metric.enabled} onChange={(v) => onChange({ enabled: v })} label={HEALTH_METRIC_LABELS[metric.key]} />
-      <input
-        type="range" min={0} max={100} step={0.5}
-        disabled={!metric.enabled}
-        value={metric.weight}
-        onChange={(e) => onChange({ weight: Number(e.target.value) })}
-        className="h-1.5 accent-sirius disabled:cursor-not-allowed"
-      />
-      <span className="tabular text-right font-body text-[12.5px] font-semibold text-fg">{Math.round(metric.weight * 10) / 10}%</span>
-      {metric.key === "sla_breaches" ? (
-        <label className="flex items-center gap-1.5" title="Open-breach count at which this signal bottoms out at 0">
-          <span className="font-body text-[11px] text-fg-subtle">breaches→0:</span>
+      <div className="grid grid-cols-[220px_1fr_auto_150px] items-center gap-3">
+        <Toggle checked={metric.enabled} onChange={(v) => onChange({ enabled: v })} label={HEALTH_METRIC_LABELS[metric.key]} />
+        <input
+          type="range" min={0} max={100} step={0.5}
+          disabled={!metric.enabled}
+          value={metric.weight}
+          onChange={(e) => onChange({ weight: Number(e.target.value) })}
+          className="h-1.5 accent-sirius disabled:cursor-not-allowed"
+        />
+        <div className="flex items-center gap-1">
           <input
-            type="number" min={1}
-            value={metric.params?.maxBreaches ?? 5}
-            onChange={(e) => onChange({ params: { ...metric.params, maxBreaches: Number(e.target.value) } })}
-            className={cn(inputCls, "w-14 text-right")}
+            type="number" min={0} max={100} step={0.5}
+            disabled={!metric.enabled}
+            value={metric.weight}
+            onChange={(e) => onChange({ weight: Math.max(0, Math.min(100, Number(e.target.value))) })}
+            className={cn(inputCls, "w-16 text-right disabled:cursor-not-allowed")}
           />
-        </label>
-      ) : metric.key === "onboarding_period" ? (
-        <div className="flex items-center gap-1" title="Days at/under = 100, days at/over = 0, linear between">
-          <input
-            type="number" min={0}
-            value={metric.params?.targetDays ?? 30}
-            onChange={(e) => onChange({ params: { ...metric.params, targetDays: Number(e.target.value) } })}
-            className={cn(inputCls, "w-14 text-right")}
-          />
-          <span className="font-body text-[11px] text-fg-subtle">–</span>
-          <input
-            type="number" min={0}
-            value={metric.params?.maxDays ?? 90}
-            onChange={(e) => onChange({ params: { ...metric.params, maxDays: Number(e.target.value) } })}
-            className={cn(inputCls, "w-14 text-right")}
-          />
-          <span className="font-body text-[11px] text-fg-subtle">d</span>
+          <span className="font-body text-[12px] text-fg-subtle">%</span>
         </div>
-      ) : (
-        <span />
-      )}
-    </div>
-  );
-}
-
-function TierPreview({ thresholds }: { thresholds: { healthy: number; watch: number } }) {
-  const watch = Math.max(0, Math.min(thresholds.watch, thresholds.healthy));
-  const healthy = Math.max(watch, Math.min(100, thresholds.healthy));
-  return (
-    <div className="mt-4 flex h-2.5 overflow-hidden rounded-pill">
-      <div className="bg-[#D14B6B]" style={{ width: `${watch}%` }} title="At risk" />
-      <div className="bg-[#C99A14]" style={{ width: `${healthy - watch}%` }} title="Watch" />
-      <div className="bg-[#2DB47A]" style={{ width: `${100 - healthy}%` }} title="Healthy" />
+        {metric.key === "sla_breaches" ? (
+          <label className="flex items-center justify-end gap-1.5" title="Open-breach count at which this signal bottoms out at 0">
+            <span className="font-body text-[11px] text-fg-subtle">breaches→0:</span>
+            <input
+              type="number" min={1}
+              value={metric.params?.maxBreaches ?? 5}
+              onChange={(e) => onChange({ params: { ...metric.params, maxBreaches: Number(e.target.value) } })}
+              className={cn(inputCls, "w-14 text-right")}
+            />
+          </label>
+        ) : metric.key === "onboarding_period" ? (
+          <div className="flex items-center justify-end gap-1" title="Days at/under = 100, days at/over = 0, linear between">
+            <input
+              type="number" min={0}
+              value={metric.params?.targetDays ?? 30}
+              onChange={(e) => onChange({ params: { ...metric.params, targetDays: Number(e.target.value) } })}
+              className={cn(inputCls, "w-14 text-right")}
+            />
+            <span className="font-body text-[11px] text-fg-subtle">–</span>
+            <input
+              type="number" min={0}
+              value={metric.params?.maxDays ?? 90}
+              onChange={(e) => onChange({ params: { ...metric.params, maxDays: Number(e.target.value) } })}
+              className={cn(inputCls, "w-14 text-right")}
+            />
+            <span className="font-body text-[11px] text-fg-subtle">d</span>
+          </div>
+        ) : (
+          <span />
+        )}
+      </div>
+      <p className="mt-1.5 pl-[3px] font-body text-[11.5px] leading-relaxed text-fg-subtle">{HEALTH_METRIC_HELP[metric.key]}</p>
     </div>
   );
 }

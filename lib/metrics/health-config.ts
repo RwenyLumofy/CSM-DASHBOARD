@@ -36,11 +36,25 @@ export interface HealthMetricConfig {
   };
 }
 
+/** One admin-defined health tier. Tiers are ordered high→low by minScore; a
+ *  score lands in the highest tier whose minScore it meets. The lowest tier
+ *  should have minScore 0 so every score has a home. */
+export interface HealthTierDef {
+  /** Stable key for React lists + config diffing — not shown to users. */
+  id: string;
+  /** Display label, admin-set (e.g. "Healthy", "Champion", "Critical"). */
+  name: string;
+  /** Inclusive lower score bound. */
+  minScore: number;
+  /** Hex color driving the score dial, dot, and badge for this tier. */
+  color: string;
+}
+
 export interface ClientHealthConfig {
   /** Always all 8 keys, in display order — enabled flags/weights vary. */
   metrics: HealthMetricConfig[];
-  /** Score cutoffs: score >= healthy -> "healthy" tier, >= watch -> "watch", else "at_risk". */
-  thresholds: { healthy: number; watch: number };
+  /** Admin-defined tiers (add/remove/rename), ordered high→low by minScore. */
+  tiers: HealthTierDef[];
 }
 
 export const HEALTH_METRIC_LABELS: Record<HealthMetricKey, string> = {
@@ -53,6 +67,26 @@ export const HEALTH_METRIC_LABELS: Record<HealthMetricKey, string> = {
   profile_complete: "Profile complete",
   stakeholder_mapping: "Stakeholder mapping",
 };
+
+/** Plain-language "how this is measured" guide shown under each metric in the
+ *  builder, so a super-admin knows exactly what they're weighting. */
+export const HEALTH_METRIC_HELP: Record<HealthMetricKey, string> = {
+  usage: "Product adoption score (0–100) from the Usage tab — activation, breadth of modules used, and recent momentum. Skipped if the account isn't linked to a Lumofy environment.",
+  csat: "Latest CSAT — the % of Intercom conversation ratings that were satisfied (4–5★). Skipped if the account has no ratings yet.",
+  nps: "Latest NPS, rescaled to 0–100 as (NPS + 100) ÷ 2. Skipped until an NPS source is connected (none today).",
+  sla_breaches: "How many currently-open tickets have blown their SLA target. Scores 100 at zero breaches, sliding to 0 once the count hits the ‘breaches → 0’ ceiling. Skipped if the account has no support level set.",
+  onboarding_period: "Days from the deal's Kick-off meeting to Launch (or to today if not launched yet). Scores 100 at/under the target days and 0 at/over the max days, linear between. Skipped if no kick-off date is recorded.",
+  use_case_set: "100 if at least one Use Case is set across the account's deals, otherwise 0.",
+  profile_complete: "100 if the account has no missing required profile fields (no red alert), otherwise 0.",
+  stakeholder_mapping: "100 if at least one stakeholder role has a contact assigned in the Communication tab, otherwise 0.",
+};
+
+/** The tiers this app has always shown — the default until an admin edits them. */
+export const DEFAULT_HEALTH_TIERS: HealthTierDef[] = [
+  { id: "healthy", name: "Healthy", minScore: 75, color: "#2DB47A" },
+  { id: "watch", name: "Watch", minScore: 55, color: "#C99A14" },
+  { id: "at_risk", name: "At risk", minScore: 0, color: "#D14B6B" },
+];
 
 export const HEALTH_METRIC_ORDER: HealthMetricKey[] = [
   "usage",
@@ -80,5 +114,5 @@ export const DEFAULT_CLIENT_HEALTH_CONFIG: ClientHealthConfig = {
           ? { targetDays: 30, maxDays: 90 }
           : undefined,
   })),
-  thresholds: { healthy: 75, watch: 55 },
+  tiers: DEFAULT_HEALTH_TIERS,
 };

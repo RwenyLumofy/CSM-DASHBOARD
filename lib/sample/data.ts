@@ -70,8 +70,11 @@ const PORTAL = "7385921";
 function sampleHealth(h: Record<string, number>, trend: number): HealthScore {
   const values = Object.values(h);
   const score = values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
-  const tier: HealthScore["tier"] = score >= 75 ? "healthy" : score >= 55 ? "watch" : "at_risk";
-  return { score, tier, components: {}, trend, updatedAt: "2026-06-14T08:00:00.000Z" };
+  const { tier, tierColor } =
+    score >= 75 ? { tier: "Healthy", tierColor: "#2DB47A" }
+    : score >= 55 ? { tier: "Watch", tierColor: "#C99A14" }
+    : { tier: "At risk", tierColor: "#D14B6B" };
+  return { score, tier, tierColor, components: {}, trend, updatedAt: "2026-06-14T08:00:00.000Z" };
 }
 
 function makeClient(s: Seed): Client {

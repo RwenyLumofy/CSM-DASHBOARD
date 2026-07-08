@@ -448,7 +448,7 @@ export function rowsToRecords(rows: ClientImportRow[], csmByEmail: Map<string, C
     // (see lib/repo/drizzle.ts recomputeClientHealth), not available at import
     // time. This row gets its first real score from the daily client-health
     // cron (or sooner, from a Settings formula save).
-    const health: HealthScore = { score: 0, tier: "at_risk", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
+    const health: HealthScore = { score: 0, tier: "—", tierColor: "#B0B4BC", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
 
     clients.push({
       id,
@@ -583,5 +583,5 @@ function emptyUsage(): UsageMetrics {
 
 // re-exported for callers that want the empty health shape
 export function emptyHealth(): HealthScore {
-  return { score: 0, tier: "at_risk", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
+  return { score: 0, tier: "—", tierColor: "#B0B4BC", components: {}, trend: 0, updatedAt: new Date(0).toISOString() };
 }

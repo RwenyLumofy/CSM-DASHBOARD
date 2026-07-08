@@ -12,8 +12,6 @@ export type AccountStatus = "onboarding" | "active" | "renewal" | "churned";
 /** Where a client record originated. */
 export type ClientSource = "hubspot" | "import" | "manual";
 
-/** Health tiers map to the brand's status palette (aurora / stellar / nova). */
-export type HealthTier = "healthy" | "watch" | "at_risk";
 
 /** A team member who can own a client (CSM or Implementation owner). */
 export interface Csm {
@@ -62,7 +60,13 @@ export type HealthComponents = Partial<Record<HealthMetricKey, number>>;
 
 export interface HealthScore {
   score: number; // 0–100 composite
-  tier: HealthTier;
+  /** Resolved tier NAME (admin-defined in Settings → Workflows → Client health;
+   *  e.g. "Healthy", "At risk", or any custom label). Free string, not a fixed
+   *  enum, since tiers are add/remove/renameable. */
+  tier: string;
+  /** Hex color for this tier — drives the score dial, dot, and badge so the UI
+   *  renders any custom tier without a hardcoded palette lookup. */
+  tierColor: string;
   components: HealthComponents;
   trend: number; // delta vs previous period (percentage points)
   updatedAt: string; // ISO
