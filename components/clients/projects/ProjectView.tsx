@@ -1,30 +1,23 @@
 "use client";
 
-/* Full-width project focus view — opens over the whole content area (with a
-   Back button) so the task kanban has room to breathe instead of being crammed
-   into a narrow drawer. Two modes: a Checklist (grouped by milestone) and a
-   Task board (kanban by task status). All mutations go through the `api`
-   handed down by ProjectsTab, which applies them optimistically for instant,
-   animated feedback and reconciles with the server. */
+/* Project detail — a large centred LIGHTBOX (not a full page): backdrop +
+   rounded panel, up to 1160px wide and 92vh tall, with its own internal
+   scroll. Two modes: a Checklist (milestones -> task rows) and a Task board
+   (kanban by task status). Owner/implementer/status are inline-editable via
+   portal menus (never clipped). All mutations go through the `api` handed down
+   by ProjectsTab, which applies them optimistically for instant feedback. */
 
-import { useRef, useState } from "react";
-import {
-  ArrowLeft,
-  CalendarDays,
-  Check,
-  ChevronDown,
-  LayoutGrid,
-  ListChecks,
-  Pencil,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CalendarDays, Check, ChevronDown, LayoutGrid, ListChecks, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import type { MilestoneInput, MilestoneWithTasks, ProjectDetail, ProjectInput, Task, TaskInput } from "@/lib/projects/types";
 import {
+  MenuItem,
   OptionPill,
   OwnerAvatar,
+  OwnerSelect,
+  PopMenu,
   StatusSelect,
   formatDate,
   isOverdue,
@@ -36,22 +29,19 @@ import { MilestoneFormModal, NamePromptModal, ProjectFormModal, TaskFormModal } 
 
 export type Result = { ok: boolean; error?: string };
 
-/** The optimistic mutation surface ProjectsTab hands to the focus view. */
+/** The optimistic mutation surface ProjectsTab hands to the detail view. */
 export interface ProjectApi {
-  /** Instant, fire-and-forget (toast on failure). */
   moveTask(task: Task, toStatus: string): void;
   toggleTask(task: Task): void;
   deleteTask(task: Task): void;
   deleteMilestone(m: MilestoneWithTasks): void;
   deleteProject(): void;
-  /** Modal-driven (awaited so the modal can show validation errors). */
   addTask(milestoneId: string, input: TaskInput): Promise<Result>;
   editTask(task: Task, patch: TaskInput & { milestoneId: string }): Promise<Result>;
   addMilestone(input: MilestoneInput): Promise<Result>;
   editMilestone(id: string, patch: { name?: string; description?: string | null; dueDate?: string | null }): Promise<Result>;
   updateProject(patch: Partial<ProjectInput> & { status?: string }): Promise<Result>;
   saveAsTemplate(name: string, description: string | null): Promise<Result>;
-  /** Task id that most recently landed via drag, to play the "landed" pulse. */
   lastMovedTaskId: string | null;
 }
 
@@ -64,6 +54,7 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
   const [editMilestone, setEditMilestone] = useState<MilestoneWithTasks | null>(null);
   const [taskModal, setTaskModal] = useState<{ milestoneId: string; task: Task | null } | null>(null);
   const [saveTemplate, setSaveTemplate] = useState(false);
+  const anyModalOpen = editProject || addMilestone || !!editMilestone || !!taskModal || saveTemplate;
 
   const { config, canManage } = ctx;
   const progress = projectProgress(project, config);
@@ -71,115 +62,119 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
   const milestoneOptions = project.milestones.map((m) => ({ id: m.id, name: m.name }));
   const complete = progress.total > 0 && progress.done === progress.total;
 
+  // Escape closes the lightbox (but let an open child modal handle it first).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !anyModalOpen) onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [anyModalOpen, onClose]);
+
   function confirmRemoveProject() {
-    if (confirm(`Delete project "${project.name}"? This removes all its milestones and tasks and can't be undone.`)) {
-      api.deleteProject();
-    }
+    if (confirm(`Delete project "${project.name}"? This removes all its milestones and tasks and can't be undone.`)) api.deleteProject();
   }
 
   return (
-    <div className="pm-overlay-in fixed inset-0 z-40 flex flex-col bg-bg">
-      {/* Top bar */}
-      <div className="flex items-center gap-3 border-b border-border px-5 py-3 sm:px-8">
-        <button onClick={onClose} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-body text-[13px] font-semibold text-fg-muted transition-colors hover:border-sirius-200 hover:text-sirius">
-          <ArrowLeft size={15} /> Projects
-        </button>
-        <OptionPill options={config.projectTypes} id={project.type} />
-        <h1 className="min-w-0 flex-1 truncate font-display text-[17px] font-semibold text-fg">{project.name}</h1>
-        {canManage && (
-          <div className="flex items-center gap-1.5">
-            <button onClick={() => setEditProject(true)} title="Edit project" className="rounded-lg p-2 text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg">
-              <Pencil size={15} />
-            </button>
-            <Button size="sm" variant="secondary" onClick={() => setSaveTemplate(true)}>Save as template</Button>
-            <button onClick={confirmRemoveProject} title="Delete project" className="rounded-lg p-2 text-fg-muted transition-colors hover:bg-bg-muted hover:text-[#B23A57]">
-              <Trash2 size={15} />
-            </button>
-          </div>
-        )}
-      </div>
+    <div className="fixed inset-0 z-40 flex items-stretch justify-center p-0 sm:items-center sm:p-6">
+      <div className="pm-fade absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Meta strip */}
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-border px-5 py-3.5 sm:px-8">
-        <Meta label="Status">
-          <StatusSelect options={config.projectStatuses} value={project.status} onChange={(s) => void api.updateProject({ status: s })} disabled={!canManage} />
-        </Meta>
-        <Meta label="Owner (CSM)"><Person name={memberName(ctx.csms, project.ownerEmail)} /></Meta>
-        <Meta label="Implementer"><Person name={memberName(ctx.implementers, project.implementerEmail)} /></Meta>
-        <Meta label="Contact"><Person name={ctx.contacts.find((c) => c.id === project.contactId)?.name ?? null} /></Meta>
-        <Meta label="Start"><span className="font-body text-[13px] text-fg">{formatDate(project.startDate)}</span></Meta>
-        <Meta label="Delivery">
-          <span className={cn("font-body text-[13px]", isOverdue(project.deliveryDate) && !complete ? "font-semibold text-[#B23A57]" : "text-fg")}>{formatDate(project.deliveryDate)}</span>
-        </Meta>
-        <Meta label="Progress">
-          <div className="flex items-center gap-2">
-            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-bg-muted">
-              <div className={cn("h-full rounded-full transition-all duration-500", complete ? "bg-[#2DB47A]" : "bg-sirius")} style={{ width: `${progress.pct}%` }} />
-            </div>
-            <span className="tabular-nums font-body text-[12px] font-semibold text-fg-muted">{progress.done}/{progress.total}</span>
-          </div>
-        </Meta>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3 px-5 py-3 sm:px-8">
-        <div className="inline-flex rounded-lg border border-border p-0.5">
-          {([["checklist", "Checklist", ListChecks], ["board", "Task board", LayoutGrid]] as const).map(([key, label, Icon]) => (
-            <button
-              key={key}
-              onClick={() => setView(key)}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 font-body text-[12.5px] font-semibold transition-colors",
-                view === key ? "bg-accent-soft text-sirius" : "text-fg-muted hover:text-fg",
-              )}
-            >
-              <Icon size={14} /> {label}
-            </button>
-          ))}
+      <div className="pm-overlay-in relative z-10 flex h-full w-full max-w-[1160px] flex-col overflow-hidden border-border bg-bg shadow-xl sm:h-auto sm:max-h-[92vh] sm:rounded-2xl sm:border">
+        {/* Header */}
+        <div className="flex items-center gap-3 border-b border-border px-5 py-3.5 sm:px-6">
+          {project.type && <OptionPill options={config.projectTypes} id={project.type} />}
+          <h1 className="min-w-0 flex-1 truncate font-display text-[18px] font-semibold text-fg">{project.name}</h1>
+          {canManage && (
+            <>
+              <button onClick={() => setEditProject(true)} title="Edit project" className="rounded-lg p-2 text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg">
+                <Pencil size={16} />
+              </button>
+              <PopMenu
+                align="right"
+                trigger={() => <span className="rounded-lg p-2 text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"><MoreHorizontal size={16} /></span>}
+              >
+                {(close) => (
+                  <>
+                    <MenuItem onClick={() => { close(); setSaveTemplate(true); }}>Save as template</MenuItem>
+                    <MenuItem danger onClick={() => { close(); confirmRemoveProject(); }}>Delete project</MenuItem>
+                  </>
+                )}
+              </PopMenu>
+            </>
+          )}
+          <button onClick={onClose} title="Close" className="rounded-lg p-2 text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg">
+            <X size={18} />
+          </button>
         </div>
-        {canManage && <Button size="sm" variant="secondary" iconLeft={Plus} onClick={() => setAddMilestone(true)}>Milestone</Button>}
-      </div>
 
-      {/* Body */}
-      <div className="min-h-0 flex-1 overflow-auto px-5 pb-8 sm:px-8">
-        {project.milestones.length === 0 ? (
-          <div className="pm-in mx-auto mt-10 flex max-w-md flex-col items-center rounded-2xl border border-dashed border-border px-6 py-14 text-center">
-            <ListChecks size={24} className="mb-2 text-fg-subtle" />
-            <p className="font-body text-[14px] font-semibold text-fg">No milestones yet</p>
-            <p className="mt-1 font-body text-[13px] text-fg-muted">Break this project into milestones, then add tasks under each.</p>
-            {canManage && <Button size="sm" variant="secondary" iconLeft={Plus} onClick={() => setAddMilestone(true)} className="mt-4">Add milestone</Button>}
+        {/* Meta strip */}
+        <div className="border-b border-border bg-bg-subtle/60 px-5 py-3.5 sm:px-6">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4 lg:grid-cols-7">
+            <Meta label="Status"><StatusSelect options={config.projectStatuses} value={project.status} onChange={(s) => void api.updateProject({ status: s })} disabled={!canManage} /></Meta>
+            <Meta label="Owner (CSM)"><OwnerSelect members={ctx.csms} value={project.ownerEmail} onChange={(e) => void api.updateProject({ ownerEmail: e })} disabled={!canManage} /></Meta>
+            <Meta label="Implementer"><OwnerSelect members={ctx.implementers} value={project.implementerEmail} onChange={(e) => void api.updateProject({ implementerEmail: e })} disabled={!canManage} /></Meta>
+            <Meta label="Contact"><Person name={ctx.contacts.find((c) => c.id === project.contactId)?.name ?? null} /></Meta>
+            <Meta label="Start"><span className="font-body text-[13px] text-fg">{formatDate(project.startDate)}</span></Meta>
+            <Meta label="Delivery"><span className={cn("font-body text-[13px]", isOverdue(project.deliveryDate) && !complete ? "font-semibold text-[#B23A57]" : "text-fg")}>{formatDate(project.deliveryDate)}</span></Meta>
+            <Meta label="Progress">
+              <div className="flex items-center gap-2">
+                <div className="h-1.5 w-16 overflow-hidden rounded-full bg-bg-muted">
+                  <div className={cn("h-full rounded-full transition-all duration-500", complete ? "bg-[#2DB47A]" : "bg-sirius")} style={{ width: `${progress.pct}%` }} />
+                </div>
+                <span className="tabular-nums font-body text-[12px] font-semibold text-fg-muted">{progress.done}/{progress.total}</span>
+              </div>
+            </Meta>
           </div>
-        ) : view === "checklist" ? (
-          <div className="mx-auto flex max-w-4xl flex-col gap-5 pt-1">
-            {project.milestones.map((m) => (
-              <MilestoneSection
-                key={m.id}
-                ctx={ctx}
-                milestone={m}
-                doneStatusId={doneStatusId}
-                lastMovedTaskId={api.lastMovedTaskId}
-                onToggle={(t) => api.toggleTask(t)}
-                onStatus={(t, s) => api.moveTask(t, s)}
-                onEditTask={(t) => setTaskModal({ milestoneId: m.id, task: t })}
-                onAddTask={() => setTaskModal({ milestoneId: m.id, task: null })}
-                onDeleteTask={(t) => { if (confirm(`Delete task "${t.name}"?`)) api.deleteTask(t); }}
-                onEditMilestone={() => setEditMilestone(m)}
-                onDeleteMilestone={() => { if (confirm(`Delete milestone "${m.name}" and its ${m.tasks.length} task(s)?`)) api.deleteMilestone(m); }}
-              />
+          {project.description && <p className="mt-3 border-t border-border-subtle pt-3 font-body text-[13px] leading-relaxed text-fg-muted">{project.description}</p>}
+        </div>
+
+        {/* Toolbar */}
+        <div className="flex items-center justify-between gap-3 px-5 py-3 sm:px-6">
+          <div className="inline-flex rounded-lg border border-border p-0.5">
+            {([["checklist", "Checklist", ListChecks], ["board", "Board", LayoutGrid]] as const).map(([key, label, Icon]) => (
+              <button key={key} onClick={() => setView(key)} className={cn("inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 font-body text-[12.5px] font-semibold transition-colors", view === key ? "bg-accent-soft text-sirius" : "text-fg-muted hover:text-fg")}>
+                <Icon size={14} /> {label}
+              </button>
             ))}
           </div>
-        ) : (
-          <TaskBoard ctx={ctx} project={project} api={api} onEditTask={(t) => setTaskModal({ milestoneId: t.milestoneId, task: t })} />
-        )}
+          {canManage && <Button size="sm" variant="secondary" iconLeft={Plus} onClick={() => setAddMilestone(true)}>Milestone</Button>}
+        </div>
+
+        {/* Body */}
+        <div className="min-h-0 flex-1 overflow-auto px-5 pb-6 sm:px-6">
+          {project.milestones.length === 0 ? (
+            <div className="pm-in mx-auto mt-8 flex max-w-md flex-col items-center rounded-2xl border border-dashed border-border px-6 py-12 text-center">
+              <ListChecks size={24} className="mb-2 text-fg-subtle" />
+              <p className="font-body text-[14px] font-semibold text-fg">No milestones yet</p>
+              <p className="mt-1 font-body text-[13px] text-fg-muted">Break this project into milestones, then add tasks under each.</p>
+              {canManage && <Button size="sm" variant="secondary" iconLeft={Plus} onClick={() => setAddMilestone(true)} className="mt-4">Add milestone</Button>}
+            </div>
+          ) : view === "checklist" ? (
+            <div className="mx-auto flex max-w-3xl flex-col gap-4 pt-1">
+              {project.milestones.map((m) => (
+                <MilestoneSection
+                  key={m.id}
+                  ctx={ctx}
+                  milestone={m}
+                  doneStatusId={doneStatusId}
+                  lastMovedTaskId={api.lastMovedTaskId}
+                  onToggle={(t) => api.toggleTask(t)}
+                  onStatus={(t, s) => api.moveTask(t, s)}
+                  onEditTask={(t) => setTaskModal({ milestoneId: m.id, task: t })}
+                  onAddTask={() => setTaskModal({ milestoneId: m.id, task: null })}
+                  onDeleteTask={(t) => { if (confirm(`Delete task "${t.name}"?`)) api.deleteTask(t); }}
+                  onEditMilestone={() => setEditMilestone(m)}
+                  onDeleteMilestone={() => { if (confirm(`Delete milestone "${m.name}" and its ${m.tasks.length} task(s)?`)) api.deleteMilestone(m); }}
+                />
+              ))}
+            </div>
+          ) : (
+            <TaskBoard ctx={ctx} project={project} api={api} onEditTask={(t) => setTaskModal({ milestoneId: t.milestoneId, task: t })} />
+          )}
+        </div>
       </div>
 
       {/* Modals */}
-      {editProject && (
-        <ProjectFormModal ctx={ctx} mode="edit" initial={project} onClose={() => setEditProject(false)} onSubmit={async (values) => api.updateProject(values)} />
-      )}
-      {addMilestone && (
-        <MilestoneFormModal onClose={() => setAddMilestone(false)} onSubmit={async (values) => api.addMilestone(values)} />
-      )}
+      {editProject && <ProjectFormModal ctx={ctx} mode="edit" initial={project} onClose={() => setEditProject(false)} onSubmit={async (values) => api.updateProject(values)} />}
+      {addMilestone && <MilestoneFormModal onClose={() => setAddMilestone(false)} onSubmit={async (values) => api.addMilestone(values)} />}
       {editMilestone && (
         <MilestoneFormModal
           initial={{ name: editMilestone.name, description: editMilestone.description, dueDate: editMilestone.dueDate }}
@@ -200,9 +195,7 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
           }}
         />
       )}
-      {saveTemplate && (
-        <NamePromptModal title="Save as template" label="Template name" submitLabel="Save template" withDescription onClose={() => setSaveTemplate(false)} onSubmit={(name, description) => api.saveAsTemplate(name, description)} />
-      )}
+      {saveTemplate && <NamePromptModal title="Save as template" label="Template name" submitLabel="Save template" withDescription onClose={() => setSaveTemplate(false)} onSubmit={(name, description) => api.saveAsTemplate(name, description)} />}
     </div>
   );
 }
@@ -219,8 +212,8 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
 function Person({ name }: { name: string | null }) {
   return (
     <div className="flex items-center gap-1.5">
-      <OwnerAvatar name={name} size={20} />
-      <span className="truncate font-body text-[13px] text-fg">{name ?? "Unassigned"}</span>
+      <OwnerAvatar name={name} size={22} />
+      <span className="truncate font-body text-[13px] text-fg">{name ?? "None"}</span>
     </div>
   );
 }
@@ -327,7 +320,7 @@ function TaskRow({
         title={isDone ? "Mark not done" : "Mark done"}
         className={cn(
           "flex size-[18px] shrink-0 items-center justify-center rounded-md border transition-all duration-200",
-          isDone ? "border-[#2DB47A] bg-[#2DB47A] text-white" : "border-border-strong hover:border-sirius hover:scale-110",
+          isDone ? "border-[#2DB47A] bg-[#2DB47A] text-white" : "border-border-strong hover:scale-110 hover:border-sirius",
           !ctx.canManage && "cursor-default opacity-70",
         )}
       >
@@ -365,8 +358,6 @@ function TaskBoard({ ctx, project, api, onEditTask }: { ctx: ProjectsContext; pr
   const orphans = allTasks.filter((t) => !knownStatus.has(t.status));
 
   function drop(statusId: string, e: React.DragEvent) {
-    // Read the id from the drag payload first (survives any re-render timing),
-    // falling back to state — this is the reliable fix for "drop doesn't move".
     const id = e.dataTransfer.getData("text/plain") || dragId;
     const t = id ? allTasks.find((x) => x.id === id) : null;
     if (t && t.status !== statusId) api.moveTask(t, statusId);
@@ -379,7 +370,10 @@ function TaskBoard({ ctx, project, api, onEditTask }: { ctx: ProjectsContext; pr
       key={t.id}
       draggable={ctx.canManage}
       onDragStart={(e) => { e.dataTransfer.setData("text/plain", t.id); e.dataTransfer.effectAllowed = "move"; didDrag.current = true; setDragId(t.id); }}
-      onDragEnd={() => { setDragId(null); setOverCol(null); }}
+      // Native DnD emits no click after a drop, so clear the drag flag here (not
+      // in onClick) — otherwise it stays true and eats the next genuine click.
+      // setTimeout(0) still swallows a click in the rare browser that fires one.
+      onDragEnd={() => { setDragId(null); setOverCol(null); setTimeout(() => { didDrag.current = false; }, 0); }}
       onClick={() => { if (didDrag.current) { didDrag.current = false; return; } onEditTask(t); }}
       className={cn(
         "rounded-xl border border-border bg-bg p-2.5 text-left shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-sirius-200 hover:shadow-md",
@@ -409,7 +403,7 @@ function TaskBoard({ ctx, project, api, onEditTask }: { ctx: ProjectsContext; pr
       onDragLeave={() => setOverCol((c) => (c === statusId ? null : c))}
       onDrop={(e) => { if (!droppable) return; e.preventDefault(); drop(statusId, e); }}
       className={cn(
-        "flex min-w-[240px] flex-1 flex-col rounded-2xl border bg-bg-muted/30 transition-colors duration-150",
+        "flex min-w-[236px] flex-1 flex-col rounded-2xl border bg-bg-muted/30 transition-colors duration-150",
         overCol === statusId ? "border-sirius bg-accent-soft/40 ring-2 ring-sirius/30" : "border-border",
       )}
     >
@@ -423,16 +417,9 @@ function TaskBoard({ ctx, project, api, onEditTask }: { ctx: ProjectsContext; pr
 
   return (
     <div className="flex gap-3 pt-1">
-      {ctx.config.taskStatuses.map((s) =>
-        column(s.id, <OptionPill options={ctx.config.taskStatuses} id={s.id} dot />, allTasks.filter((t) => t.status === s.id), ctx.canManage),
-      )}
+      {ctx.config.taskStatuses.map((s) => column(s.id, <OptionPill options={ctx.config.taskStatuses} id={s.id} dot />, allTasks.filter((t) => t.status === s.id), ctx.canManage))}
       {orphans.length > 0 &&
-        column(
-          "__orphan",
-          <span className="inline-flex items-center gap-1.5 font-body text-[11px] font-semibold text-fg-subtle"><span className="size-1.5 rounded-full bg-neutral-400" /> Uncategorized</span>,
-          orphans,
-          false,
-        )}
+        column("__orphan", <span className="inline-flex items-center gap-1.5 font-body text-[11px] font-semibold text-fg-subtle"><span className="size-1.5 rounded-full bg-neutral-400" /> Uncategorized</span>, orphans, false)}
     </div>
   );
 }

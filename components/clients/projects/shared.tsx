@@ -5,6 +5,7 @@
    separate so ProjectsTab / ProjectDrawer / the forms stay readable. */
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, X, type LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
@@ -93,9 +94,104 @@ export function OptionPill({ options, id, dot = false }: { options: OptionDef[];
   return <Badge tone={opt.color} dot={dot}>{opt.label}</Badge>;
 }
 
-/** A compact, on-brand status picker: a pill button that opens a menu of the
- *  config options. Falls back to a static pill when disabled. Used for both
- *  project and task statuses (table rows, focus-view header, task cards). */
+/**
+ * Portal-rendered popover menu. The panel is appended to <body> at fixed
+ * coordinates, so it can NEVER be clipped by a parent's overflow:hidden (the
+ * bug that made the table/status dropdowns look broken). Closes on outside
+ * click, Escape, or scroll/resize.
+ */
+export function PopMenu({
+  trigger,
+  children,
+  align = "left",
+  menuWidth,
+}: {
+  trigger: (open: boolean) => React.ReactNode;
+  children: (close: () => void) => React.ReactNode;
+  align?: "left" | "right";
+  menuWidth?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left?: number; right?: number; minWidth: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  function place() {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setPos({
+      top: r.bottom + 6,
+      left: align === "left" ? r.left : undefined,
+      right: align === "right" ? window.innerWidth - r.right : undefined,
+      minWidth: menuWidth ?? Math.max(r.width, 168),
+    });
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (btnRef.current?.contains(t) || t.closest?.("[data-pm-menu]")) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onScroll = (e: Event) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("[data-pm-menu]")) return; // scrolling inside the menu is fine
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={(e) => { e.stopPropagation(); if (open) setOpen(false); else { place(); setOpen(true); } }}
+        className="inline-flex"
+      >
+        {trigger(open)}
+      </button>
+      {open && pos && createPortal(
+        <div
+          data-pm-menu
+          onClick={(e) => e.stopPropagation()}
+          style={{ position: "fixed", top: pos.top, left: pos.left, right: pos.right, minWidth: pos.minWidth }}
+          className="pm-in z-[120] max-h-[320px] overflow-auto rounded-xl border border-border bg-bg p-1 shadow-xl"
+        >
+          {children(() => setOpen(false))}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+/** A single row inside a PopMenu. */
+export function MenuItem({ onClick, selected, danger, children }: { onClick: () => void; selected?: boolean; danger?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn("flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-body text-[13px] transition-colors hover:bg-bg-muted", danger ? "text-[#B23A57]" : "text-fg")}
+    >
+      <span className="flex-1">{children}</span>
+      {selected && <Check size={13} className="text-sirius" />}
+    </button>
+  );
+}
+
+/** Status picker (pill trigger + portal menu). Static pill when disabled. */
 export function StatusSelect({
   options,
   value,
@@ -109,46 +205,79 @@ export function StatusSelect({
   disabled?: boolean;
   align?: "left" | "right";
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-
   const cur = optionById(options, value) ?? unknownOption(value);
   if (disabled) return <Badge tone={cur.color} dot>{cur.label}</Badge>;
-
   return (
-    <div ref={ref} className="relative inline-block" onClick={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="group inline-flex items-center gap-1 rounded-pill transition-transform duration-150 hover:scale-[1.03] active:scale-95"
-      >
-        <Badge tone={cur.color} dot>{cur.label}</Badge>
-        <ChevronDown size={12} className={cn("text-fg-subtle transition-transform duration-150", open && "rotate-180")} />
-      </button>
-      {open && (
-        <div className={cn("pm-in absolute z-40 mt-1.5 min-w-[168px] overflow-hidden rounded-xl border border-border bg-bg p-1 shadow-lg", align === "right" ? "right-0" : "left-0")}>
-          {options.map((o) => (
-            <button
-              key={o.id}
-              type="button"
-              onClick={() => { onChange(o.id); setOpen(false); }}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-bg-muted"
-            >
-              <Badge tone={o.color} dot>{o.label}</Badge>
-              {o.id === value && <Check size={13} className="ml-auto text-sirius" />}
-            </button>
-          ))}
-        </div>
+    <PopMenu
+      align={align}
+      trigger={(open) => (
+        <span className="inline-flex items-center gap-1 rounded-pill transition-transform duration-150 hover:scale-[1.03] active:scale-95">
+          <Badge tone={cur.color} dot>{cur.label}</Badge>
+          <ChevronDown size={12} className={cn("text-fg-subtle transition-transform duration-150", open && "rotate-180")} />
+        </span>
       )}
-    </div>
+    >
+      {(close) =>
+        options.map((o) => (
+          <MenuItem key={o.id} selected={o.id === value} onClick={() => { onChange(o.id); close(); }}>
+            <Badge tone={o.color} dot>{o.label}</Badge>
+          </MenuItem>
+        ))
+      }
+    </PopMenu>
+  );
+}
+
+/** Owner picker (avatar + name trigger + portal menu of members). */
+export function OwnerSelect({
+  members,
+  value,
+  onChange,
+  disabled = false,
+  align = "left",
+  placeholder = "Unassigned",
+}: {
+  members: Member[];
+  value: string | null;
+  onChange: (email: string | null) => void;
+  disabled?: boolean;
+  align?: "left" | "right";
+  placeholder?: string;
+}) {
+  const name = value ? memberName(members, value) : null;
+  if (disabled) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <OwnerAvatar name={name} size={22} />
+        <span className="truncate font-body text-[13px] text-fg-muted">{name ?? placeholder}</span>
+      </span>
+    );
+  }
+  return (
+    <PopMenu
+      align={align}
+      menuWidth={210}
+      trigger={() => (
+        <span className="inline-flex items-center gap-1.5 rounded-lg px-1 py-0.5 transition-colors hover:bg-bg-muted">
+          <OwnerAvatar name={name} size={22} />
+          <span className="truncate font-body text-[13px] text-fg-muted">{name ?? placeholder}</span>
+          <ChevronDown size={12} className="text-fg-subtle" />
+        </span>
+      )}
+    >
+      {(close) => (
+        <>
+          <MenuItem selected={!value} onClick={() => { onChange(null); close(); }}>
+            <span className="text-fg-muted">Unassigned</span>
+          </MenuItem>
+          {members.map((m) => (
+            <MenuItem key={m.email} selected={!!value && value.toLowerCase() === m.email.toLowerCase()} onClick={() => { onChange(m.email); close(); }}>
+              <span className="inline-flex items-center gap-2"><OwnerAvatar name={m.name} size={18} />{m.name}</span>
+            </MenuItem>
+          ))}
+        </>
+      )}
+    </PopMenu>
   );
 }
 

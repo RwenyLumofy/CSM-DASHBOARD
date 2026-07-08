@@ -2,17 +2,20 @@
 
 /* Project Management tab.
 
-   List = a clean full-width TABLE (name · status · owner · delivery) — no more
-   cramped horizontal project board. Opening a project swaps in a FULL-WIDTH
-   focus view (ProjectView) with the task kanban given real room. All mutations
-   are applied optimistically to local state for instant, animated feedback
-   (this is also what fixes drag-drop: the card moves the moment you drop,
-   independent of server latency), then reconciled with the server. */
+   List = a clean full-width TABLE (name · status · owner · delivery) with row
+   selection + bulk actions and inline status/owner editing (via portal menus
+   that can't be clipped). Opening a project shows it in a LIGHTBOX (ProjectView).
+
+   All mutations are optimistic against local `projects` state for instant,
+   animated feedback, then reconciled with the server. A pending-mutation guard
+   stops an in-flight refresh from reverting a concurrent optimistic update, and
+   optimistic temp ids are swapped for real ids as soon as the server responds. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FolderKanban, Plus, Settings2 } from "lucide-react";
+import { Check, FolderKanban, Minus, Plus, Settings2, Trash2, X } from "lucide-react";
 import Link from "next/link";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import type { Contact } from "@/lib/types";
@@ -34,7 +37,9 @@ import { ProjectView, type ProjectApi, type Result } from "./ProjectView";
 import { ProjectFormModal } from "./forms";
 import {
   EmptyState,
-  OwnerAvatar,
+  MenuItem,
+  OwnerSelect,
+  PopMenu,
   StatusSelect,
   formatDate,
   isOverdue,
@@ -66,13 +71,17 @@ export function ProjectsTab(props: Props) {
   const { show, node: toast } = useToast();
   const [projects, setProjects] = useState<ProjectDetail[]>(props.initialProjects);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
   const [newOpen, setNewOpen] = useState(false);
   const [lastMovedTaskId, setLastMovedTaskId] = useState<string | null>(null);
   const landTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef(0);
 
-  // Re-sync from the server after any refresh() (stable keys mean unchanged rows
-  // don't remount, so only genuinely new/changed rows re-animate).
-  useEffect(() => setProjects(props.initialProjects), [props.initialProjects]);
+  // Re-sync from the server after refresh() — but NOT while a mutation is still
+  // in flight, so a fast second edit's optimistic state isn't clobbered.
+  useEffect(() => {
+    if (pending.current === 0) setProjects(props.initialProjects);
+  }, [props.initialProjects]);
 
   const ctx: ProjectsContext = useMemo(() => {
     const members: Member[] = [];
@@ -93,6 +102,7 @@ export function ProjectsTab(props: Props) {
   }, [clientId, config, contacts, csms, implementers, canManage]);
 
   const selected = projects.find((p) => p.id === selectedId) ?? null;
+  const checkedList = projects.filter((p) => checked.has(p.id));
 
   /* ---- local (optimistic) mutators ---- */
   function patchProject(id: string, fn: (p: ProjectDetail) => ProjectDetail) {
@@ -109,14 +119,49 @@ export function ProjectsTab(props: Props) {
       return { ...p, milestones: stripped.map((m) => (m.id === toMilestoneId ? { ...m, tasks: [...m.tasks, moved!] } : m)) };
     });
   }
+  function swapMilestoneId(projectId: string, tmp: string, real: string) {
+    patchProject(projectId, (p) => ({ ...p, milestones: p.milestones.map((m) => (m.id === tmp ? { ...m, id: real, tasks: m.tasks.map((t) => ({ ...t, milestoneId: real })) } : m)) }));
+  }
+  function swapTaskId(projectId: string, tmp: string, real: string) {
+    patchProject(projectId, (p) => ({ ...p, milestones: p.milestones.map((m) => ({ ...m, tasks: m.tasks.map((t) => (t.id === tmp ? { ...t, id: real } : t)) })) }));
+  }
 
   /* ---- persistence (skipped in demo/no-DB so the module still works locally) ---- */
   async function run(action: () => Promise<Result>): Promise<Result> {
     if (!dbEnabled) return { ok: true };
-    const res = await action();
-    if (res && !res.ok) show(res.error ?? "Something went wrong.");
-    router.refresh();
-    return res ?? { ok: true };
+    pending.current += 1;
+    try {
+      const res = await action();
+      if (res && !res.ok) show(res.error ?? "Something went wrong.");
+      return res ?? { ok: true };
+    } finally {
+      pending.current -= 1;
+      router.refresh();
+    }
+  }
+  async function persistAdd<T extends Result>(action: () => Promise<T>, onOk: (res: T) => void): Promise<Result> {
+    if (!dbEnabled) return { ok: true };
+    pending.current += 1;
+    try {
+      const res = await action();
+      if (!res.ok) show(res.error ?? "Something went wrong."); else onOk(res);
+      return res;
+    } finally {
+      pending.current -= 1;
+      router.refresh();
+    }
+  }
+  async function persistMany(actions: (() => Promise<Result>)[]) {
+    if (!dbEnabled || actions.length === 0) return;
+    pending.current += 1;
+    try {
+      const results = await Promise.all(actions.map((a) => a()));
+      const failed = results.filter((r) => r && !r.ok).length;
+      if (failed) show(`${failed} update${failed === 1 ? "" : "s"} failed.`);
+    } finally {
+      pending.current -= 1;
+      router.refresh();
+    }
   }
 
   function flashLanded(taskId: string) {
@@ -163,13 +208,14 @@ export function ProjectsTab(props: Props) {
       const projectId = selectedId;
       if (!projectId) return { ok: false, error: "No project open." };
       const status = input.status && config.taskStatuses.some((s) => s.id === input.status) ? input.status : defaultTaskStatusId(config);
+      const tempId = `tmp-${rand()}`;
       const task: Task = {
-        id: `tmp-${rand()}`, projectId, milestoneId, clientId, name: input.name, description: input.description ?? null,
+        id: tempId, projectId, milestoneId, clientId, name: input.name, description: input.description ?? null,
         type: input.type ?? null, status, startDate: input.startDate ?? null, deliveryDate: input.deliveryDate ?? null,
         ownerEmail: input.ownerEmail ?? null, sortOrder: 1e6, completedAt: null, createdAt: nowIso(), updatedAt: nowIso(),
       };
       patchProject(projectId, (p) => ({ ...p, milestones: p.milestones.map((m) => (m.id === milestoneId ? { ...m, tasks: [...m.tasks, task] } : m)) }));
-      return run(() => addTaskAction(clientId, projectId, milestoneId, input));
+      return persistAdd(() => addTaskAction(clientId, projectId, milestoneId, input), (res) => { if (res.taskId) swapTaskId(projectId, tempId, res.taskId); });
     },
     editTask: async (task, patch) => {
       const { milestoneId, ...rest } = patch;
@@ -180,9 +226,10 @@ export function ProjectsTab(props: Props) {
     addMilestone: async (input) => {
       const projectId = selectedId;
       if (!projectId) return { ok: false, error: "No project open." };
-      const milestone: MilestoneWithTasks = { id: `tmp-${rand()}`, projectId, clientId, name: input.name, description: input.description ?? null, dueDate: input.dueDate ?? null, sortOrder: 1e6, createdAt: nowIso(), tasks: [] };
+      const tempId = `tmp-${rand()}`;
+      const milestone: MilestoneWithTasks = { id: tempId, projectId, clientId, name: input.name, description: input.description ?? null, dueDate: input.dueDate ?? null, sortOrder: 1e6, createdAt: nowIso(), tasks: [] };
       patchProject(projectId, (p) => ({ ...p, milestones: [...p.milestones, milestone] }));
-      return run(() => addMilestoneAction(clientId, projectId, input as MilestoneInput));
+      return persistAdd(() => addMilestoneAction(clientId, projectId, input as MilestoneInput), (res) => { if (res.milestoneId) swapMilestoneId(projectId, tempId, res.milestoneId); });
     },
     editMilestone: async (id, patch) => {
       const projectId = selectedId;
@@ -215,6 +262,34 @@ export function ProjectsTab(props: Props) {
     return { ok: true };
   }
 
+  /* ---- selection + bulk ---- */
+  function toggle(id: string) {
+    setChecked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function toggleAll() {
+    setChecked((prev) => (prev.size >= projects.length ? new Set() : new Set(projects.map((p) => p.id))));
+  }
+  function clearSelection() { setChecked(new Set()); }
+
+  function bulkStatus(status: string) {
+    const ids = checkedList.map((p) => p.id);
+    setProjects((prev) => prev.map((p) => (checked.has(p.id) ? { ...p, status } : p)));
+    void persistMany(ids.map((id) => () => updateProjectAction(clientId, id, { status })));
+  }
+  function bulkOwner(email: string | null) {
+    const ids = checkedList.map((p) => p.id);
+    setProjects((prev) => prev.map((p) => (checked.has(p.id) ? { ...p, ownerEmail: email } : p)));
+    void persistMany(ids.map((id) => () => updateProjectAction(clientId, id, { ownerEmail: email })));
+  }
+  function bulkDelete() {
+    const ids = checkedList.map((p) => p.id);
+    if (ids.length === 0) return;
+    if (!confirm(`Delete ${ids.length} project${ids.length === 1 ? "" : "s"}? This can't be undone.`)) return;
+    setProjects((prev) => prev.filter((p) => !checked.has(p.id)));
+    clearSelection();
+    void persistMany(ids.map((id) => () => deleteProjectAction(clientId, id)));
+  }
+
   return (
     <>
       <div className="flex flex-col gap-4">
@@ -233,6 +308,31 @@ export function ProjectsTab(props: Props) {
           </div>
         </div>
 
+        {/* Bulk action bar */}
+        {canManage && checkedList.length > 0 && (
+          <div className="pm-in flex flex-wrap items-center gap-2 rounded-xl border border-sirius-200 bg-accent-soft px-3 py-2">
+            <span className="font-body text-[12.5px] font-semibold text-sirius">{checkedList.length} selected</span>
+            <span className="mx-1 h-4 w-px bg-sirius-200" />
+            <PopMenu trigger={() => <span className="inline-flex items-center gap-1 rounded-lg border border-sirius-200 bg-bg px-2.5 py-1 font-body text-[12px] font-semibold text-fg transition-colors hover:border-sirius">Set status</span>}>
+              {(close) => config.projectStatuses.map((s) => <MenuItem key={s.id} onClick={() => { bulkStatus(s.id); close(); }}><Badge tone={s.color} dot>{s.label}</Badge></MenuItem>)}
+            </PopMenu>
+            <PopMenu trigger={() => <span className="inline-flex items-center gap-1 rounded-lg border border-sirius-200 bg-bg px-2.5 py-1 font-body text-[12px] font-semibold text-fg transition-colors hover:border-sirius">Assign owner</span>}>
+              {(close) => (
+                <>
+                  <MenuItem onClick={() => { bulkOwner(null); close(); }}><span className="text-fg-muted">Unassigned</span></MenuItem>
+                  {ctx.csms.map((m) => <MenuItem key={m.email} onClick={() => { bulkOwner(m.email); close(); }}>{m.name}</MenuItem>)}
+                </>
+              )}
+            </PopMenu>
+            <button onClick={bulkDelete} className="inline-flex items-center gap-1.5 rounded-lg border border-sirius-200 bg-bg px-2.5 py-1 font-body text-[12px] font-semibold text-[#B23A57] transition-colors hover:border-[#B23A57]">
+              <Trash2 size={12} /> Delete
+            </button>
+            <button onClick={clearSelection} className="ml-auto inline-flex items-center gap-1 font-body text-[12px] font-medium text-fg-muted transition-colors hover:text-fg">
+              <X size={13} /> Clear
+            </button>
+          </div>
+        )}
+
         {projects.length === 0 ? (
           <EmptyState
             icon={FolderKanban}
@@ -241,20 +341,23 @@ export function ProjectsTab(props: Props) {
             action={canManage ? <Button size="sm" iconLeft={Plus} onClick={() => setNewOpen(true)}>New project</Button> : undefined}
           />
         ) : (
-          <ProjectTable ctx={ctx} projects={projects} onOpen={setSelectedId} onStatus={(id, s) => void updateProjectById(id, { status: s })} />
+          <ProjectTable
+            ctx={ctx}
+            projects={projects}
+            checked={checked}
+            onToggle={toggle}
+            onToggleAll={toggleAll}
+            onOpen={setSelectedId}
+            onStatus={(id, s) => void updateProjectById(id, { status: s })}
+            onOwner={(id, e) => void updateProjectById(id, { ownerEmail: e })}
+          />
         )}
       </div>
 
       {selected && <ProjectView ctx={ctx} project={selected} api={api} onClose={() => setSelectedId(null)} />}
 
       {newOpen && (
-        <ProjectFormModal
-          ctx={ctx}
-          mode="create"
-          templates={templates}
-          onClose={() => setNewOpen(false)}
-          onSubmit={(values, templateId) => createProject(values, templateId)}
-        />
+        <ProjectFormModal ctx={ctx} mode="create" templates={templates} onClose={() => setNewOpen(false)} onSubmit={(values, templateId) => createProject(values, templateId)} />
       )}
 
       {toast}
@@ -264,25 +367,51 @@ export function ProjectsTab(props: Props) {
 
 /* ------------------------------------------------------------------- table */
 
+function TriCheck({ state, onClick, label }: { state: "on" | "off" | "some"; onClick: () => void; label: string }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      aria-label={label}
+      className={cn(
+        "flex size-[18px] shrink-0 items-center justify-center rounded-md border transition-all duration-150",
+        state === "off" ? "border-border-strong hover:border-sirius" : "border-sirius bg-sirius text-white",
+      )}
+    >
+      {state === "on" && <Check size={12} strokeWidth={3} />}
+      {state === "some" && <Minus size={12} strokeWidth={3} />}
+    </button>
+  );
+}
+
 function ProjectTable({
   ctx,
   projects,
+  checked,
+  onToggle,
+  onToggleAll,
   onOpen,
   onStatus,
+  onOwner,
 }: {
   ctx: ProjectsContext;
   projects: ProjectDetail[];
+  checked: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleAll: () => void;
   onOpen: (id: string) => void;
   onStatus: (id: string, status: string) => void;
+  onOwner: (id: string, email: string | null) => void;
 }) {
+  const allState: "on" | "off" | "some" = checked.size === 0 ? "off" : checked.size >= projects.length ? "on" : "some";
   return (
     <div className="overflow-hidden rounded-2xl border border-border">
       <table className="w-full border-collapse font-body">
         <thead>
           <tr className="border-b border-border bg-bg-muted/60">
+            {ctx.canManage && <th className="w-10 px-4 py-2.5"><TriCheck state={allState} onClick={onToggleAll} label="Select all projects" /></th>}
             <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Project</th>
-            <th className="w-[160px] px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Status</th>
-            <th className="w-[200px] px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Owner</th>
+            <th className="w-[168px] px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Status</th>
+            <th className="w-[210px] px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Owner</th>
             <th className="w-[150px] px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Delivery</th>
           </tr>
         </thead>
@@ -290,14 +419,16 @@ function ProjectTable({
           {projects.map((p) => {
             const progress = projectProgress(p, ctx.config);
             const complete = progress.total > 0 && progress.done === progress.total;
-            const owner = memberName(ctx.csms, p.ownerEmail);
             const overdue = isOverdue(p.deliveryDate) && !complete;
+            const isChecked = checked.has(p.id);
             return (
-              <tr key={p.id} onClick={() => onOpen(p.id)} className="pm-in group cursor-pointer transition-colors hover:bg-bg-muted/40">
-                {/* Project name + subtle progress */}
+              <tr key={p.id} onClick={() => onOpen(p.id)} className={cn("pm-in group cursor-pointer transition-colors", isChecked ? "bg-accent-soft/50" : "hover:bg-bg-muted/40")}>
+                {ctx.canManage && (
+                  <td className="px-4 py-3"><TriCheck state={isChecked ? "on" : "off"} onClick={() => onToggle(p.id)} label={`Select ${p.name}`} /></td>
+                )}
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    {p.type && <span className="hidden sm:inline"><OptionDot ctx={ctx} typeId={p.type} /></span>}
+                    {p.type && <OptionDot ctx={ctx} typeId={p.type} />}
                     <span className="font-body text-[13.5px] font-semibold text-fg transition-colors group-hover:text-sirius">{p.name}</span>
                   </div>
                   {progress.total > 0 && (
@@ -309,21 +440,9 @@ function ProjectTable({
                     </div>
                   )}
                 </td>
-                {/* Status (inline change) */}
-                <td className="px-4 py-3">
-                  <StatusSelect options={ctx.config.projectStatuses} value={p.status} onChange={(s) => onStatus(p.id, s)} disabled={!ctx.canManage} />
-                </td>
-                {/* Owner */}
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <OwnerAvatar name={owner} size={22} title="CSM" />
-                    <span className="truncate font-body text-[13px] text-fg-muted">{owner ?? "Unassigned"}</span>
-                  </div>
-                </td>
-                {/* Delivery */}
-                <td className="px-4 py-3">
-                  <span className={cn("whitespace-nowrap font-body text-[13px]", overdue ? "font-semibold text-[#B23A57]" : "text-fg-muted")}>{formatDate(p.deliveryDate)}</span>
-                </td>
+                <td className="px-4 py-3"><StatusSelect options={ctx.config.projectStatuses} value={p.status} onChange={(s) => onStatus(p.id, s)} disabled={!ctx.canManage} /></td>
+                <td className="px-4 py-3"><OwnerSelect members={ctx.csms} value={p.ownerEmail} onChange={(e) => onOwner(p.id, e)} disabled={!ctx.canManage} /></td>
+                <td className="px-4 py-3"><span className={cn("whitespace-nowrap font-body text-[13px]", overdue ? "font-semibold text-[#B23A57]" : "text-fg-muted")}>{formatDate(p.deliveryDate)}</span></td>
               </tr>
             );
           })}
