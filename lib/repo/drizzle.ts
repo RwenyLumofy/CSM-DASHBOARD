@@ -812,10 +812,22 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
  *  super-admin saves a new formula in Settings (so the effect is immediate,
  *  not "starting tomorrow"). Bounded concurrency, same pattern as
  *  generateAllClientActions (lib/actions/generate.ts). */
-export async function recomputeAllClientHealth(): Promise<{ clients: number }> {
+export async function recomputeAllClientHealth(): Promise<{ clients: number; failed: number }> {
   const clients = await getClientsFromDb();
-  await mapLimit(clients, 5, (c) => recomputeClientHealth(c.id));
-  return { clients: clients.length };
+  // Isolate each client's failure (a DB blip, a stuck query hitting
+  // withDbTimeout) so it can't reject mapLimit's shared Promise.all and
+  // abort the whole batch — every other client's worker keeps running
+  // its own queue regardless of one bad row.
+  let failed = 0;
+  await mapLimit(clients, 5, async (c) => {
+    try {
+      await recomputeClientHealth(c.id);
+    } catch (err) {
+      failed += 1;
+      console.error(`[client-health] recompute failed for ${c.id}:`, err);
+    }
+  });
+  return { clients: clients.length, failed };
 }
 
 /** Remove any column the CSM has manually pinned (client.properties.__field_overrides)
@@ -902,9 +914,13 @@ async function upsertClientFull(c: Client): Promise<void> {
     // Same reasoning as upsertClient() — a re-import must not wipe real
     // Intercom/SLA data with the empty placeholder import rows are seeded with.
     support: _support,
+    // Same reasoning again — a re-import can't compute a real health score,
+    // so it seeds the same empty placeholder as sync; preserve any real
+    // score the health cron already computed for an existing client.
+    health: _health,
     ...rest
   } = row;
-  void _properties; void _csm; void _csmSource; void _implementationOwner; void _implementationOwnerSource; void _support;
+  void _properties; void _csm; void _csmSource; void _implementationOwner; void _implementationOwnerSource; void _support; void _health;
   const updateSet = dropOverriddenFields(rest, fieldOverridesSet(existing?.properties as Record<string, unknown> | undefined));
   await db
     .insert(schema.clients)
