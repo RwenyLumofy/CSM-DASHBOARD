@@ -17,6 +17,11 @@ import type { LumofyStaffMember } from "@/components/settings/LumofyStaffManager
 
 export const metadata = { title: "Settings · Lumofy Signals" };
 export const dynamic = "force-dynamic";
+// Saving the Client Health formula (workflow-actions.saveClientHealthConfigAction)
+// runs a full recomputeAllClientHealth() sweep — 74 clients, each with a usage
+// read. Server actions are dispatched to their host route, so this ceiling
+// applies to that save. Matches the client-health cron's maxDuration.
+export const maxDuration = 300;
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams;
@@ -184,9 +189,8 @@ async function WorkspaceTab({
 }
 
 async function WorkflowsTab({ roleLabels }: { roleLabels: Record<string, string> }) {
-  const { getCsmAssignmentConfig, getImplementationAssignmentConfig, getCapacityConfig } = await import("@/lib/assignment/config");
+  const { getCsmAssignmentConfig, getImplementationAssignmentConfig, getCapacityConfig, getClientHealthConfig } = await import("@/lib/assignment/config");
   const { getTeamHealth } = await import("@/lib/assignment/health");
-  const { getClientHealthConfig } = await import("@/lib/metrics/health-config");
   const [csm, impl, capacity, teamHealth, clientHealth] = await Promise.all([
     getCsmAssignmentConfig(),
     getImplementationAssignmentConfig(),

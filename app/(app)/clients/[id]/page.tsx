@@ -21,7 +21,7 @@ import { integrations } from "@/lib/config";
 import { applyDealOverrides, computeRenewal, dealOverridesMap, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { getSupabaseProjectUrl } from "@/lib/integrations/supabase-storage";
-import { getClientHealthConfig } from "@/lib/metrics/health-config";
+import { getClientHealthConfig } from "@/lib/assignment/config";
 
 // Per-request data + auth-gated — never static-generate this route.
 export const dynamic = "force-dynamic";

@@ -12,6 +12,12 @@ import type {
   CsmAssignmentConfig,
   ImplementationAssignmentConfig,
 } from "@/lib/assignment/types";
+import {
+  CLIENT_HEALTH_CONFIG_KEY,
+  DEFAULT_CLIENT_HEALTH_CONFIG,
+  HEALTH_METRIC_ORDER,
+  type ClientHealthConfig,
+} from "@/lib/metrics/health-config";
 
 export const CSM_CONFIG_KEY = "csm_assignment";
 export const IMPL_CONFIG_KEY = "implementation_assignment";
@@ -81,3 +87,19 @@ export const setCsmAssignmentConfig = (c: CsmAssignmentConfig) => writeConfig(CS
 export const setImplementationAssignmentConfig = (c: ImplementationAssignmentConfig) =>
   writeConfig(IMPL_CONFIG_KEY, c);
 export const setCapacityConfig = (c: CapacityConfig) => writeConfig(CAPACITY_CONFIG_KEY, c);
+
+/** Client health formula accessors. Kept here (with the assignment configs)
+ *  because both are DB-backed workspace_config; the pure types/constants live
+ *  in lib/metrics/health-config.ts so client components can import those
+ *  without pulling this server-only module into their bundle. Always returns
+ *  exactly the 8 known keys, in HEALTH_METRIC_ORDER — a config saved before a
+ *  new metric existed still gets every current key (new ones default to
+ *  disabled) rather than a caller having to guard against a missing entry. */
+export async function getClientHealthConfig(): Promise<ClientHealthConfig> {
+  const stored = await readConfig(CLIENT_HEALTH_CONFIG_KEY, DEFAULT_CLIENT_HEALTH_CONFIG);
+  const byKey = new Map(stored.metrics.map((m) => [m.key, m]));
+  const metrics = HEALTH_METRIC_ORDER.map((key) => byKey.get(key) ?? { key, enabled: false, weight: 0 });
+  return { metrics, thresholds: stored.thresholds ?? DEFAULT_CLIENT_HEALTH_CONFIG.thresholds };
+}
+
+export const setClientHealthConfig = (c: ClientHealthConfig) => writeConfig(CLIENT_HEALTH_CONFIG_KEY, c);

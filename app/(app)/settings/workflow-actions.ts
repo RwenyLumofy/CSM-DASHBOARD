@@ -9,6 +9,7 @@ import {
   setCapacityConfig,
   setCsmAssignmentConfig,
   setImplementationAssignmentConfig,
+  setClientHealthConfig,
 } from "@/lib/assignment/config";
 import type {
   CapacityConfig,
@@ -16,12 +17,12 @@ import type {
   ImplementationAssignmentConfig,
 } from "@/lib/assignment/types";
 import type { AssignmentRunSummary } from "@/lib/assignment/run";
-import { setClientHealthConfig, type ClientHealthConfig } from "@/lib/metrics/health-config";
+import type { ClientHealthConfig } from "@/lib/metrics/health-config";
 
-// The health-formula save also runs a full recomputeAllClientHealth() sweep
-// (74 clients, each with a usage read) — same order of magnitude as the daily
-// client-actions cron, which needs the same generous ceiling in practice.
-export const maxDuration = 300;
+// NOTE: The health-formula save runs a full recomputeAllClientHealth() sweep
+// (74 clients, each with a usage read). A "use server" file may only export
+// async functions, so its duration ceiling can't be set here — it's set on the
+// route that hosts the action (app/(app)/settings/page.tsx maxDuration).
 
 export interface ActionResult {
   ok: boolean;

@@ -1,13 +1,16 @@
 /* =========================================================================
    Client health formula configuration — a super-admin selects which of the
    8 available metrics count, assigns weights among the ones turned on, sets
-   a couple of per-metric tunables, and picks the tier thresholds. Loaded and
-   saved via workspace_config, the same mechanism (and merge-over-default
-   pattern) as the assignment workflow configs — see lib/assignment/config.ts.
+   a couple of per-metric tunables, and picks the tier thresholds.
+
+   PURE data/types/constants ONLY — no DB or server imports, so this file is
+   safe to import from client components (WorkflowManager, ClientProfileTabs).
+   The DB-backed accessors (getClientHealthConfig / setClientHealthConfig)
+   live in the server-only lib/assignment/config.ts, alongside the assignment
+   workflow config accessors that share the same workspace_config mechanism.
    ========================================================================= */
 
 import type { HealthMetricKey } from "@/lib/types";
-import { readConfig, writeConfig } from "@/lib/assignment/config";
 
 export const CLIENT_HEALTH_CONFIG_KEY = "client_health_formula";
 
@@ -79,16 +82,3 @@ export const DEFAULT_CLIENT_HEALTH_CONFIG: ClientHealthConfig = {
   })),
   thresholds: { healthy: 75, watch: 55 },
 };
-
-/** Always returns exactly the 8 known keys, in HEALTH_METRIC_ORDER — a config
- *  saved before a new metric existed still gets every current key (new ones
- *  default to disabled) instead of a caller having to guard against a
- *  missing entry. */
-export async function getClientHealthConfig(): Promise<ClientHealthConfig> {
-  const stored = await readConfig(CLIENT_HEALTH_CONFIG_KEY, DEFAULT_CLIENT_HEALTH_CONFIG);
-  const byKey = new Map(stored.metrics.map((m) => [m.key, m]));
-  const metrics = HEALTH_METRIC_ORDER.map((key) => byKey.get(key) ?? { key, enabled: false, weight: 0 });
-  return { metrics, thresholds: stored.thresholds ?? DEFAULT_CLIENT_HEALTH_CONFIG.thresholds };
-}
-
-export const setClientHealthConfig = (c: ClientHealthConfig) => writeConfig(CLIENT_HEALTH_CONFIG_KEY, c);
