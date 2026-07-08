@@ -26,7 +26,10 @@ import {
 } from "@/app/(app)/settings/workflow-actions";
 import { cn } from "@/lib/cn";
 
-type Tab = "csm" | "implementation" | "health" | "clientHealth";
+/** Two top-level workflows: assignment routing and the client-health formula. */
+type MainTab = "assignment" | "clientHealth";
+/** Sub-tabs within the Assignment workflow. */
+type AssignmentTab = "csm" | "implementation" | "health";
 
 const ALL_TIER_ROLES: Role[] = [...CSM_TEAM_ROLES, ...IMPLEMENTATION_TEAM_ROLES];
 
@@ -46,37 +49,63 @@ export function WorkflowManager({
   roleLabels?: Record<string, string>;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("csm");
+  const [main, setMain] = useState<MainTab>("assignment");
+  const [sub, setSub] = useState<AssignmentTab>("csm");
   const lbl = (r: string) => roleLabels[r] ?? DEFAULT_ROLE_LABELS[r as Role] ?? r;
 
   return (
     <div className="flex flex-col gap-5">
-      <RunNow />
-
-      <div className="flex gap-1 border-b border-border">
+      {/* Main workflow tabs */}
+      <div className="flex gap-2">
         {([
-          ["csm", "CSM assignment", Workflow],
-          ["implementation", "Implementation assignment", Wrench],
-          ["health", "Team health", Activity],
+          ["assignment", "Assignment workflow", Workflow],
           ["clientHealth", "Client health", HeartPulse],
         ] as const).map(([key, label, Icon]) => (
           <button
             key={key}
-            onClick={() => setTab(key)}
+            onClick={() => setMain(key)}
             className={cn(
-              "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 font-body text-[13px] font-semibold transition-colors",
-              tab === key ? "border-sirius text-sirius" : "border-transparent text-fg-muted hover:text-fg",
+              "flex items-center gap-2 rounded-xl border px-4 py-2.5 font-body text-[13.5px] font-semibold transition-colors",
+              main === key
+                ? "border-sirius bg-accent-soft text-sirius"
+                : "border-border bg-surface text-fg-muted hover:border-sirius/40 hover:text-fg",
             )}
           >
-            <Icon size={14} /> {label}
+            <Icon size={15} /> {label}
           </button>
         ))}
       </div>
 
-      {tab === "csm" && <CsmPanel initial={initialCsm} lbl={lbl} onSaved={() => router.refresh()} />}
-      {tab === "implementation" && <ImplPanel initial={initialImpl} lbl={lbl} onSaved={() => router.refresh()} />}
-      {tab === "health" && <HealthPanel initialCapacity={initialCapacity} teamHealth={teamHealth} lbl={lbl} onSaved={() => router.refresh()} />}
-      {tab === "clientHealth" && <ClientHealthPanel initial={initialClientHealth} onSaved={() => router.refresh()} />}
+      {main === "assignment" && (
+        <div className="flex flex-col gap-5">
+          <RunNow />
+
+          <div className="flex gap-1 border-b border-border">
+            {([
+              ["csm", "CSM assignment", Workflow],
+              ["implementation", "Implementation assignment", Wrench],
+              ["health", "Team health", Activity],
+            ] as const).map(([key, label, Icon]) => (
+              <button
+                key={key}
+                onClick={() => setSub(key)}
+                className={cn(
+                  "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 font-body text-[13px] font-semibold transition-colors",
+                  sub === key ? "border-sirius text-sirius" : "border-transparent text-fg-muted hover:text-fg",
+                )}
+              >
+                <Icon size={14} /> {label}
+              </button>
+            ))}
+          </div>
+
+          {sub === "csm" && <CsmPanel initial={initialCsm} lbl={lbl} onSaved={() => router.refresh()} />}
+          {sub === "implementation" && <ImplPanel initial={initialImpl} lbl={lbl} onSaved={() => router.refresh()} />}
+          {sub === "health" && <HealthPanel initialCapacity={initialCapacity} teamHealth={teamHealth} lbl={lbl} onSaved={() => router.refresh()} />}
+        </div>
+      )}
+
+      {main === "clientHealth" && <ClientHealthPanel initial={initialClientHealth} onSaved={() => router.refresh()} />}
     </div>
   );
 }

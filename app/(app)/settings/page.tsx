@@ -202,11 +202,10 @@ async function WorkflowsTab({ roleLabels }: { roleLabels: Record<string, string>
   return (
     <div className="max-w-3xl">
       <div className="mb-5">
-        <h2 className="font-display text-base font-semibold text-fg">Assignment workflows</h2>
+        <h2 className="font-display text-base font-semibold text-fg">Workflows</h2>
         <p className="mt-1 font-body text-sm text-fg-muted">
-          Define how new clients are routed to a CSM and an Implementation owner, and how every account&apos;s health
-          score is calculated. Assignment rules run automatically when a new client is synced from HubSpot; you can
-          also run them on demand.
+          Two automations: how new clients are routed to a CSM and an Implementation owner, and how every account&apos;s
+          health score is calculated. Pick one below.
         </p>
       </div>
       <WorkflowManager initialCsm={csm} initialImpl={impl} initialCapacity={capacity} teamHealth={teamHealth} initialClientHealth={clientHealth} roleLabels={roleLabels} />
