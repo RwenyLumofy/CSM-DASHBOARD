@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Settings2, Workflow as WorkflowIcon } from "lucide-react";
+import { FolderKanban, Settings2, Workflow as WorkflowIcon } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PropertiesManager } from "@/components/settings/PropertiesManager";
 import { RoleLabelsManager } from "@/components/settings/RoleLabelsManager";
@@ -8,7 +8,10 @@ import { UsersManager } from "@/components/settings/UsersManager";
 import { WorkflowManager } from "@/components/settings/WorkflowManager";
 import { LumofyStaffManager } from "@/components/settings/LumofyStaffManager";
 import { StakeholderTypesManager } from "@/components/settings/StakeholderTypesManager";
+import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManager";
+import { ProjectTemplatesManager } from "@/components/settings/ProjectTemplatesManager";
 import { getAppUsers, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
+import { getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getCurrentUserEmail, isSuperAdmin } from "@/lib/auth";
 import { hasDatabase, integrations } from "@/lib/config";
 import { withDbTimeout } from "@/lib/db/client";
@@ -47,37 +50,71 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     }
   }
 
-  const activeTab = tab === "workflows" && superAdmin ? "workflows" : "workspace";
+  const activeTab =
+    tab === "workflows" && superAdmin ? "workflows" : tab === "projects" ? "projects" : "workspace";
+
+  // Projects is available to everyone (templates); Workflows stays admin-only.
+  const tabs = [
+    ["workspace", "Workspace", Settings2],
+    ["projects", "Projects", FolderKanban],
+    ...(superAdmin ? [["workflows", "Workflows", WorkflowIcon] as const] : []),
+  ] as const;
 
   return (
     <div className="flex flex-col gap-6 p-8">
       <PageHeader title="Settings" description="Manage properties, team roles, automations, and workspace configuration." />
 
-      {superAdmin && (
-        <div className="flex gap-1 border-b border-border">
-          {([
-            ["workspace", "Workspace", Settings2],
-            ["workflows", "Workflows", WorkflowIcon],
-          ] as const).map(([key, label, Icon]) => (
-            <Link
-              key={key}
-              href={`/settings?tab=${key}`}
-              className={cn(
-                "-mb-px flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 font-body text-[13.5px] font-semibold transition-colors",
-                activeTab === key ? "border-sirius text-sirius" : "border-transparent text-fg-muted hover:text-fg",
-              )}
-            >
-              <Icon size={15} /> {label}
-            </Link>
-          ))}
-        </div>
-      )}
+      <div className="flex gap-1 border-b border-border">
+        {tabs.map(([key, label, Icon]) => (
+          <Link
+            key={key}
+            href={`/settings?tab=${key}`}
+            className={cn(
+              "-mb-px flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 font-body text-[13.5px] font-semibold transition-colors",
+              activeTab === key ? "border-sirius text-sirius" : "border-transparent text-fg-muted hover:text-fg",
+            )}
+          >
+            <Icon size={15} /> {label}
+          </Link>
+        ))}
+      </div>
 
       {activeTab === "workflows" ? (
         <WorkflowsTab roleLabels={roleLabels} />
+      ) : activeTab === "projects" ? (
+        <ProjectsSettingsTab superAdmin={superAdmin} currentUserEmail={currentUserEmail} />
       ) : (
         <WorkspaceTab superAdmin={superAdmin} defs={defs} appUsers={superAdmin ? await getAppUsers() : []} currentUserEmail={currentUserEmail} roleLabels={roleLabels} lumofyStaff={lumofyStaff} stakeholderTypes={stakeholderTypes} />
       )}
+    </div>
+  );
+}
+
+async function ProjectsSettingsTab({ superAdmin, currentUserEmail }: { superAdmin: boolean; currentUserEmail: string | null }) {
+  const [config, templates] = await Promise.all([getProjectConfig(), listProjectTemplates()]);
+  return (
+    <div className="flex flex-col gap-8">
+      <section className="max-w-3xl">
+        <div className="mb-5">
+          <h2 className="font-display text-base font-semibold text-fg">Project options</h2>
+          <p className="mt-1 font-body text-sm text-fg-muted">
+            {superAdmin
+              ? "Configure the Status and Type vocabularies used on every account's Project Management tab. Statuses double as the kanban columns."
+              : "Project statuses and types are managed by your admin and are read-only for your role."}
+          </p>
+        </div>
+        <ProjectOptionsManager initialConfig={config} isSuperAdmin={superAdmin} />
+      </section>
+
+      <section className="max-w-3xl">
+        <div className="mb-5">
+          <h2 className="font-display text-base font-semibold text-fg">Project templates</h2>
+          <p className="mt-1 font-body text-sm text-fg-muted">
+            Reusable milestone/task blueprints any CSM can apply to a new project. Everyone sees every template; you can edit or delete the ones you created (super-admins can manage all).
+          </p>
+        </div>
+        <ProjectTemplatesManager initialTemplates={templates} config={config} currentUserEmail={currentUserEmail} isSuperAdmin={superAdmin} />
+      </section>
     </div>
   );
 }

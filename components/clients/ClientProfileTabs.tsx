@@ -45,7 +45,6 @@ import {
   RefreshCw,
   Search,
   MapPin,
-  Sparkles,
   StickyNote,
   Tag,
   Trash2,
@@ -70,6 +69,10 @@ import { ATTACHMENTS_BUCKET, ALLOWED_ATTACHMENT_EXTENSIONS, MAX_ATTACHMENT_BYTES
 import { createAttachmentUploadUrlAction, recordAttachmentAction, deleteAttachmentAction } from "@/app/(app)/clients/[id]/attachment-actions";
 import { addContactAction, deleteContactAction } from "@/app/(app)/clients/[id]/contact-actions";
 import { UsageTab } from "@/components/clients/UsageTab";
+import { ProjectsTab } from "@/components/clients/projects/ProjectsTab";
+import type { Member } from "@/components/clients/projects/shared";
+import type { ProjectConfig } from "@/lib/projects/config";
+import type { ProjectDetail } from "@/lib/projects/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { FIELD_SEVERITY } from "@/lib/profile-completeness";
@@ -129,6 +132,14 @@ interface Props {
   /** The formula that produced client.health — shown (read-only) on the
    *  Action list tab's Health signals card. Edited in Settings → Workflows. */
   healthConfig: ClientHealthConfig;
+  /** Project Management tab data (see lib/projects/*). */
+  projects: ProjectDetail[];
+  projectConfig: ProjectConfig;
+  projectTemplates: { id: string; name: string }[];
+  projectCsms: Member[];
+  projectImplementers: Member[];
+  projectCanManage: boolean;
+  projectDbEnabled: boolean;
 }
 
 export function ClientProfileTabs(props: Props) {
@@ -189,7 +200,19 @@ export function ClientProfileTabs(props: Props) {
         {active === "attachments" && <AttachmentsTab clientId={client.id} attachments={attachments} deals={deals} supabaseUrl={supabaseUrl} />}
         {active === "support" && <SupportTab client={client} />}
         {active === "satisfaction" && <SatisfactionTab client={client} />}
-        {active === "projects" && <ProjectsTab />}
+        {active === "projects" && (
+          <ProjectsTab
+            clientId={client.id}
+            initialProjects={props.projects}
+            config={props.projectConfig}
+            templates={props.projectTemplates}
+            contacts={contacts}
+            csms={props.projectCsms}
+            implementers={props.projectImplementers}
+            canManage={props.projectCanManage}
+            dbEnabled={props.projectDbEnabled}
+          />
+        )}
         {active === "notes" && <NotesTab timeline={timeline} />}
         {active === "actions" && <ActionsTab client={client} actions={clientActions} healthConfig={healthConfig} />}
       </div>
@@ -1635,28 +1658,6 @@ function SatisfactionTab({ client }: { client: Client }) {
 }
 
 /* ===================================================================== */
-/* Project Management — designed empty state                              */
-/* ===================================================================== */
-
-function ProjectsTab() {
-  return (
-    <Card>
-      <CardEyebrow>Project management</CardEyebrow>
-      <EmptyHint
-        icon={FolderKanban}
-        title="Projects & tasks coming soon"
-        body="Track active and completed projects, task progress, and spin up new projects from reusable templates (onboarding, QBR, renewal, recovery)."
-      />
-      <ul className="mt-1 flex flex-col gap-2 border-t border-border-subtle pt-4">
-        <PlannedItem text="Active vs. completed projects with progress bars" />
-        <PlannedItem text="Per-project task checklists with owners and due dates" />
-        <PlannedItem text="Project templates to standardise playbooks" />
-      </ul>
-    </Card>
-  );
-}
-
-/* ===================================================================== */
 /* Notes — activity feed + designed empty state                           */
 /* ===================================================================== */
 
@@ -1819,15 +1820,6 @@ function EmptyHint({ icon: Icon, title, body }: { icon: typeof Building2; title:
       <p className="font-body text-sm font-semibold text-fg">{title}</p>
       <p className="caption max-w-md leading-relaxed">{body}</p>
     </div>
-  );
-}
-
-function PlannedItem({ text }: { text: string }) {
-  return (
-    <li className="flex items-center gap-2.5">
-      <Sparkles size={14} className="shrink-0 text-sirius" />
-      <span className="font-body text-[13px] text-fg-muted">{text}</span>
-    </li>
   );
 }
 

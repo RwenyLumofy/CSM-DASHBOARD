@@ -16,8 +16,9 @@ import {
   getTeamMembers,
   getTimelineForClient,
 } from "@/lib/data";
-import { isSuperAdmin } from "@/lib/auth";
-import { integrations } from "@/lib/config";
+import { getCurrentUserRole, isSuperAdmin } from "@/lib/auth";
+import { getProjectBoard, getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
+import { hasDatabase, integrations } from "@/lib/config";
 import { applyDealOverrides, computeRenewal, dealOverridesMap, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
@@ -38,7 +39,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const client = await getClientForProfile(id);
   if (!client) notFound();
 
-  const [timeline, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig] =
+  const [timeline, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates] =
     await Promise.all([
       getTimelineForClient(id),
       getAttachmentsForClient(id),
@@ -53,8 +54,14 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       isSuperAdmin(),
       getClientActionsFor(id),
       getClientHealthConfig(),
+      getCurrentUserRole(),
+      getProjectBoard(id),
+      getProjectConfig(),
+      listProjectTemplates(),
     ]);
   const ownerOptions = (ms: typeof csmMembers) => ms.map((m) => ({ email: m.email, name: m.name ?? m.email, role: m.role }));
+  // Project owner/implementer/task-owner pickers use the same team directories.
+  const projectMembers = (ms: typeof csmMembers) => ms.map((m) => ({ email: m.email, name: m.name ?? m.email }));
 
   const props = client.properties ?? {};
   const industry = client.industry;
@@ -145,6 +152,13 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         supabaseUrl={supabaseUrl}
         clientActions={clientActions}
         healthConfig={healthConfig}
+        projects={projects}
+        projectConfig={projectConfig}
+        projectTemplates={projectTemplates.map((t) => ({ id: t.id, name: t.name }))}
+        projectCsms={projectMembers(csmMembers)}
+        projectImplementers={projectMembers(implMembers)}
+        projectCanManage={role !== null}
+        projectDbEnabled={hasDatabase()}
       />
     </div>
   );

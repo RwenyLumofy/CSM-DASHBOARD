@@ -22,6 +22,7 @@ import type {
   UsageMetrics,
 } from "@/lib/types";
 import type { AdoptionScore, LearningBreakdown, TrendMap, UsageSnapshotRow } from "@/lib/usage/types";
+import type { ProjectTemplateStructure } from "@/lib/projects/types";
 
 export const clients = pgTable("clients", {
   id: text("id").primaryKey(),
@@ -365,4 +366,84 @@ export const clientActions = pgTable("client_actions", {
   index("client_actions_client_id_idx").on(t.clientId),
   index("client_actions_status_idx").on(t.status),
 ]);
+
+/* =========================================================================
+   Project management — the CSM-owned delivery tracker on each account's
+   "Project Management" tab. Authored in-app (never synced from HubSpot):
+     client_projects ─< project_milestones ─< project_tasks
+   Option vocabularies (status/type) live in workspace_config under the
+   "project_management" key; templates capture a reusable milestone/task blueprint.
+   ========================================================================= */
+
+/** A project on an account — the top-level unit of delivery work. */
+export const clientProjects = pgTable("client_projects", {
+  id: text("id").primaryKey(), // "prj-{uuid}"
+  clientId: text("client_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  type: text("type"), // config-driven type id
+  status: text("status").notNull().default("not_started"), // config-driven status id (kanban column)
+  startDate: timestamp("start_date", { withTimezone: true }),
+  deliveryDate: timestamp("delivery_date", { withTimezone: true }),
+  ownerEmail: text("owner_email"), // project owner (a CSM), login email
+  implementerEmail: text("implementer_email"), // implementation officer, login email
+  contactId: text("contact_id"), // client_contacts.id — the client-side contact person
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdByEmail: text("created_by_email"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (t) => [index("client_projects_client_id_idx").on(t.clientId)]);
+
+/** A milestone groups tasks within a project. */
+export const projectMilestones = pgTable("project_milestones", {
+  id: text("id").primaryKey(), // "mst-{uuid}"
+  projectId: text("project_id").notNull(),
+  clientId: text("client_id").notNull(), // denormalised for account-scoped reads
+  name: text("name").notNull(),
+  description: text("description"),
+  dueDate: timestamp("due_date", { withTimezone: true }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("project_milestones_project_id_idx").on(t.projectId),
+  index("project_milestones_client_id_idx").on(t.clientId),
+]);
+
+/** A task — the atomic unit of work, owned by a milestone. */
+export const projectTasks = pgTable("project_tasks", {
+  id: text("id").primaryKey(), // "tsk-{uuid}"
+  projectId: text("project_id").notNull(),
+  milestoneId: text("milestone_id").notNull(),
+  clientId: text("client_id").notNull(), // denormalised for account-scoped reads
+  name: text("name").notNull(),
+  description: text("description"),
+  type: text("type"), // config-driven type id
+  status: text("status").notNull().default("todo"), // config-driven status id
+  startDate: timestamp("start_date", { withTimezone: true }),
+  deliveryDate: timestamp("delivery_date", { withTimezone: true }),
+  ownerEmail: text("owner_email"), // task owner, login email
+  sortOrder: integer("sort_order").notNull().default(0),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("project_tasks_project_id_idx").on(t.projectId),
+  index("project_tasks_milestone_id_idx").on(t.milestoneId),
+  index("project_tasks_client_id_idx").on(t.clientId),
+]);
+
+/** Reusable project templates — workspace-global (any CSM/super-admin can use
+ *  any template). The milestone/task blueprint is stored as JSONB. */
+export const projectTemplates = pgTable("project_templates", {
+  id: text("id").primaryKey(), // "tpl-{uuid}"
+  name: text("name").notNull(),
+  description: text("description"),
+  type: text("type"),
+  structure: jsonb("structure").$type<ProjectTemplateStructure>().notNull().default({ milestones: [] }),
+  createdByEmail: text("created_by_email"),
+  createdByName: text("created_by_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
