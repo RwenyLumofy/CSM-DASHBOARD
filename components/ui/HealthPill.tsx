@@ -13,8 +13,11 @@ export function HealthPill({ health, size = 44, compact = false }: { health: Hea
   if (compact) {
     return (
       <span className="inline-flex items-center gap-2">
-        <span className="size-2 rounded-pill" style={{ backgroundColor: color }} />
+        <span className="size-2 shrink-0 rounded-pill" style={{ backgroundColor: color }} />
         <span className="tabular font-body text-sm font-semibold text-fg">{health.score}</span>
+        {health.tier && health.tier !== "—" && (
+          <span className="whitespace-nowrap font-body text-[12px] font-semibold" style={{ color }}>{health.tier}</span>
+        )}
       </span>
     );
   }

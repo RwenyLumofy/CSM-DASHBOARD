@@ -71,6 +71,7 @@ import { createAttachmentUploadUrlAction, recordAttachmentAction, deleteAttachme
 import { addContactAction, deleteContactAction } from "@/app/(app)/clients/[id]/contact-actions";
 import { UsageTab } from "@/components/clients/UsageTab";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
+import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { FIELD_SEVERITY } from "@/lib/profile-completeness";
 import {
   DEAL_OVERRIDES_KEY,
@@ -2648,6 +2649,12 @@ function DealCard({
   // round-trip even lands.
   const needsGlobalLibraryDates = hasGlobalLibrary(eff);
   const renewal = computeRenewal(eff.contractStartDate);
+  // Onboarding period for THIS deal — days from its Kick-off meeting to its
+  // Launch (or to today if not launched yet). Same pure calc used for the
+  // account-level rollup (lib/metrics/onboarding.ts), fed just this deal.
+  const onboarding = computeOnboardingPeriod([{ id: deal.id }], { [deal.id]: dealDates });
+  const onboardingLabel =
+    onboarding.days == null ? "—" : onboarding.ongoing ? `${onboarding.days}d (ongoing)` : `${onboarding.days}d`;
   // Total Licenses = Licenses Purchased + Complementary Licenses (computed).
   const totalLicenses =
     eff.numberOfUsers != null || eff.complementaryLicenses != null
@@ -2828,6 +2835,7 @@ function DealCard({
                 {cell("closeDate")}
                 {cell("contractStartDate")}
                 <SyncedDate label="Renewal" value={renewal} hint="Auto · +1yr" />
+                <SyncedValue label="Onboarding period" value={onboardingLabel} hint="Auto · kickoff→launch" />
               </dl>
               <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-border-subtle pt-3 sm:grid-cols-3">
                 {DEAL_DATE_FIELDS.map((f) => {
@@ -2889,6 +2897,20 @@ function SyncedDate({ label, value, hint }: { label: string; value: string | nul
       <dt className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">{label}</dt>
       <dd className="flex items-baseline gap-1.5">
         <span className={cn("font-body text-[13px] leading-snug", empty ? "text-fg-subtle" : "font-semibold text-fg")}>{formatDate(value)}</span>
+        <span className="font-body text-[10px] uppercase tracking-[0.05em] text-fg-subtle">{hint}</span>
+      </dd>
+    </div>
+  );
+}
+
+/** Read-only computed value (non-date) cell — same look as SyncedDate. */
+function SyncedValue({ label, value, hint }: { label: string; value: string; hint: string }) {
+  const empty = value === "—";
+  return (
+    <div className="flex flex-col gap-1">
+      <dt className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">{label}</dt>
+      <dd className="flex items-baseline gap-1.5">
+        <span className={cn("font-body text-[13px] leading-snug", empty ? "text-fg-subtle" : "font-semibold text-fg")}>{value}</span>
         <span className="font-body text-[10px] uppercase tracking-[0.05em] text-fg-subtle">{hint}</span>
       </dd>
     </div>

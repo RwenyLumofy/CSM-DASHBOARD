@@ -443,7 +443,6 @@ export function ClientsTable({
             </th>
             <Th onClick={() => toggleSort("name")} active={sortKey === "name"} dir={sortDir}>Client</Th>
             <Th>CSM</Th>
-            <Th>Implementation</Th>
             <Th onClick={() => toggleSort("arr")} active={sortKey === "arr"} dir={sortDir} align="right">ARR</Th>
             <Th onClick={() => toggleSort("renewal")} active={sortKey === "renewal"} dir={sortDir}>Renewal</Th>
             <Th onClick={() => toggleSort("onboarding")} active={sortKey === "onboarding"} dir={sortDir}>Onboarding</Th>
@@ -470,7 +469,7 @@ export function ClientsTable({
           ))}
           {filtered.length === 0 && (
             <tr>
-              <td colSpan={9} className="px-5 py-16 text-center">
+              <td colSpan={8} className="px-5 py-16 text-center">
                 {clients.length === 0 ? (
                   <div className="flex flex-col items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-bg-muted"><Plus size={20} className="text-fg-subtle" /></div>
@@ -565,24 +564,6 @@ const ClientRow = memo(function ClientRow({
           </span>
         ) : (
           <span className="font-body text-[13px] text-fg-muted">{c.csm?.name ?? "Unassigned"}</span>
-        )}
-      </Td>
-      <Td>
-        {canAssignOwners ? (
-          <span className="flex items-center gap-1.5">
-            <select
-              value={c.implementationOwner?.id ?? ""}
-              disabled={savingImpl}
-              onChange={(e) => onSetImpl(c.id, e.target.value)}
-              className="max-w-[150px] truncate rounded-md border border-transparent bg-transparent py-1 pl-1.5 pr-5 font-body text-[13px] text-fg-muted outline-none transition-colors hover:border-border hover:bg-bg focus:border-sirius-200"
-            >
-              <option value="">Unassigned</option>
-              {rowImpls.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-            {savingImpl && <Loader2 size={12} className="animate-spin text-fg-subtle" />}
-          </span>
-        ) : (
-          <span className="font-body text-[13px] text-fg-muted">{c.implementationOwner?.name ?? "Unassigned"}</span>
         )}
       </Td>
       <Td align="right">
