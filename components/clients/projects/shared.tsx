@@ -4,7 +4,8 @@
    config-driven pills, owner avatars, and small date/progress helpers. Kept
    separate so ProjectsTab / ProjectDrawer / the forms stay readable. */
 
-import { X, type LucideIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, X, type LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
 import { formatDate } from "@/lib/format";
@@ -90,6 +91,87 @@ export function OptionPill({ options, id, dot = false }: { options: OptionDef[];
   if (!id) return null;
   const opt = optionById(options, id) ?? unknownOption(id);
   return <Badge tone={opt.color} dot={dot}>{opt.label}</Badge>;
+}
+
+/** A compact, on-brand status picker: a pill button that opens a menu of the
+ *  config options. Falls back to a static pill when disabled. Used for both
+ *  project and task statuses (table rows, focus-view header, task cards). */
+export function StatusSelect({
+  options,
+  value,
+  onChange,
+  disabled = false,
+  align = "left",
+}: {
+  options: OptionDef[];
+  value: string;
+  onChange: (id: string) => void;
+  disabled?: boolean;
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const cur = optionById(options, value) ?? unknownOption(value);
+  if (disabled) return <Badge tone={cur.color} dot>{cur.label}</Badge>;
+
+  return (
+    <div ref={ref} className="relative inline-block" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="group inline-flex items-center gap-1 rounded-pill transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+      >
+        <Badge tone={cur.color} dot>{cur.label}</Badge>
+        <ChevronDown size={12} className={cn("text-fg-subtle transition-transform duration-150", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className={cn("pm-in absolute z-40 mt-1.5 min-w-[168px] overflow-hidden rounded-xl border border-border bg-bg p-1 shadow-lg", align === "right" ? "right-0" : "left-0")}>
+          {options.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => { onChange(o.id); setOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-bg-muted"
+            >
+              <Badge tone={o.color} dot>{o.label}</Badge>
+              {o.id === value && <Check size={13} className="ml-auto text-sirius" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Minimal toast — bottom-centre, auto-dismisses. Returns a show() fn + node. */
+export function useToast() {
+  const [msg, setMsg] = useState<{ text: string; tone: "error" | "ok" } | null>(null);
+  useEffect(() => {
+    if (!msg) return;
+    const t = setTimeout(() => setMsg(null), 3200);
+    return () => clearTimeout(t);
+  }, [msg]);
+  const show = (text: string, tone: "error" | "ok" = "error") => setMsg({ text, tone });
+  const node = msg ? (
+    <div
+      className={cn(
+        "pm-in fixed bottom-6 left-1/2 z-[90] -translate-x-1/2 rounded-xl px-4 py-2.5 font-body text-[13px] font-semibold text-white shadow-xl",
+        msg.tone === "error" ? "bg-[#B23A57]" : "bg-cosmos",
+      )}
+    >
+      {msg.text}
+    </div>
+  ) : null;
+  return { show, node };
 }
 
 /* ------------------------------------------------------------------ avatars */

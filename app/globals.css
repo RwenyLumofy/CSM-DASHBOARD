@@ -284,6 +284,48 @@ body {
 /* ---------- Scrollbars (subtle) ---------------------------------------- */
 * { scrollbar-width: thin; scrollbar-color: var(--color-border-strong) transparent; }
 
+/* ---------- Project Management — micro-interactions --------------------- */
+/* Entrance for rows/cards, a pop for checkmarks & new badges, a "landed"
+   pulse for a task just dropped into a column, and a focus-view zoom-in.
+   All respect the reduced-motion block below (it zeroes every animation). */
+@keyframes pm-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pm-pop {
+  0%   { opacity: 0; transform: scale(0.4); }
+  60%  { transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes pm-land {
+  0%   { box-shadow: 0 0 0 3px rgba(33, 91, 234, 0.35); transform: scale(1.035); }
+  100% { box-shadow: 0 0 0 0 rgba(33, 91, 234, 0); transform: scale(1); }
+}
+@keyframes pm-overlay-in {
+  from { opacity: 0; transform: scale(0.985) translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pm-check {
+  0%   { transform: scale(0) rotate(-12deg); }
+  60%  { transform: scale(1.15) rotate(0); }
+  100% { transform: scale(1); }
+}
+@keyframes pm-strike {
+  from { text-decoration-color: transparent; }
+  to   { text-decoration-color: currentColor; }
+}
+@keyframes pm-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.pm-in       { animation: pm-in var(--duration-base) var(--ease-standard) both; }
+.pm-pop      { animation: pm-pop 280ms var(--ease-emphasis) both; }
+.pm-land     { animation: pm-land 560ms var(--ease-standard); }
+.pm-overlay-in { animation: pm-overlay-in 260ms var(--ease-standard) both; }
+.pm-check    { animation: pm-check 220ms var(--ease-emphasis) both; }
+.pm-fade     { animation: pm-fade var(--duration-base) var(--ease-standard) both; }
+
 /* ---------- Reduced motion --------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
