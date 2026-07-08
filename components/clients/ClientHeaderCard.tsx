@@ -214,6 +214,9 @@ export interface ClientHeaderCardProps {
   /** Auto-rolled-up from every tracked deal's Use Case field (read-only —
    *  see the deal card to change it). */
   useCases: string[];
+  /** Onboarding period (kickoff→launch) — a short label like "18d" or
+   *  "42d · ongoing", or null when no kickoff date is recorded yet. */
+  onboardingLabel: string | null;
 }
 
 export function ClientHeaderCard({
@@ -242,6 +245,7 @@ export function ClientHeaderCard({
   missingRed,
   missingYellow,
   useCases,
+  onboardingLabel,
 }: ClientHeaderCardProps) {
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
@@ -252,9 +256,10 @@ export function ClientHeaderCard({
             <Building2 size={26} strokeWidth={1.5} />
           </span>
           <div>
-            <div className="mb-1.5 flex items-center gap-2">
+            <div className="mb-1.5 flex flex-wrap items-center gap-2">
               <Badge tone={statusTone}>{statusLabel}</Badge>
               {tier && <Badge tone="neutral">{tier}</Badge>}
+              {onboardingLabel && <Badge tone="sirius" dot>Onboarding · {onboardingLabel}</Badge>}
               <CompletenessBadge severity={profileSeverity} missingRed={missingRed} missingYellow={missingYellow} />
             </div>
             <h1 className="h3">{name}</h1>

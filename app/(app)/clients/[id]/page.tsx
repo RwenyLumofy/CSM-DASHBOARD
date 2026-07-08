@@ -20,6 +20,7 @@ import { isSuperAdmin } from "@/lib/auth";
 import { integrations } from "@/lib/config";
 import { applyDealOverrides, computeRenewal, dealOverridesMap, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
+import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { getSupabaseProjectUrl } from "@/lib/integrations/supabase-storage";
 import { getClientHealthConfig } from "@/lib/assignment/config";
 
@@ -82,6 +83,12 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const statusTone: "sirius" | "neutral" = client.status === "churned" ? "neutral" : "sirius";
   const dealDates = (props[DEAL_DATES_KEY] as DealDatesMap | undefined) ?? {};
   const completeness = computeProfileCompleteness(client, effectiveTrackedDeals, dealDates);
+  // Onboarding period (kickoff→launch, or →today while ongoing) as a header
+  // badge — computed live from the deals + milestone dates the page already
+  // has, so it's current without waiting for the daily health recompute.
+  const onboarding = computeOnboardingPeriod(effectiveTrackedDeals, dealDates);
+  const onboardingLabel =
+    onboarding.days == null ? null : onboarding.ongoing ? `${onboarding.days}d · ongoing` : `${onboarding.days}d`;
   // Attachment uploads go straight from the browser to Supabase Storage — the
   // project URL is safe to hand down (it's not a secret), but only once the
   // two Supabase keys are actually configured.
@@ -120,6 +127,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         missingRed={completeness.missingRed.map((f) => f.label)}
         missingYellow={completeness.missingYellow.map((f) => f.label)}
         useCases={useCases}
+        onboardingLabel={onboardingLabel}
       />
 
       {/* ── Tabs ─────────────────────────────────────────────────────── */}
