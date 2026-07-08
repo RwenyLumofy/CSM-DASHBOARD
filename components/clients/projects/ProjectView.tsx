@@ -8,9 +8,10 @@
    by ProjectsTab, which applies them optimistically for instant feedback. */
 
 import { useEffect, useRef, useState } from "react";
-import { CalendarDays, Check, ChevronDown, LayoutGrid, ListChecks, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
+import { CalendarDays, Check, CheckCircle2, ChevronDown, LayoutGrid, ListChecks, MoreHorizontal, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
+import { defaultProjectStatusId, isProjectComplete } from "@/lib/projects/config";
 import type { MilestoneInput, MilestoneWithTasks, ProjectDetail, ProjectInput, Task, TaskInput } from "@/lib/projects/types";
 import {
   MenuItem,
@@ -42,7 +43,10 @@ export interface ProjectApi {
   editMilestone(id: string, patch: { name?: string; description?: string | null; dueDate?: string | null }): Promise<Result>;
   updateProject(patch: Partial<ProjectInput> & { status?: string }): Promise<Result>;
   saveAsTemplate(name: string, description: string | null): Promise<Result>;
+  /** Task id that most recently landed via drag — plays the "landed" pulse. */
   lastMovedTaskId: string | null;
+  /** Task id that was just marked done — plays the green completion flash. */
+  justCompletedTaskId: string | null;
 }
 
 type View = "checklist" | "board";
@@ -61,6 +65,8 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
   const doneStatusId = config.taskStatuses.find((s) => s.terminal === "done")?.id ?? null;
   const milestoneOptions = project.milestones.map((m) => ({ id: m.id, name: m.name }));
   const complete = progress.total > 0 && progress.done === progress.total;
+  const projectDone = isProjectComplete(config, project.status);
+  const terminalStatusId = config.projectStatuses.find((s) => s.terminal === "complete")?.id ?? null;
 
   // Escape closes the lightbox (but let an open child modal handle it first).
   useEffect(() => {
@@ -80,10 +86,14 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
       <div className="pm-overlay-in relative z-10 flex h-full w-full max-w-[1280px] flex-col overflow-hidden border-border bg-bg shadow-xl sm:h-[90vh] sm:rounded-2xl sm:border">
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-border px-5 py-3.5 sm:px-6">
+          {projectDone && <CheckCircle2 size={20} className="shrink-0 text-[#2DB47A]" />}
           {project.type && <OptionPill options={config.projectTypes} id={project.type} />}
-          <h1 className="min-w-0 flex-1 truncate font-display text-[19px] font-semibold text-fg">{project.name}</h1>
+          <h1 className={cn("min-w-0 flex-1 truncate font-display text-[19px] font-semibold", projectDone ? "text-fg-muted" : "text-fg")}>{project.name}</h1>
           {canManage && (
             <>
+              {projectDone
+                ? terminalStatusId && <Button size="sm" variant="secondary" iconLeft={RotateCcw} onClick={() => void api.updateProject({ status: defaultProjectStatusId(config) })}>Reopen</Button>
+                : terminalStatusId && <Button size="sm" iconLeft={CheckCircle2} onClick={() => void api.updateProject({ status: terminalStatusId })}>Mark complete</Button>}
               <button onClick={() => setEditProject(true)} title="Edit project" className="rounded-lg p-2 text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg">
                 <Pencil size={16} />
               </button>
@@ -161,6 +171,7 @@ export function ProjectView({ ctx, project, api, onClose }: { ctx: ProjectsConte
                   milestone={m}
                   doneStatusId={doneStatusId}
                   lastMovedTaskId={api.lastMovedTaskId}
+                  justCompletedTaskId={api.justCompletedTaskId}
                   onToggle={(t) => api.toggleTask(t)}
                   onStatus={(t, s) => api.moveTask(t, s)}
                   onEditTask={(t) => setTaskModal({ milestoneId: m.id, task: t })}
@@ -230,6 +241,7 @@ function MilestoneSection({
   milestone,
   doneStatusId,
   lastMovedTaskId,
+  justCompletedTaskId,
   onToggle,
   onStatus,
   onEditTask,
@@ -242,6 +254,7 @@ function MilestoneSection({
   milestone: MilestoneWithTasks;
   doneStatusId: string | null;
   lastMovedTaskId: string | null;
+  justCompletedTaskId: string | null;
   onToggle: (t: Task) => void;
   onStatus: (t: Task, s: string) => void;
   onEditTask: (t: Task) => void;
@@ -252,9 +265,12 @@ function MilestoneSection({
 }) {
   const [open, setOpen] = useState(true);
   const total = milestone.tasks.length;
-  const doneCount = doneStatusId ? milestone.tasks.filter((t) => t.status === doneStatusId).length : 0;
+  const isDone = (t: Task) => doneStatusId != null && t.status === doneStatusId;
+  const doneCount = milestone.tasks.filter(isDone).length;
   const pct = total === 0 ? 0 : Math.round((doneCount / total) * 100);
   const mComplete = total > 0 && doneCount === total;
+  // Completed tasks sink to the bottom (stable within each group).
+  const orderedTasks = [...milestone.tasks].sort((a, b) => Number(isDone(a)) - Number(isDone(b)));
 
   return (
     <div className="pm-in overflow-hidden rounded-2xl border border-border bg-surface">
@@ -287,8 +303,8 @@ function MilestoneSection({
           {milestone.tasks.length === 0 ? (
             <div className="px-4 py-3 font-body text-[12.5px] text-fg-subtle">No tasks yet.</div>
           ) : (
-            milestone.tasks.map((t) => (
-              <TaskRow key={t.id} ctx={ctx} task={t} doneStatusId={doneStatusId} landed={t.id === lastMovedTaskId} onToggle={onToggle} onStatus={onStatus} onEdit={() => onEditTask(t)} onDelete={() => onDeleteTask(t)} />
+            orderedTasks.map((t) => (
+              <TaskRow key={t.id} ctx={ctx} task={t} doneStatusId={doneStatusId} landed={t.id === lastMovedTaskId} justCompleted={t.id === justCompletedTaskId} onToggle={onToggle} onStatus={onStatus} onEdit={() => onEditTask(t)} onDelete={() => onDeleteTask(t)} />
             ))
           )}
           {ctx.canManage && (
@@ -307,6 +323,7 @@ function TaskRow({
   task,
   doneStatusId,
   landed,
+  justCompleted,
   onToggle,
   onStatus,
   onEdit,
@@ -316,6 +333,7 @@ function TaskRow({
   task: Task;
   doneStatusId: string | null;
   landed: boolean;
+  justCompleted: boolean;
   onToggle: (t: Task) => void;
   onStatus: (t: Task, s: string) => void;
   onEdit: () => void;
@@ -324,18 +342,18 @@ function TaskRow({
   const isDone = doneStatusId != null && task.status === doneStatusId;
   const ownerName = memberName(ctx.members, task.ownerEmail);
   return (
-    <div className={cn("group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-bg-muted/30", landed && "pm-land")}>
+    <div className={cn("group flex items-center gap-3 px-4 py-2.5 transition-colors", isDone ? "bg-[#2DB47A]/[0.05] hover:bg-[#2DB47A]/[0.09]" : "hover:bg-bg-muted/30", landed && "pm-land", justCompleted && "pm-complete")}>
       <button
         onClick={() => onToggle(task)}
         disabled={!ctx.canManage || !doneStatusId}
         title={isDone ? "Mark not done" : "Mark done"}
         className={cn(
-          "flex size-[18px] shrink-0 items-center justify-center rounded-md border transition-all duration-200",
+          "flex size-[18px] shrink-0 items-center justify-center rounded-md border transition-all duration-200 active:scale-90",
           isDone ? "border-[#2DB47A] bg-[#2DB47A] text-white" : "border-border-strong hover:scale-110 hover:border-sirius",
           !ctx.canManage && "cursor-default opacity-70",
         )}
       >
-        {isDone && <Check size={12} strokeWidth={3} className="pm-check" />}
+        {isDone && <Check size={13} strokeWidth={3} className="pm-check" />}
       </button>
       <button onClick={onEdit} className="min-w-0 flex-1 text-left">
         <span className={cn("truncate font-body text-[13px] transition-colors", isDone ? "text-fg-subtle line-through" : "text-fg")}>{task.name}</span>

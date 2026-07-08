@@ -21,6 +21,8 @@ import type { ActionCategory, ActionPriority, Client, Contact, Deal } from "@/li
 import type { DealDatesMap } from "@/lib/deal-overrides";
 import type { UsageResult } from "@/lib/usage/types";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
+import { formatDate } from "@/lib/format";
+import type { ProjectDeadlineItem } from "@/lib/projects/deadlines";
 
 /** A stakeholder-mapping entry as stored in client.properties.stakeholder_mappings. */
 export interface StakeholderMapping {
@@ -39,6 +41,8 @@ export interface SignalInputs {
   usage: UsageResult;
   contacts: Contact[];
   stakeholderMappings: StakeholderMapping[];
+  /** Overdue / due-soon projects & tasks for this account (pre-computed). */
+  projectDeadlines: ProjectDeadlineItem[];
 }
 
 export interface ActionSignal {
@@ -84,7 +88,7 @@ function normalizeCsat(value: number, scale: "percent" | "five"): number {
 }
 
 export function detectSignals(inputs: SignalInputs): ActionSignal[] {
-  const { client, trackedDeals, dealDates, usage, contacts, stakeholderMappings } = inputs;
+  const { client, trackedDeals, dealDates, usage, contacts, stakeholderMappings, projectDeadlines } = inputs;
   const name = client.name;
   const out: ActionSignal[] = [];
 
@@ -205,6 +209,28 @@ export function detectSignals(inputs: SignalInputs): ActionSignal[] {
         `hours so far, ${overdueHours}h over. Respond or escalate.` +
         (worst.url ? ` ${worst.url}` : ""),
       facts: { conversationId, breaches: bs, supportLevel: s.supportLevelUsed },
+    });
+  }
+
+  // ── #3 Project deadlines — one action per overdue / due-soon project|task ─
+  // Deterministic per-item signalKey so each auto-resolves the moment the item
+  // is completed or its date is pushed out (next generation drops the signal).
+  for (const d of projectDeadlines) {
+    const noun = d.kind === "task" ? "Task" : "Project";
+    const where = d.kind === "task" ? ` in project “${d.projectName}”` : "";
+    const overdue = d.state === "overdue";
+    const whenDue = overdue
+      ? `was due ${formatDate(d.deliveryDate)} (${Math.abs(d.daysUntil)} day${Math.abs(d.daysUntil) === 1 ? "" : "s"} ago)`
+      : d.daysUntil === 0
+        ? `is due today (${formatDate(d.deliveryDate)})`
+        : `is due in ${d.daysUntil} day${d.daysUntil === 1 ? "" : "s"} (${formatDate(d.deliveryDate)})`;
+    out.push({
+      category: "project",
+      signalKey: `${d.kind}:${d.id}`,
+      priority: overdue ? "high" : "medium",
+      title: `${overdue ? "Overdue" : "Due soon"} — ${d.name} · ${name}`,
+      insight: `${noun} “${d.name}”${where} ${whenDue} and isn’t ${d.kind === "task" ? "done" : "complete"}. ${overdue ? "Close it out or move the date." : "Make sure it lands on time."}`,
+      facts: { kind: d.kind, id: d.id, project: d.projectName, deliveryDate: d.deliveryDate, daysUntil: d.daysUntil, state: d.state, owner: d.ownerEmail },
     });
   }
 

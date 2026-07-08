@@ -19,6 +19,7 @@ import {
   AlarmClockOff,
   ClipboardList,
   ExternalLink,
+  FolderKanban,
   HeartPulse,
   Loader2,
   MessageSquare,
@@ -55,6 +56,7 @@ const CATEGORY_META: Record<ActionCategory, { label: string; icon: LucideIcon; t
   stakeholders: { label: "Stakeholders", icon: Users, tone: "border-[#2DB47A]/30 bg-[#E6F9EF] text-[#1E8F61]" },
   sentiment: { label: "Sentiment", icon: MessageSquare, tone: "border-[#C99A14]/30 bg-[#FBF6E0] text-[#8A6A0A]" },
   sla: { label: "SLA", icon: AlarmClockOff, tone: "border-[#E31B1B]/30 bg-[#FDE8E8] text-[#B91C1C]" },
+  project: { label: "Projects", icon: FolderKanban, tone: "border-[#0E7C7C]/30 bg-[#E6F7F7] text-[#0E7C7C]" },
 };
 
 const PRIORITY_META: Record<ActionPriority, { label: string; dot: string; order: number }> = {

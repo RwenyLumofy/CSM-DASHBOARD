@@ -495,7 +495,8 @@ export type ActionCategory =
   | "health"
   | "stakeholders"
   | "sentiment"
-  | "sla";
+  | "sla"
+  | "project";
 
 export type ActionPriority = "high" | "medium" | "low";
 /** open = active guidance; dismissed = CSM hid it (sticky across regens);

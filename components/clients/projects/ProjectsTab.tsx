@@ -13,13 +13,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, FolderKanban, Minus, Plus, Settings2, Trash2, X } from "lucide-react";
+import { Check, CheckCircle2, FolderKanban, Minus, Plus, Settings2, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import type { Contact } from "@/lib/types";
-import { defaultProjectStatusId, defaultTaskStatusId, type ProjectConfig } from "@/lib/projects/config";
+import { defaultProjectStatusId, defaultTaskStatusId, isProjectComplete, type ProjectConfig } from "@/lib/projects/config";
 import type { MilestoneInput, MilestoneWithTasks, ProjectDetail, ProjectInput, Task, TaskInput } from "@/lib/projects/types";
 import {
   addMilestoneAction,
@@ -74,7 +74,9 @@ export function ProjectsTab(props: Props) {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [newOpen, setNewOpen] = useState(false);
   const [lastMovedTaskId, setLastMovedTaskId] = useState<string | null>(null);
+  const [justCompletedTaskId, setJustCompletedTaskId] = useState<string | null>(null);
   const landTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const completeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef(0);
 
   // Re-sync from the server after refresh() — but NOT while a mutation is still
@@ -169,6 +171,11 @@ export function ProjectsTab(props: Props) {
     if (landTimer.current) clearTimeout(landTimer.current);
     landTimer.current = setTimeout(() => setLastMovedTaskId(null), 640);
   }
+  function flashCompleted(taskId: string) {
+    setJustCompletedTaskId(taskId);
+    if (completeTimer.current) clearTimeout(completeTimer.current);
+    completeTimer.current = setTimeout(() => setJustCompletedTaskId(null), 950);
+  }
 
   function updateProjectById(projectId: string, patch: Partial<ProjectInput> & { status?: string }): Promise<Result> {
     patchProject(projectId, (p) => ({ ...p, ...patch }));
@@ -177,16 +184,21 @@ export function ProjectsTab(props: Props) {
 
   const api: ProjectApi = {
     lastMovedTaskId,
+    justCompletedTaskId,
     moveTask: (task, toStatus) => {
+      const doneId = config.taskStatuses.find((s) => s.terminal === "done")?.id;
       patchTaskInPlace(task.projectId, task.id, (t) => ({ ...t, status: toStatus }));
-      flashLanded(task.id);
+      if (doneId && toStatus === doneId && task.status !== doneId) flashCompleted(task.id);
+      else flashLanded(task.id);
       void run(() => updateTaskAction(clientId, task.id, { status: toStatus }));
     },
     toggleTask: (task) => {
       const doneId = config.taskStatuses.find((s) => s.terminal === "done")?.id;
       if (!doneId) return;
-      const next = task.status === doneId ? defaultTaskStatusId(config) : doneId;
+      const becomingDone = task.status !== doneId;
+      const next = becomingDone ? doneId : defaultTaskStatusId(config);
       patchTaskInPlace(task.projectId, task.id, (t) => ({ ...t, status: next }));
+      if (becomingDone) flashCompleted(task.id);
       void run(() => updateTaskAction(clientId, task.id, { status: next }));
     },
     deleteTask: (task) => {
@@ -419,17 +431,18 @@ function ProjectTable({
           {projects.map((p) => {
             const progress = projectProgress(p, ctx.config);
             const complete = progress.total > 0 && progress.done === progress.total;
-            const overdue = isOverdue(p.deliveryDate) && !complete;
+            const done = isProjectComplete(ctx.config, p.status);
+            const overdue = isOverdue(p.deliveryDate) && !complete && !done;
             const isChecked = checked.has(p.id);
             return (
-              <tr key={p.id} onClick={() => onOpen(p.id)} className={cn("pm-in group cursor-pointer transition-colors", isChecked ? "bg-accent-soft/50" : "hover:bg-bg-muted/40")}>
+              <tr key={p.id} onClick={() => onOpen(p.id)} className={cn("pm-in group cursor-pointer transition-colors", isChecked ? "bg-accent-soft/50" : done ? "bg-[#2DB47A]/[0.04] hover:bg-[#2DB47A]/[0.08]" : "hover:bg-bg-muted/40")}>
                 {ctx.canManage && (
                   <td className="px-4 py-3.5"><TriCheck state={isChecked ? "on" : "off"} onClick={() => onToggle(p.id)} label={`Select ${p.name}`} /></td>
                 )}
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-2">
-                    {p.type && <OptionDot ctx={ctx} typeId={p.type} />}
-                    <span className="font-body text-[14px] font-semibold text-fg transition-colors group-hover:text-sirius">{p.name}</span>
+                    {done ? <CheckCircle2 size={15} className="shrink-0 text-[#2DB47A]" /> : p.type && <OptionDot ctx={ctx} typeId={p.type} />}
+                    <span className={cn("font-body text-[14px] font-semibold transition-colors", done ? "text-fg-muted" : "text-fg group-hover:text-sirius")}>{p.name}</span>
                     {typeLabel(ctx, p.type) && <span className="hidden font-body text-[11.5px] text-fg-subtle sm:inline">· {typeLabel(ctx, p.type)}</span>}
                   </div>
                   {progress.total > 0 && (

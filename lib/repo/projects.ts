@@ -143,6 +143,43 @@ export async function getProjectBoardForClient(clientId: string): Promise<Projec
   return projects.map((p) => ({ ...rowToProject(p), milestones: milestonesByProject.get(p.id) ?? [] }));
 }
 
+/**
+ * Every account's project board, grouped by clientId — three unfiltered reads
+ * assembled in JS. Used by the daily action/notification sweeps so they don't
+ * fetch a board per client.
+ */
+export async function getAllProjectBoards(): Promise<Map<string, ProjectDetail[]>> {
+  const db = getDb();
+  const [projects, milestones, tasks] = await withDbTimeout(
+    Promise.all([
+      db.select().from(schema.clientProjects).orderBy(asc(schema.clientProjects.sortOrder), desc(schema.clientProjects.createdAt)),
+      db.select().from(schema.projectMilestones).orderBy(asc(schema.projectMilestones.sortOrder), asc(schema.projectMilestones.createdAt)),
+      db.select().from(schema.projectTasks).orderBy(asc(schema.projectTasks.sortOrder), asc(schema.projectTasks.createdAt)),
+    ]),
+  );
+  const tasksByMilestone = new Map<string, Task[]>();
+  for (const t of tasks) {
+    const arr = tasksByMilestone.get(t.milestoneId);
+    if (arr) arr.push(rowToTask(t));
+    else tasksByMilestone.set(t.milestoneId, [rowToTask(t)]);
+  }
+  const milestonesByProject = new Map<string, MilestoneWithTasks[]>();
+  for (const m of milestones) {
+    const withTasks: MilestoneWithTasks = { ...rowToMilestone(m), tasks: tasksByMilestone.get(m.id) ?? [] };
+    const arr = milestonesByProject.get(m.projectId);
+    if (arr) arr.push(withTasks);
+    else milestonesByProject.set(m.projectId, [withTasks]);
+  }
+  const byClient = new Map<string, ProjectDetail[]>();
+  for (const p of projects) {
+    const detail: ProjectDetail = { ...rowToProject(p), milestones: milestonesByProject.get(p.id) ?? [] };
+    const arr = byClient.get(p.clientId);
+    if (arr) arr.push(detail);
+    else byClient.set(p.clientId, [detail]);
+  }
+  return byClient;
+}
+
 /** Single project id → its clientId (for authorizing task/milestone edits). */
 export async function getProjectClientId(projectId: string): Promise<string | null> {
   const db = getDb();

@@ -318,6 +318,10 @@ body {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+@keyframes pm-complete {
+  0%   { background-color: rgba(45, 180, 122, 0.22); }
+  100% { background-color: transparent; }
+}
 
 .pm-in       { animation: pm-in var(--duration-base) var(--ease-standard) both; }
 .pm-pop      { animation: pm-pop 280ms var(--ease-emphasis) both; }
@@ -325,6 +329,7 @@ body {
 .pm-overlay-in { animation: pm-overlay-in 260ms var(--ease-standard) both; }
 .pm-check    { animation: pm-check 220ms var(--ease-emphasis) both; }
 .pm-fade     { animation: pm-fade var(--duration-base) var(--ease-standard) both; }
+.pm-complete { animation: pm-complete 900ms var(--ease-standard); }
 
 /* ---------- Reduced motion --------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
