@@ -75,7 +75,7 @@ export const HEALTH_METRIC_HELP: Record<HealthMetricKey, string> = {
   csat: "Latest CSAT — the % of Intercom conversation ratings that were satisfied (4–5★). Skipped if the account has no ratings yet.",
   nps: "Latest NPS, rescaled to 0–100 as (NPS + 100) ÷ 2. Skipped until an NPS source is connected (none today).",
   sla_breaches: "How many currently-open tickets have blown their SLA target. Scores 100 at zero breaches, sliding to 0 once the count hits the ‘breaches → 0’ ceiling. Skipped if the account has no support level set.",
-  onboarding_period: "Average, across the account's deals, of each deal's Kick-off → Launch days (or Kick-off → today while not launched). Scores 100 at/under the target days and 0 at/over the max days, linear between. Always scored once any deal has a kick-off date; skipped only if none do.",
+  onboarding_period: "Measured on the account's latest-kick-off deal — its Kick-off → Launch days (or Kick-off → today while not launched); a newer deal supersedes an older one, and only deals sharing that same latest kick-off are averaged. Scores 100 at/under the target days and 0 at/over the max days, linear between. Skipped only if no deal has a kick-off date.",
   use_case_set: "100 if at least one Use Case is set across the account's deals, otherwise 0.",
   profile_complete: "100 if the account has no missing required profile fields (no red alert), otherwise 0.",
   stakeholder_mapping: "100 if at least one stakeholder role has a contact assigned in the Communication tab, otherwise 0.",
