@@ -142,6 +142,7 @@ export const clientAttachments = pgTable("client_attachments", {
   clientId: text("client_id").notNull(),
   hubspotFileId: text("hubspot_file_id"),
   dealId: text("deal_id"),
+  category: text("category"), // admin-defined value from workspace_config "attachment_categories"; null = uncategorized
   name: text("name").notNull(),
   url: text("url"),
   extension: text("extension"),

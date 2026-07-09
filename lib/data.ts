@@ -285,6 +285,7 @@ export async function getAttachmentUploadTarget(clientId: string, fileName: stri
 export async function recordAttachment(input: {
   clientId: string;
   dealId: string | null;
+  category: string | null;
   path: string;
   name: string;
   extension: string;
@@ -299,6 +300,7 @@ export async function recordAttachment(input: {
     clientId: input.clientId,
     hubspotFileId: null,
     dealId: input.dealId,
+    category: input.category,
     name: input.name,
     url,
     extension: input.extension,
@@ -327,6 +329,12 @@ export async function deleteAttachment(clientId: string, attachmentId: string): 
     }
   }
   await deleteClientAttachment(clientId, attachmentId);
+}
+
+export async function updateAttachmentCategory(clientId: string, attachmentId: string, category: string | null): Promise<void> {
+  if (!hasDatabase()) throw new Error("Database not configured");
+  const { updateClientAttachmentCategory } = await import("@/lib/repo/drizzle");
+  await updateClientAttachmentCategory(clientId, attachmentId, category);
 }
 
 export async function getDealsForClient(clientId: string): Promise<Deal[]> {

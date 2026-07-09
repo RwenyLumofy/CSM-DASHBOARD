@@ -72,11 +72,11 @@ import { recalculateClientHealthAction } from "@/app/(app)/clients/[id]/health-a
 import { formatCurrency, formatDate, formatNumber, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { ATTACHMENTS_BUCKET, ALLOWED_ATTACHMENT_EXTENSIONS, MAX_ATTACHMENT_BYTES, extensionOf, isAllowedAttachmentExtension } from "@/lib/attachments";
-import { createAttachmentUploadUrlAction, recordAttachmentAction, deleteAttachmentAction } from "@/app/(app)/clients/[id]/attachment-actions";
+import { createAttachmentUploadUrlAction, recordAttachmentAction, deleteAttachmentAction, updateAttachmentCategoryAction } from "@/app/(app)/clients/[id]/attachment-actions";
 import { addContactAction, deleteContactAction } from "@/app/(app)/clients/[id]/contact-actions";
 import { UsageTab } from "@/components/clients/UsageTab";
 import { ProjectsTab } from "@/components/clients/projects/ProjectsTab";
-import { PopMenu, type Member } from "@/components/clients/projects/shared";
+import { PopMenu, MenuItem, type Member } from "@/components/clients/projects/shared";
 import type { ProjectConfig } from "@/lib/projects/config";
 import type { ProjectDetail } from "@/lib/projects/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
@@ -455,7 +455,36 @@ function AttachmentsTab({
 }) {
   const router = useRouter();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [dealFilter, setDealFilter] = useState("all");
   const dealName = (dealId: string | null) => (dealId ? deals.find((d) => d.id === dealId)?.name ?? "—" : "—");
+
+  useEffect(() => {
+    fetch("/api/admin/stakeholder-config?key=attachment_categories")
+      .then((r) => r.json())
+      .then((data) => setCategories(Array.isArray(data.value) ? data.value : []))
+      .catch(() => {});
+  }, []);
+
+  // Union of the admin-configured list with any value already present on this
+  // client's own attachments -- a category value set before this feature
+  // existed, or later removed from Settings, still shows correctly and stays
+  // filterable/selectable instead of silently disappearing (category is a
+  // free-text column, not a foreign key into the admin list).
+  const categoryOptions = useMemo(() => {
+    const used = attachments.map((a) => a.category).filter((c): c is string => !!c);
+    return [...new Set([...categories, ...used])].sort((a, b) => a.localeCompare(b));
+  }, [categories, attachments]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return attachments
+      .filter((a) => !q || a.name.toLowerCase().includes(q))
+      .filter((a) => categoryFilter === "all" || a.category === categoryFilter)
+      .filter((a) => dealFilter === "all" || a.dealId === dealFilter);
+  }, [attachments, search, categoryFilter, dealFilter]);
 
   async function remove(a: Attachment) {
     if (!confirm(`Delete "${a.name}"? This can't be undone.`)) return;
@@ -477,77 +506,174 @@ function AttachmentsTab({
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <CardEyebrow>Attachments</CardEyebrow>
-          <Badge tone="neutral">{attachments.length}</Badge>
+          <Badge tone="neutral">{filtered.length}{filtered.length !== attachments.length ? " of " + attachments.length : ""}</Badge>
         </div>
-        <AttachmentUploadButton clientId={clientId} deals={deals} supabaseUrl={supabaseUrl} />
+        <AttachmentUploadButton clientId={clientId} deals={deals} supabaseUrl={supabaseUrl} categories={categories} />
       </div>
       {attachments.length === 0 ? (
         <EmptyHint icon={Paperclip} title="No files yet" body="Upload contracts, decks, or other files to keep them with this account." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full table-fixed border-collapse">
-            <colgroup>
-              <col className="w-[45%]" />
-              <col className="w-[130px]" />
-              <col />
-              <col className="w-10" />
-            </colgroup>
-            <thead>
-              <tr className="border-b border-border-subtle">
-                <th className="pb-2 pr-4 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Name</th>
-                <th className="pb-2 pr-4 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Uploaded</th>
-                <th className="pb-2 pr-4 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Deal</th>
-                <th className="pb-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {attachments.map((a) => (
-                <tr key={a.id} className="border-b border-border-subtle last:border-0">
-                  <td className="max-w-0 py-2.5 pr-4">
-                    {a.url ? (
-                      <a href={a.url} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-2 font-body text-[13px] font-medium text-fg hover:text-sirius">
-                        <FileText size={15} className="shrink-0 text-fg-subtle" />
-                        <span className="truncate">{a.name}</span>
-                        {a.extension && <Badge tone="neutral">{a.extension.toUpperCase()}</Badge>}
-                      </a>
-                    ) : (
-                      <span className="flex min-w-0 items-center gap-2 font-body text-[13px] font-medium text-fg" title="File stored in HubSpot">
-                        <Paperclip size={14} className="shrink-0 text-fg-subtle" />
-                        <span className="truncate">{a.name}</span>
-                        {a.extension && <Badge tone="neutral">{a.extension.toUpperCase()}</Badge>}
-                      </span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap py-2.5 pr-4 font-body text-[13px] text-fg-muted">{formatDate(a.createdAt)}</td>
-                  <td className="truncate py-2.5 pr-4 font-body text-[13px] text-fg-muted">{dealName(a.dealId)}</td>
-                  <td className="py-2.5 text-right">
-                    <button
-                      onClick={() => remove(a)}
-                      disabled={deletingId === a.id}
-                      title="Delete attachment"
-                      className="rounded-md p-1 text-fg-subtle hover:bg-bg-muted hover:text-[#B23A57] disabled:opacity-50"
-                    >
-                      {deletingId === a.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div className="flex min-w-[180px] flex-1 items-center gap-1.5 rounded-lg border border-border bg-bg px-2.5 py-1.5">
+              <Search size={13} className="shrink-0 text-fg-subtle" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by file name…"
+                className="w-full bg-transparent font-body text-[12.5px] text-fg outline-none placeholder:text-fg-subtle"
+              />
+            </div>
+            <TicketFilterSelect value={categoryFilter} onChange={setCategoryFilter} label="Category">
+              <option value="all">All categories</option>
+              {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+            </TicketFilterSelect>
+            <TicketFilterSelect value={dealFilter} onChange={setDealFilter} label="Deal">
+              <option value="all">All deals</option>
+              {deals.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.id}</option>)}
+            </TicketFilterSelect>
+          </div>
+          {filtered.length === 0 ? (
+            <EmptyHint icon={Paperclip} title="No attachments match these filters" body="Try clearing a filter or the search box to see more files." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full table-fixed border-collapse">
+                <colgroup>
+                  <col className="w-[36%]" />
+                  <col className="w-[150px]" />
+                  <col className="w-[110px]" />
+                  <col />
+                  <col className="w-10" />
+                </colgroup>
+                <thead>
+                  <tr className="border-b border-border-subtle">
+                    <th className="pb-2 pr-4 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Name</th>
+                    <th className="pb-2 pr-4 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Category</th>
+                    <th className="pb-2 pr-4 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Uploaded</th>
+                    <th className="pb-2 pr-4 text-left font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Deal</th>
+                    <th className="pb-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((a) => (
+                    <tr key={a.id} className="border-b border-border-subtle last:border-0">
+                      <td className="max-w-0 py-2.5 pr-4">
+                        {a.url ? (
+                          <a href={a.url} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-2 font-body text-[13px] font-medium text-fg hover:text-sirius">
+                            <FileText size={15} className="shrink-0 text-fg-subtle" />
+                            <span className="truncate">{a.name}</span>
+                            {a.extension && <Badge tone="neutral">{a.extension.toUpperCase()}</Badge>}
+                          </a>
+                        ) : (
+                          <span className="flex min-w-0 items-center gap-2 font-body text-[13px] font-medium text-fg" title="File stored in HubSpot">
+                            <Paperclip size={14} className="shrink-0 text-fg-subtle" />
+                            <span className="truncate">{a.name}</span>
+                            {a.extension && <Badge tone="neutral">{a.extension.toUpperCase()}</Badge>}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <AttachmentCategoryPicker
+                          clientId={clientId}
+                          attachmentId={a.id}
+                          value={a.category}
+                          options={categoryOptions}
+                          onChanged={() => router.refresh()}
+                        />
+                      </td>
+                      <td className="whitespace-nowrap py-2.5 pr-4 font-body text-[13px] text-fg-muted">{formatDate(a.createdAt)}</td>
+                      <td className="truncate py-2.5 pr-4 font-body text-[13px] text-fg-muted">{dealName(a.dealId)}</td>
+                      <td className="py-2.5 text-right">
+                        <button
+                          onClick={() => remove(a)}
+                          disabled={deletingId === a.id}
+                          title="Delete attachment"
+                          className="rounded-md p-1 text-fg-subtle hover:bg-bg-muted hover:text-[#B23A57] disabled:opacity-50"
+                        >
+                          {deletingId === a.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </Card>
+  );
+}
+
+/** Inline category picker for one attachment row -- a neutral Badge pill when
+ *  set, or a dashed "+ Category" placeholder when uncategorized, opening a
+ *  PopMenu (Uncategorized + every known category) on click. Selecting a row
+ *  persists immediately via updateAttachmentCategoryAction and refreshes. */
+function AttachmentCategoryPicker({
+  clientId, attachmentId, value, options, onChanged,
+}: {
+  clientId: string;
+  attachmentId: string;
+  value: string | null;
+  options: string[];
+  onChanged: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  async function set(next: string | null) {
+    setSaving(true);
+    try {
+      const res = await updateAttachmentCategoryAction(clientId, attachmentId, next);
+      if (!res.ok) {
+        alert(res.error ?? "Failed to update the category.");
+        return;
+      }
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <PopMenu
+      trigger={() => (
+        <span className="inline-flex items-center gap-1.5">
+          {value ? (
+            <Badge tone="neutral">{value}</Badge>
+          ) : (
+            <span className="rounded-lg border border-dashed border-border px-2 py-1 font-body text-[11.5px] font-medium text-fg-subtle transition-colors hover:border-sirius-200 hover:text-fg-muted">
+              + Category
+            </span>
+          )}
+          {saving && <Loader2 size={11} className="animate-spin text-fg-subtle" />}
+        </span>
+      )}
+    >
+      {(close) => (
+        <>
+          <MenuItem selected={!value} onClick={() => { set(null); close(); }}>
+            <span className="text-fg-muted">Uncategorized</span>
+          </MenuItem>
+          {options.map((o) => (
+            <MenuItem key={o} selected={value === o} onClick={() => { set(o); close(); }}>
+              {o}
+            </MenuItem>
+          ))}
+        </>
+      )}
+    </PopMenu>
   );
 }
 
 /** Upload button + dialog — files go straight from the browser to Supabase
  *  Storage via a signed upload URL (never through our server), then a server
  *  action records the resulting metadata (name/deal/date) against the client. */
-function AttachmentUploadButton({ clientId, deals, supabaseUrl }: { clientId: string; deals: Deal[]; supabaseUrl: string | null }) {
+function AttachmentUploadButton({ clientId, deals, supabaseUrl, categories }: { clientId: string; deals: Deal[]; supabaseUrl: string | null; categories: string[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [dealId, setDealId] = useState("");
+  const [category, setCategory] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -556,6 +682,7 @@ function AttachmentUploadButton({ clientId, deals, supabaseUrl }: { clientId: st
   function openDialog() {
     setFile(null);
     setDealId("");
+    setCategory("");
     setError(null);
     setOpen(true);
   }
@@ -596,7 +723,7 @@ function AttachmentUploadButton({ clientId, deals, supabaseUrl }: { clientId: st
         setError(uploadError.message);
         return;
       }
-      const recorded = await recordAttachmentAction(clientId, { path: target.path, name: file.name, size: file.size, dealId: dealId || null });
+      const recorded = await recordAttachmentAction(clientId, { path: target.path, name: file.name, size: file.size, dealId: dealId || null, category: category || null });
       if (!recorded.ok) {
         setError(recorded.error ?? "Uploaded, but failed to save the attachment record.");
         return;
@@ -653,6 +780,20 @@ function AttachmentUploadButton({ clientId, deals, supabaseUrl }: { clientId: st
                     <option key={d.id} value={d.id}>
                       {d.name ?? d.id}
                     </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block font-body text-[12px] font-semibold text-fg-muted">Category (optional)</label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  disabled={busy}
+                  className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] text-fg outline-none ring-sirius focus:ring-2"
+                >
+                  <option value="">No category</option>
+                  {categories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </div>

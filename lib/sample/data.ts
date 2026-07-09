@@ -666,6 +666,7 @@ function buildSeedAttachments(c: Client): Attachment[] {
       clientId: c.id,
       hubspotFileId: `hsf-${c.id}-1`,
       dealId: `seed-deal-${c.id}`,
+      category: "Contract",
       name: "Signed Agreement.pdf",
       url: null,
       extension: "pdf",

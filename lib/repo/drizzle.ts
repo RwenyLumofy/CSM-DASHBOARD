@@ -259,6 +259,7 @@ function attachmentRowTo(r: AttachmentRow): Attachment {
     clientId: r.clientId,
     hubspotFileId: r.hubspotFileId,
     dealId: r.dealId,
+    category: r.category,
     name: r.name,
     url: r.url,
     extension: r.extension,
@@ -298,6 +299,16 @@ export async function deleteClientAttachment(clientId: string, attachmentId: str
   );
 }
 
+export async function updateClientAttachmentCategory(clientId: string, attachmentId: string, category: string | null): Promise<void> {
+  const db = getDb();
+  await withDbTimeout(
+    db
+      .update(schema.clientAttachments)
+      .set({ category })
+      .where(and(eq(schema.clientAttachments.id, attachmentId), eq(schema.clientAttachments.clientId, clientId))),
+  );
+}
+
 /** Record a manually-uploaded attachment (hubspotFileId stays null — the
  *  wipe-HubSpot-data path only deletes rows where it's set, so these survive). */
 export async function insertClientAttachment(a: Attachment): Promise<void> {
@@ -308,6 +319,7 @@ export async function insertClientAttachment(a: Attachment): Promise<void> {
       clientId: a.clientId,
       hubspotFileId: a.hubspotFileId,
       dealId: a.dealId,
+      category: a.category,
       name: a.name,
       url: a.url,
       extension: a.extension,

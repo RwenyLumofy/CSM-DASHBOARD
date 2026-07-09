@@ -8,6 +8,7 @@ import { UsersManager } from "@/components/settings/UsersManager";
 import { WorkflowManager } from "@/components/settings/WorkflowManager";
 import { LumofyStaffManager } from "@/components/settings/LumofyStaffManager";
 import { StakeholderTypesManager } from "@/components/settings/StakeholderTypesManager";
+import { AttachmentCategoriesManager } from "@/components/settings/AttachmentCategoriesManager";
 import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManager";
 import { ProjectTemplatesManager } from "@/components/settings/ProjectTemplatesManager";
 import { getAppUsers, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
@@ -36,13 +37,15 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   ]);
   let lumofyStaff: LumofyStaffMember[] = [];
   let stakeholderTypes: string[] = [];
+  let attachmentCategories: string[] = [];
   if (hasDatabase() && superAdmin) {
     try {
       const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
-      [lumofyStaff, stakeholderTypes] = await withDbTimeout(
+      [lumofyStaff, stakeholderTypes, attachmentCategories] = await withDbTimeout(
         Promise.all([
           getWorkspaceConfigFromDb("lumofy_staff").then((v) => (v as LumofyStaffMember[]) ?? []),
           getWorkspaceConfigFromDb("stakeholder_types").then((v) => (v as string[]) ?? []),
+          getWorkspaceConfigFromDb("attachment_categories").then((v) => (v as string[]) ?? []),
         ]),
       );
     } catch (err) {
@@ -84,7 +87,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       ) : activeTab === "projects" ? (
         <ProjectsSettingsTab superAdmin={superAdmin} currentUserEmail={currentUserEmail} />
       ) : (
-        <WorkspaceTab superAdmin={superAdmin} defs={defs} appUsers={superAdmin ? await getAppUsers() : []} currentUserEmail={currentUserEmail} roleLabels={roleLabels} lumofyStaff={lumofyStaff} stakeholderTypes={stakeholderTypes} />
+        <WorkspaceTab superAdmin={superAdmin} defs={defs} appUsers={superAdmin ? await getAppUsers() : []} currentUserEmail={currentUserEmail} roleLabels={roleLabels} lumofyStaff={lumofyStaff} stakeholderTypes={stakeholderTypes} attachmentCategories={attachmentCategories} />
       )}
     </div>
   );
@@ -127,6 +130,7 @@ async function WorkspaceTab({
   roleLabels,
   lumofyStaff,
   stakeholderTypes,
+  attachmentCategories,
 }: {
   superAdmin: boolean;
   defs: Awaited<ReturnType<typeof getPropertyDefinitions>>;
@@ -135,6 +139,7 @@ async function WorkspaceTab({
   roleLabels: Record<string, string>;
   lumofyStaff: LumofyStaffMember[];
   stakeholderTypes: string[];
+  attachmentCategories: string[];
 }) {
   let lastSyncedAt: string | null = null;
   if (hasDatabase()) {
@@ -202,6 +207,16 @@ async function WorkspaceTab({
               </p>
             </div>
             <StakeholderTypesManager initialTypes={stakeholderTypes} />
+          </section>
+
+          <section className="max-w-3xl">
+            <div className="mb-5">
+              <h2 className="font-display text-base font-semibold text-fg">Attachment categories</h2>
+              <p className="mt-1 font-body text-sm text-fg-muted">
+                Define the categories CSMs can tag files with on every account's Attachments tab (e.g. Contract, Invoice, Deck). These appear as filter and picker options there.
+              </p>
+            </div>
+            <AttachmentCategoriesManager initialCategories={attachmentCategories} />
           </section>
         </>
       )}

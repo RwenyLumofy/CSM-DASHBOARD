@@ -300,6 +300,7 @@ export interface Attachment {
   clientId: string;
   hubspotFileId: string | null;
   dealId: string | null; // the HubSpot deal this file came from, if any
+  category: string | null; // admin-defined classification (workspace_config "attachment_categories"); null = uncategorized
   name: string;
   url: string | null;
   extension: string | null; // e.g. "pdf", "docx"

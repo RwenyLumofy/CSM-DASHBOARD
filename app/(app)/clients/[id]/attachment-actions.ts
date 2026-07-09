@@ -5,7 +5,7 @@
    Storage via a signed upload URL (see lib/integrations/supabase-storage.ts);
    these actions only issue that URL and then record the resulting metadata. */
 
-import { getClientById, getAttachmentUploadTarget, recordAttachment, deleteAttachment } from "@/lib/data";
+import { getClientById, getAttachmentUploadTarget, recordAttachment, deleteAttachment, updateAttachmentCategory } from "@/lib/data";
 import { integrations } from "@/lib/config";
 import { isAllowedAttachmentExtension, extensionOf, MAX_ATTACHMENT_BYTES } from "@/lib/attachments";
 import type { Attachment } from "@/lib/types";
@@ -48,7 +48,7 @@ export async function createAttachmentUploadUrlAction(
 
 export async function recordAttachmentAction(
   clientId: string,
-  input: { path: string; name: string; size: number; dealId: string | null },
+  input: { path: string; name: string; size: number; dealId: string | null; category: string | null },
 ): Promise<AttachmentActionResult & { attachment?: Attachment }> {
   const blocked = await guard(clientId);
   if (blocked) return blocked;
@@ -56,6 +56,7 @@ export async function recordAttachmentAction(
     const attachment = await recordAttachment({
       clientId,
       dealId: input.dealId,
+      category: input.category,
       path: input.path,
       name: input.name,
       extension: extensionOf(input.name),
@@ -72,6 +73,17 @@ export async function deleteAttachmentAction(clientId: string, attachmentId: str
   if (blocked) return blocked;
   try {
     await deleteAttachment(clientId, attachmentId);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function updateAttachmentCategoryAction(clientId: string, attachmentId: string, category: string | null): Promise<AttachmentActionResult> {
+  const blocked = await guard(clientId);
+  if (blocked) return blocked;
+  try {
+    await updateAttachmentCategory(clientId, attachmentId, category);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };

@@ -3,7 +3,7 @@ import { isSuperAdmin } from "@/lib/auth";
 import { withDbTimeout } from "@/lib/db/client";
 
 // workspaceConfig keys
-const KEYS = ["stakeholder_types", "lumofy_staff"] as const;
+const KEYS = ["stakeholder_types", "lumofy_staff", "attachment_categories"] as const;
 type ConfigKey = (typeof KEYS)[number];
 
 export async function GET(req: Request) {
