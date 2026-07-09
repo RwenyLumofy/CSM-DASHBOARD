@@ -1326,6 +1326,88 @@ export async function clientExists(id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+/* -------------------------------------------------------- survey responses */
+
+/**
+ * Idempotently upsert raw survey responses (keyed by Intercom receipt id) into
+ * survey_responses. Re-importing an overlapping export window updates in place
+ * rather than duplicating. Chunked to stay well under Postgres' bind-parameter
+ * ceiling. Returns the number of rows written.
+ */
+export async function upsertSurveyResponses(
+  rows: import("@/lib/integrations/intercom-surveys").SurveyResponse[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const db = getDb();
+  const toDate = (s: string | null): Date | null => {
+    if (!s) return null;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const values = rows.map((r) => ({
+    receiptId: r.receiptId,
+    surveyId: r.surveyId,
+    userId: r.userId,
+    email: r.email,
+    name: r.name,
+    companyIntercomId: r.companyIntercomId,
+    companyExternalId: r.companyExternalId,
+    npsScore: r.npsScore,
+    csatScore: r.csatScore,
+    respondedAt: toDate(r.respondedAt),
+    receivedAt: toDate(r.receivedAt),
+    completedAt: toDate(r.completedAt),
+  }));
+  let written = 0;
+  for (let i = 0; i < values.length; i += 500) {
+    const chunk = values.slice(i, i + 500);
+    await db
+      .insert(schema.surveyResponses)
+      .values(chunk)
+      .onConflictDoUpdate({
+        target: schema.surveyResponses.receiptId,
+        set: {
+          surveyId: sql`excluded.survey_id`,
+          userId: sql`excluded.user_id`,
+          email: sql`excluded.email`,
+          name: sql`excluded.name`,
+          companyIntercomId: sql`excluded.company_intercom_id`,
+          companyExternalId: sql`excluded.company_external_id`,
+          npsScore: sql`excluded.nps_score`,
+          csatScore: sql`excluded.csat_score`,
+          respondedAt: sql`excluded.responded_at`,
+          receivedAt: sql`excluded.received_at`,
+          completedAt: sql`excluded.completed_at`,
+        },
+      });
+    written += chunk.length;
+  }
+  return written;
+}
+
+/** Every stored survey response (the whole history — the metric is lifetime,
+ *  like CSAT). Mapped back to the SurveyResponse shape the summarizer expects. */
+export async function getSurveyResponsesFromDb(): Promise<
+  import("@/lib/integrations/intercom-surveys").SurveyResponse[]
+> {
+  const db = getDb();
+  const rows = await db.select().from(schema.surveyResponses);
+  return rows.map((r) => ({
+    receiptId: r.receiptId,
+    surveyId: r.surveyId ?? "",
+    userId: r.userId,
+    email: r.email,
+    name: r.name,
+    companyIntercomId: r.companyIntercomId,
+    companyExternalId: r.companyExternalId,
+    npsScore: r.npsScore,
+    csatScore: r.csatScore,
+    respondedAt: iso(r.respondedAt),
+    receivedAt: iso(r.receivedAt),
+    completedAt: iso(r.completedAt),
+  }));
+}
+
 /* --------------------------------------------------------- sync checkpoints */
 
 export async function getSyncCheckpoint(key: string): Promise<string | null> {
@@ -1814,7 +1896,7 @@ function normalizeHealth(raw: Partial<HealthScore> | null): HealthScore {
   };
 }
 function emptySupport(): SupportSummary {
-  return { openTickets: 0, snoozedTickets: 0, closedLast30d: 0, oldestOpenDays: null, medianFirstResponseHours: null, csat: null, csatScale: "percent", csatResponses: 0, csatTrend: [], nps: null, npsResponses: 0, npsTrend: [], lastConversationAt: null, supportLevelUsed: null, slaBreaches: [], tickets: [] };
+  return { openTickets: 0, snoozedTickets: 0, closedLast30d: 0, oldestOpenDays: null, medianFirstResponseHours: null, csat: null, csatScale: "percent", csatResponses: 0, csatTrend: [], nps: null, npsResponses: 0, npsTrend: [], platformCsat: null, platformCsatResponses: 0, platformCsatTrend: [], lastConversationAt: null, supportLevelUsed: null, slaBreaches: [], tickets: [] };
 }
 function emptyUsage(): UsageMetrics {
   return { seats: 0, activeUsers: 0, adoptionRate: 0, wau: 0, mau: 0, stickiness: 0, lastActiveAt: null, featureAdoption: [], activityTrend: [] };

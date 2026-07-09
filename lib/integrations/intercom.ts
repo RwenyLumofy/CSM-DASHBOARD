@@ -9,6 +9,7 @@
 import { env } from "@/lib/config";
 import { AST_OFFSET_MS } from "@/lib/sla";
 import type { SupportSummary } from "@/lib/types";
+import { unzip, parseSurveyExport, type SurveyResponse } from "@/lib/integrations/intercom-surveys";
 
 const REGION_BASE: Record<"us" | "eu" | "au", string> = {
   us: "https://api.intercom.io",
@@ -218,6 +219,66 @@ export class IntercomClient {
     }
     return out;
   }
+
+  /**
+   * Pull outbound-survey responses (NPS + platform CSAT) for a time window via
+   * the Data Export API: start a content-data export job, poll it to
+   * completion, download the ZIP, and parse the answer CSVs (see
+   * lib/integrations/intercom-surveys.ts). The job is genuinely slow — a 5-day
+   * window took ~9 min in testing — so this is only ever driven by a backfill
+   * script or the daily survey-sync cron, never a page request. `onLog` lets a
+   * long backfill surface progress. Throws on API errors or a poll timeout.
+   */
+  async exportSurveyResponses(opts: {
+    after: Date;
+    before: Date;
+    pollTimeoutMs?: number;
+    pollIntervalMs?: number;
+    onLog?: (msg: string) => void;
+  }): Promise<SurveyResponse[]> {
+    const pollTimeoutMs = opts.pollTimeoutMs ?? 10 * 60_000;
+    const pollIntervalMs = opts.pollIntervalMs ?? 6_000;
+    const log = opts.onLog ?? (() => {});
+    const afterSec = Math.floor(opts.after.getTime() / 1000);
+    const beforeSec = Math.floor(opts.before.getTime() / 1000);
+
+    const startRes = await fetchRetrying(`${this.base}/export/content/data`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ created_at_after: afterSec, created_at_before: beforeSec }),
+      cache: "no-store",
+    });
+    if (!startRes.ok) throw new Error(`Intercom export start: ${startRes.status} ${await startRes.text()}`);
+    const job = (await startRes.json()) as { job_identifier?: string; status?: string };
+    const id = job.job_identifier;
+    if (!id) throw new Error("Intercom export: no job_identifier returned");
+
+    const deadline = Date.now() + pollTimeoutMs;
+    let status = job.status ?? "pending";
+    while (!["completed", "complete"].includes(status)) {
+      // `no_data` is a SUCCESS with an empty result — Intercom returns it when
+      // the window has no exportable content at all (e.g. before the survey
+      // launched, or a genuinely quiet period). Treating it as an error would
+      // make the daily cron report false failures and break the backfill's
+      // empty-window stop, so return an empty set instead of throwing.
+      if (status === "no_data") return [];
+      if (status === "failed") throw new Error(`Intercom export job failed (id ${id})`);
+      if (Date.now() > deadline) throw new Error(`Intercom export job timed out after ${pollTimeoutMs}ms (id ${id}, last status ${status})`);
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+      const s = await fetchRetrying(`${this.base}/export/content/data/${id}`, { headers: this.headers(), cache: "no-store" });
+      if (!s.ok) throw new Error(`Intercom export status: ${s.status} ${await s.text()}`);
+      status = ((await s.json()) as { status?: string }).status ?? status;
+      log(`export ${id}: ${status}`);
+    }
+
+    const dl = await fetchRetrying(`${this.base}/download/content/data/${id}`, {
+      headers: { ...this.headers(), Accept: "application/octet-stream" },
+      cache: "no-store",
+    });
+    if (!dl.ok) throw new Error(`Intercom export download: ${dl.status} ${await dl.text()}`);
+    const buf = Buffer.from(await dl.arrayBuffer());
+    return parseSurveyExport(unzip(buf));
+  }
 }
 
 interface IntercomRawConversation {
@@ -333,7 +394,10 @@ export function summarizeSupport(
     csatTrend,
     nps: opts.nps ?? null,
     npsResponses: opts.npsResponses ?? 0,
-    npsTrend: [], // no NPS data source exists yet — see module doc comment
+    npsTrend: [], // NPS + platform CSAT come from the survey sync, merged into
+    platformCsat: null, // this summary in lib/support/sync.ts (see summarizeSurveys)
+    platformCsatResponses: 0,
+    platformCsatTrend: [],
     lastConversationAt,
     // SLA fields aren't this function's concern — it only summarizes
     // conversations. The daily sync (lib/support/sync.ts) overrides all

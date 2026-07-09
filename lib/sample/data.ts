@@ -56,7 +56,7 @@ interface Seed {
    *  HealthMetricKey. */
   h: Record<string, number>;
   trend?: number;
-  support: Omit<SupportSummary, "csatScale" | "supportLevelUsed" | "slaBreaches" | "tickets" | "csatTrend" | "npsTrend">;
+  support: Omit<SupportSummary, "csatScale" | "supportLevelUsed" | "slaBreaches" | "tickets" | "csatTrend" | "npsTrend" | "platformCsat" | "platformCsatResponses" | "platformCsatTrend">;
   usage: Omit<UsageMetrics, "adoptionRate" | "stickiness">;
 }
 
@@ -106,7 +106,7 @@ function makeClient(s: Seed): Client {
     logoUrl: null,
     hubspotUrl: `https://app.hubspot.com/contacts/${PORTAL}/record/0-2/${s.id}`,
     health: sampleHealth(s.h, s.trend ?? 0),
-    support: { ...s.support, csatScale: "percent", supportLevelUsed: null, slaBreaches: [], tickets: [], csatTrend: [], npsTrend: [] },
+    support: { ...s.support, csatScale: "percent", supportLevelUsed: null, slaBreaches: [], tickets: [], csatTrend: [], npsTrend: [], platformCsat: s.support.nps != null ? Math.min(100, (s.support.csat ?? 80) + 2) : null, platformCsatResponses: s.support.npsResponses ?? 0, platformCsatTrend: [] },
     usage: { ...s.usage, adoptionRate, stickiness },
     tags: s.tags ?? [],
   };

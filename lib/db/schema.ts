@@ -385,6 +385,41 @@ export const clientActions = pgTable("client_actions", {
   index("client_actions_status_idx").on(t.status),
 ]);
 
+/**
+ * Raw responses to the Intercom outbound satisfaction survey (survey id
+ * 59394884: Q1 = NPS 0–10, Q2 = platform CSAT 1–5), pulled from the Intercom
+ * Data Export API — one row per survey receipt. The export is a slow async
+ * job, so this is an APPEND-ONLY store backfilled once over all history then
+ * topped up daily (see lib/support/survey-sync.ts); the per-client NPS /
+ * platform-CSAT shown in the Satisfaction tab is recomputed from these rows
+ * during the daily support sync (lib/support/sync.ts). `receiptId` is the
+ * Intercom receipt id, so re-importing an overlapping window is an idempotent
+ * upsert, never a duplicate. Attribution to an account is by
+ * `companyExternalId` (the Intercom external company_id == the account's
+ * environment id) with domain/name fallbacks handled in the sync.
+ */
+export const surveyResponses = pgTable("survey_responses", {
+  receiptId: text("receipt_id").primaryKey(),
+  surveyId: text("survey_id"),
+  // Intercom contact ("user") id — attribution fallback when company is absent.
+  userId: text("user_id"),
+  email: text("email"),
+  name: text("name"),
+  companyIntercomId: text("company_intercom_id"), // Intercom internal company id
+  companyExternalId: text("company_external_id"), // external company_id == environment id
+  npsScore: integer("nps_score"), // 0–10, null if that question was skipped
+  csatScore: integer("csat_score"), // 1–5, null if that question was skipped
+  // Canonical response instant for month-bucketing (completed_at ?? received_at).
+  respondedAt: timestamp("responded_at", { withTimezone: true }),
+  receivedAt: timestamp("received_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("survey_responses_company_external_id_idx").on(t.companyExternalId),
+  index("survey_responses_company_intercom_id_idx").on(t.companyIntercomId),
+  index("survey_responses_user_id_idx").on(t.userId),
+]);
+
 /* =========================================================================
    Project management — the CSM-owned delivery tracker on each account's
    "Project Management" tab. Authored in-app (never synced from HubSpot):

@@ -25,6 +25,7 @@
 import "server-only";
 import { HubSpotClient } from "@/lib/integrations/hubspot";
 import { IntercomClient, summarizeSupport, type IntercomConversation } from "@/lib/integrations/intercom";
+import { summarizeSurveys, type SurveyResponse } from "@/lib/integrations/intercom-surveys";
 import { checkTicketSla, resolveAccountSupportLevel, buildConversationUrl } from "@/lib/sla";
 import { dealOverridesMap, applyDealOverrides } from "@/lib/deal-overrides";
 import type { Client, Deal, SlaBreach, SupportSummary, SupportTicket } from "@/lib/types";
@@ -81,6 +82,7 @@ export async function syncAllClientSupport(): Promise<SupportSyncSummary> {
     getClientsFromDb,
     getAllDealsFromDb,
     setClientSupportDb,
+    getSurveyResponsesFromDb,
   } = await import("@/lib/repo/drizzle");
 
   const lastSyncedAt = await withDbTimeout(getSyncCheckpoint(CHECKPOINT_KEY));
@@ -135,11 +137,47 @@ export async function syncAllClientSupport(): Promise<SupportSyncSummary> {
     convsByName.set(nameKey, [...(convsByName.get(nameKey) ?? []), ...convs]);
   }
 
-  const [clients, allDeals] = await Promise.all([
+  const [clients, allDeals, surveyResponses] = await Promise.all([
     withDbTimeout(getClientsFromDb()),
     withDbTimeout(getAllDealsFromDb()),
+    withDbTimeout(getSurveyResponsesFromDb()).catch(() => [] as SurveyResponse[]),
   ]);
   const dealsByClient = groupDeals(allDeals);
+
+  // Survey responses (NPS + platform CSAT) → the SAME external-id / domain /
+  // name attribution buckets used for conversations below, so a client resolves
+  // its surveys with the identical envId ?? domain ?? name chain. External-id
+  // is taken from each response's own company_external_id (== the account's
+  // environment id) — the most reliable link; domain/name are derived by
+  // translating the response's Intercom company (direct field, or the contact
+  // index as a fallback) through icCompanies, mirroring the conversation maps.
+  const survByExternalId = new Map<string, SurveyResponse[]>();
+  for (const resp of surveyResponses) {
+    if (!resp.companyExternalId) continue;
+    const key = resp.companyExternalId.trim().toLowerCase();
+    survByExternalId.set(key, [...(survByExternalId.get(key) ?? []), resp]);
+  }
+  const survByCompany = new Map<string, SurveyResponse[]>();
+  for (const resp of surveyResponses) {
+    const companyIds = new Set<string>();
+    if (resp.companyIntercomId) companyIds.add(resp.companyIntercomId);
+    else if (resp.userId) for (const co of contactIndex.get(resp.userId) ?? []) companyIds.add(co);
+    for (const co of companyIds) {
+      survByCompany.set(co, [...(survByCompany.get(co) ?? []), resp]);
+    }
+  }
+  const survByDomain = new Map<string, SurveyResponse[]>();
+  const survByName = new Map<string, SurveyResponse[]>();
+  for (const co of icCompanies) {
+    const rs = survByCompany.get(co.id) ?? [];
+    if (rs.length === 0) continue;
+    if (co.domain) {
+      const key = co.domain.toLowerCase();
+      survByDomain.set(key, [...(survByDomain.get(key) ?? []), ...rs]);
+    }
+    const nameKey = co.name.toLowerCase();
+    survByName.set(nameKey, [...(survByName.get(nameKey) ?? []), ...rs]);
+  }
   const candidates = clients.filter((c) => !!c.hubspotId);
 
   const summary: SupportSyncSummary = {
@@ -159,12 +197,24 @@ export async function syncAllClientSupport(): Promise<SupportSyncSummary> {
         (client.domain ? convsByDomain.get(client.domain.toLowerCase()) : undefined) ??
         convsByName.get(client.name.toLowerCase());
 
-      if (!convs) {
+      // Surveys resolve via the exact same envId ?? domain ?? name chain.
+      const surveys =
+        (envId ? survByExternalId.get(envId.trim().toLowerCase()) : undefined) ??
+        (client.domain ? survByDomain.get(client.domain.toLowerCase()) : undefined) ??
+        survByName.get(client.name.toLowerCase()) ??
+        [];
+
+      // Skip only when the account has NEITHER conversations nor survey
+      // responses — a client with survey NPS but no tickets still gets a
+      // snapshot (its Satisfaction tab should light up).
+      if (!convs && surveys.length === 0) {
         summary.skipped++;
         return;
       }
 
-      const base = summarizeSupport(convs);
+      const conversations = convs ?? [];
+      const base = summarizeSupport(conversations);
+      const surveySummary = summarizeSurveys(surveys);
       const overrides = dealOverridesMap(client.properties);
       const tracked = (dealsByClient.get(client.id) ?? [])
         .filter((d) => d.tracked !== false)
@@ -178,7 +228,7 @@ export async function syncAllClientSupport(): Promise<SupportSyncSummary> {
       // on checkTicketSla for why this reuses the exact same rule either way.
       const now = new Date();
       const breaches: SlaBreach[] = [];
-      const tickets: SupportTicket[] = convs.map((conv) => {
+      const tickets: SupportTicket[] = conversations.map((conv) => {
         const asOf = conv.state === "open" || conv.state === "snoozed" ? now : new Date(conv.updatedAt);
         const ticketBreaches = level
           ? checkTicketSla(conv, level, asOf).map((b) => ({ ...b, url: buildConversationUrl(appId, b.conversationId) }))
@@ -195,7 +245,10 @@ export async function syncAllClientSupport(): Promise<SupportSyncSummary> {
         };
       });
 
-      const finalSupport: SupportSummary = { ...base, supportLevelUsed: level, slaBreaches: breaches, tickets };
+      // Survey NPS + platform CSAT overlay the ticket-derived base (which only
+      // supplies the conversation CSAT). They're independent metrics from a
+      // different Intercom source — see summarizeSurveys.
+      const finalSupport: SupportSummary = { ...base, ...surveySummary, supportLevelUsed: level, slaBreaches: breaches, tickets };
       await withDbTimeout(setClientSupportDb(client.id, finalSupport));
       summary.synced++;
       summary.breachesFound += breaches.length;

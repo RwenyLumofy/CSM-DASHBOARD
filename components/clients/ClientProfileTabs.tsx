@@ -48,6 +48,11 @@ import {
   StickyNote,
   Tag,
   Trash2,
+  TrendingDown,
+  TrendingUp,
+  Minus,
+  Smile,
+  ThumbsUp,
   UploadCloud,
   UserPlus,
   Users,
@@ -1595,65 +1600,110 @@ function monthLabel(ym: string): string {
   return `${names[Number(m)] ?? m} ${y}`;
 }
 
+/** One satisfaction KPI tile: a colored accent bar, the big value, its response
+ *  count, and a vs-previous-month delta pulled from the metric's own trend. */
+function SatisfactionKpi({
+  label, hint, value, unit, responses, color, icon: Icon, trend,
+}: {
+  label: string;
+  hint: string;
+  value: number | null;
+  unit: "%" | "";
+  responses: number;
+  color: string;
+  icon: LucideIcon;
+  trend: { period: string; value: number }[];
+}) {
+  const delta = trend.length >= 2 ? trend[trend.length - 1]!.value - trend[trend.length - 2]!.value : null;
+  const DeltaIcon = delta == null || delta === 0 ? Minus : delta > 0 ? TrendingUp : TrendingDown;
+  const deltaColor = delta == null || delta === 0 ? "text-fg-subtle" : delta > 0 ? "text-success" : "text-danger";
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-border-subtle bg-surface p-4">
+      <span className="absolute inset-x-0 top-0 h-1" style={{ background: color }} aria-hidden />
+      <div className="flex items-center justify-between gap-2">
+        <span className="caption flex items-center gap-1.5">
+          <Icon className="size-3.5" style={{ color }} strokeWidth={2} />
+          {label}
+        </span>
+        {delta != null && (
+          <span className={cn("flex items-center gap-0.5 font-body text-[11px] font-semibold tabular", deltaColor)} title="vs. previous month">
+            <DeltaIcon className="size-3" />
+            {delta > 0 ? "+" : ""}{delta}{unit}
+          </span>
+        )}
+      </div>
+      <div className="tabular mt-2 font-display text-[2rem] font-bold leading-none text-fg">
+        {value != null ? `${value}${unit}` : "—"}
+      </div>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <span className="caption">{responses} response{responses === 1 ? "" : "s"}</span>
+        <span className="caption text-fg-subtle">{hint}</span>
+      </div>
+    </div>
+  );
+}
+
 function SatisfactionTrendCard({
-  title, trend, color, unit, emptyBody,
+  title, current, unit, trend, color, emptyBody,
 }: {
   title: string;
+  current: number | null;
+  unit: "%" | "";
   trend: { period: string; value: number; responses: number }[];
   color: string;
-  unit: "%" | "";
   emptyBody: string;
 }) {
   return (
     <Card>
-      <CardEyebrow>{title}</CardEyebrow>
+      <div className="flex items-center justify-between gap-2">
+        <CardEyebrow>{title}</CardEyebrow>
+        {current != null && (
+          <span className="tabular font-display text-sm font-bold" style={{ color }}>{current}{unit}</span>
+        )}
+      </div>
       {trend.length === 0 ? (
         <EmptyHint icon={Gauge} title={`No ${title} data yet`} body={emptyBody} />
       ) : (
-        <LineChart
-          series={[{ label: title, color, points: trend.map((t) => ({ month: t.period, value: t.value })) }]}
-          months={trend.map((t) => t.period)}
-          formatShort={monthLabel}
-          formatLong={monthLabel}
-        />
+        <div className="mt-2">
+          <LineChart
+            series={[{ label: title, color, points: trend.map((t) => ({ month: t.period, value: t.value })) }]}
+            months={trend.map((t) => t.period)}
+            formatShort={monthLabel}
+            formatLong={monthLabel}
+          />
+        </div>
       )}
     </Card>
   );
 }
 
+/**
+ * Satisfaction indicator — three independent signals, each its own KPI tile and
+ * trend line:
+ *   NPS           — outbound survey Q1 (recommend, 0–10)  → −100..100
+ *   Platform CSAT — outbound survey Q2 (happy, 1–5)       → % satisfied
+ *   Tickets CSAT  — Intercom conversation ratings         → % satisfied
+ * The two survey metrics come from lib/support/survey-sync.ts; Tickets CSAT is
+ * the pre-existing post-conversation rating. All three live on client.support.
+ */
 function SatisfactionTab({ client }: { client: Client }) {
   const s = client.support;
+  const emptyNps = 'NPS from the Intercom outbound survey ("How likely are you to recommend us…", 0–10). A monthly line appears here once this account has survey responses.';
+  const emptyPlatform = 'Platform CSAT from the survey’s second question ("How happy are you with the experience…", 1–5). Appears once this account responds to the survey.';
+  const emptyTickets = "Post-conversation ticket CSAT from Intercom conversation ratings. A monthly line appears once this account’s conversations get a customer rating.";
   return (
     <>
       <Card>
-        <CardEyebrow>Satisfaction</CardEyebrow>
-        <div className="mt-2 grid grid-cols-2 gap-6">
-          <div className="rounded-lg border border-border-subtle p-4">
-            <span className="caption">CSAT</span>
-            <div className="tabular mt-1 font-display text-3xl font-bold text-fg">{s.csat != null ? `${s.csat}%` : "—"}</div>
-            <span className="caption">{s.csatResponses} responses</span>
-          </div>
-          <div className="rounded-lg border border-border-subtle p-4">
-            <span className="caption">NPS</span>
-            <div className="tabular mt-1 font-display text-3xl font-bold text-fg">{s.nps != null ? String(s.nps) : "—"}</div>
-            <span className="caption">{s.npsResponses} responses</span>
-          </div>
+        <CardEyebrow>Satisfaction indicator</CardEyebrow>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <SatisfactionKpi label="NPS" hint="survey · −100 to 100" value={s.nps} unit="" responses={s.npsResponses} color="var(--color-eclipse)" icon={ThumbsUp} trend={s.npsTrend} />
+          <SatisfactionKpi label="Platform CSAT" hint="survey · % satisfied" value={s.platformCsat} unit="%" responses={s.platformCsatResponses} color="var(--color-sirius)" icon={Smile} trend={s.platformCsatTrend} />
+          <SatisfactionKpi label="Tickets CSAT" hint="support · % satisfied" value={s.csat} unit="%" responses={s.csatResponses} color="var(--color-aurora)" icon={LifeBuoy} trend={s.csatTrend} />
         </div>
       </Card>
-      <SatisfactionTrendCard
-        title="CSAT trend"
-        trend={s.csatTrend}
-        color="var(--color-sirius)"
-        unit="%"
-        emptyBody="No rated conversations yet for this account — a monthly CSAT line will appear here once Intercom conversations get a customer rating."
-      />
-      <SatisfactionTrendCard
-        title="NPS trend"
-        trend={s.npsTrend}
-        color="var(--color-eclipse)"
-        unit=""
-        emptyBody="No NPS data source is wired yet — this account's post-chat CSAT rating is real and tracked above, but NPS survey responses aren't currently reachable from Intercom for any account."
-      />
+      <SatisfactionTrendCard title="NPS trend" current={s.nps} unit="" trend={s.npsTrend} color="var(--color-eclipse)" emptyBody={emptyNps} />
+      <SatisfactionTrendCard title="Platform CSAT trend" current={s.platformCsat} unit="%" trend={s.platformCsatTrend} color="var(--color-sirius)" emptyBody={emptyPlatform} />
+      <SatisfactionTrendCard title="Tickets CSAT trend" current={s.csat} unit="%" trend={s.csatTrend} color="var(--color-aurora)" emptyBody={emptyTickets} />
     </>
   );
 }

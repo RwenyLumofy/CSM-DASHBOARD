@@ -82,8 +82,16 @@ export interface SupportSummary {
   csat: number | null; // 0–100 (% satisfied) or 1–5 scaled — see `csatScale`
   csatScale: "percent" | "five";
   csatResponses: number;
-  nps: number | null; // -100..100
+  nps: number | null; // -100..100 — from the Intercom outbound survey (Q1)
   npsResponses: number;
+  /** Platform-satisfaction CSAT from the Intercom outbound survey's second
+   *  question ("How happy are you with the experience we provide?"), a 1–5
+   *  rating expressed here as % satisfied (score ≥ 4). DELIBERATELY separate
+   *  from `csat` above: that one is post-conversation ticket CSAT (Intercom
+   *  conversation ratings), a support-quality signal — this measures the
+   *  whole product. Both are shown side by side in the Satisfaction tab. */
+  platformCsat: number | null; // 0–100 (% satisfied)
+  platformCsatResponses: number;
   lastConversationAt: string | null; // ISO
   /** The account-level support tier used to evaluate slaBreaches below (see
    *  lib/sla.ts resolveAccountSupportLevel). Null when no tracked deal has a
@@ -101,10 +109,12 @@ export interface SupportSummary {
    *  Exclude-from-CSAT-flagged) conversation's creation date — a real
    *  historical trend, not a single current snapshot. */
   csatTrend: SatisfactionTrendPoint[];
-  /** Same shape as csatTrend, for NPS — always empty right now (no NPS data
-   *  source is wired; see lib/support/sync.ts). Kept as a real field, not
-   *  hardcoded in the UI, so it lights up automatically once a source exists. */
+  /** Same shape as csatTrend, for the survey NPS — monthly promoter/detractor
+   *  spread bucketed by response date (AST calendar month). Populated by the
+   *  survey sync (lib/support/sync.ts + lib/support/survey-sync.ts). */
   npsTrend: SatisfactionTrendPoint[];
+  /** Same shape as csatTrend, for the survey's platform CSAT question. */
+  platformCsatTrend: SatisfactionTrendPoint[];
 }
 
 export interface SatisfactionTrendPoint {

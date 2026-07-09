@@ -575,7 +575,7 @@ function stableHash(s: string): string {
 }
 
 function emptySupport(): SupportSummary {
-  return { openTickets: 0, snoozedTickets: 0, closedLast30d: 0, oldestOpenDays: null, medianFirstResponseHours: null, csat: null, csatScale: "percent", csatResponses: 0, csatTrend: [], nps: null, npsResponses: 0, npsTrend: [], lastConversationAt: null, supportLevelUsed: null, slaBreaches: [], tickets: [] };
+  return { openTickets: 0, snoozedTickets: 0, closedLast30d: 0, oldestOpenDays: null, medianFirstResponseHours: null, csat: null, csatScale: "percent", csatResponses: 0, csatTrend: [], nps: null, npsResponses: 0, npsTrend: [], platformCsat: null, platformCsatResponses: 0, platformCsatTrend: [], lastConversationAt: null, supportLevelUsed: null, slaBreaches: [], tickets: [] };
 }
 function emptyUsage(): UsageMetrics {
   return { seats: 0, activeUsers: 0, adoptionRate: 0, wau: 0, mau: 0, stickiness: 0, lastActiveAt: null, featureAdoption: [], activityTrend: [] };

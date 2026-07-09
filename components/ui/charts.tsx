@@ -92,10 +92,16 @@ export function LineChart({
 
   const allVals = series.flatMap((s) => s.points.map((p) => p.value));
   const max = niceMax(Math.max(1, ...allVals));
+  // Support series that dip below zero (e.g. NPS, −100..100) without touching
+  // the all-positive case: `min` stays 0 unless real negatives exist, so every
+  // existing (usage) chart keeps rendering pixel-identically.
+  const rawMin = Math.min(0, ...allVals);
+  const min = rawMin < 0 ? -niceMax(-rawMin) : 0;
+  const span = max - min || 1;
   const stepX = months.length > 1 ? innerW / (months.length - 1) : 0;
   const xFor = (i: number) => padL + i * stepX;
-  const yFor = (v: number) => padT + innerH - (v / max) * innerH;
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(max * f));
+  const yFor = (v: number) => padT + innerH - ((v - min) / span) * innerH;
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(min + span * f));
   const band = months.length > 1 ? innerW / (months.length - 1) : innerW;
   // Thin x-labels to ~8 max so they stay legible at any point count (a 30-day
   // period, a 90-day quarter, etc.). For the 12-month default this is step 2 —

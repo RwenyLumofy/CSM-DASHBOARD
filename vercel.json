@@ -10,6 +10,10 @@
       "schedule": "15 */4 * * *"
     },
     {
+      "path": "/api/cron/survey-sync",
+      "schedule": "30 5 * * *"
+    },
+    {
       "path": "/api/cron/intercom-sync",
       "schedule": "0 6 * * *"
     },
