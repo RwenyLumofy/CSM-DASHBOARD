@@ -59,7 +59,8 @@ export interface ClientHealthConfig {
 
 export const HEALTH_METRIC_LABELS: Record<HealthMetricKey, string> = {
   usage: "Usage",
-  csat: "CSAT",
+  csat: "Tickets CSAT",
+  platform_csat: "Platform CSAT",
   nps: "NPS",
   sla_breaches: "Breached SLA tickets",
   onboarding_period: "Onboarding period",
@@ -72,8 +73,9 @@ export const HEALTH_METRIC_LABELS: Record<HealthMetricKey, string> = {
  *  builder, so a super-admin knows exactly what they're weighting. */
 export const HEALTH_METRIC_HELP: Record<HealthMetricKey, string> = {
   usage: "Product adoption score (0–100) from the Usage tab — activation, breadth of modules used, and recent momentum. Skipped if the account isn't linked to a Lumofy environment.",
-  csat: "Latest CSAT — the % of Intercom conversation ratings that were satisfied (4–5★). Skipped if the account has no ratings yet.",
-  nps: "Latest NPS, rescaled to 0–100 as (NPS + 100) ÷ 2. Skipped until an NPS source is connected (none today).",
+  csat: "The % of Intercom conversation ratings that were satisfied (4–5★) — a support-quality signal, not the overall product. Skipped if the account has no rated conversations yet.",
+  platform_csat: "The % of \"satisfied\" (4–5) answers to the outbound survey's platform-satisfaction question — a whole-product signal, distinct from Tickets CSAT above. Skipped if the account has no survey responses yet.",
+  nps: "Latest NPS from the outbound survey (promoters − detractors), rescaled to 0–100 as (NPS + 100) ÷ 2. Skipped if the account has no survey responses yet.",
   sla_breaches: "How many currently-open tickets have blown their SLA target. Scores 100 at zero breaches, sliding to 0 once the count hits the ‘breaches → 0’ ceiling. Skipped if the account has no support level set.",
   onboarding_period: "Measured on the account's latest-kick-off deal — its Kick-off → Launch days (or Kick-off → today while not launched); a newer deal supersedes an older one, and only deals sharing that same latest kick-off are averaged. Scores 100 at/under the target days and 0 at/over the max days, linear between. Skipped only if no deal has a kick-off date.",
   use_case_set: "100 if at least one Use Case is set across the account's deals, otherwise 0.",
@@ -91,6 +93,7 @@ export const DEFAULT_HEALTH_TIERS: HealthTierDef[] = [
 export const HEALTH_METRIC_ORDER: HealthMetricKey[] = [
   "usage",
   "csat",
+  "platform_csat",
   "nps",
   "sla_breaches",
   "onboarding_period",
@@ -99,9 +102,14 @@ export const HEALTH_METRIC_ORDER: HealthMetricKey[] = [
   "stakeholder_mapping",
 ];
 
-/** Equal weight across all 8, all enabled — a neutral starting point the
+/** Equal weight across all 9, all enabled — a neutral starting point the
  *  admin tunes from Settings → Workflows → Client health. Thresholds match
- *  the tiers this app has always used. */
+ *  the tiers this app has always used. NOTE: this default only seeds a
+ *  brand-new environment (no config ever saved) — an already-configured
+ *  environment's stored formula is untouched; a newly-added metric key not
+ *  present in its stored config instead defaults to disabled/weight 0 (see
+ *  getClientHealthConfig in lib/assignment/config.ts), never silently
+ *  re-weighting an admin's existing choices. */
 export const DEFAULT_CLIENT_HEALTH_CONFIG: ClientHealthConfig = {
   metrics: HEALTH_METRIC_ORDER.map((key) => ({
     key,

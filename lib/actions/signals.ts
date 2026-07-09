@@ -24,6 +24,7 @@ import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { formatDate } from "@/lib/format";
 import type { ProjectDeadlineItem } from "@/lib/projects/deadlines";
 import type { StakeholderMapping } from "@/lib/stakeholders";
+import type { HealthMetricKey } from "@/lib/types";
 
 export interface SignalInputs {
   client: Client;
@@ -59,9 +60,10 @@ const CSAT_HIGH = 90;
 const NPS_LOW = 0;
 const NPS_HIGH = 50;
 
-const COMPONENT_LABEL: Record<string, string> = {
+const COMPONENT_LABEL: Record<HealthMetricKey, string> = {
   usage: "product usage",
   csat: "CSAT",
+  platform_csat: "Platform CSAT",
   nps: "NPS",
   sla_breaches: "breached SLA tickets",
   onboarding_period: "onboarding period",
@@ -72,7 +74,7 @@ const COMPONENT_LABEL: Record<string, string> = {
 
 function lowestHealthComponent(client: Client): string {
   const c = client.health.components;
-  const entries = Object.entries(c) as [string, number][];
+  const entries = Object.entries(c) as [HealthMetricKey, number][];
   const [key] = entries.reduce((min, e) => (e[1] < min[1] ? e : min), entries[0]);
   return COMPONENT_LABEL[key] ?? key;
 }

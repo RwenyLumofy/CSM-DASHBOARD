@@ -30,9 +30,20 @@ function subscoreFor(m: HealthMetricConfig, inputs: HealthComputeInputs): number
       return inputs.usageScore != null ? clamp(inputs.usageScore) : null;
 
     case "csat": {
+      // Tickets CSAT — Intercom conversation ratings (post-support-interaction).
       const { csat, csatScale, csatResponses } = inputs.support;
       if (csat == null || csatResponses === 0) return null;
       return clamp(normalizeCsat(csat, csatScale));
+    }
+
+    case "platform_csat": {
+      // Platform CSAT — the outbound survey's satisfaction question. Already
+      // stored as a 0–100 "% satisfied" figure (see summarizeSurveys in
+      // lib/integrations/intercom-surveys.ts), so no scale normalization
+      // needed, unlike csat above.
+      const { platformCsat, platformCsatResponses } = inputs.support;
+      if (platformCsat == null || platformCsatResponses === 0) return null;
+      return clamp(platformCsat);
     }
 
     case "nps": {

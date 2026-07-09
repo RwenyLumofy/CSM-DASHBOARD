@@ -45,7 +45,10 @@ export interface PropertyDefinition {
  *  lib/metrics/health-config.ts). */
 export type HealthMetricKey =
   | "usage"
-  | "csat"
+  | "csat" // Tickets CSAT — Intercom conversation ratings. Key kept as "csat"
+           // (not renamed to tickets_csat) so already-saved admin formulas
+           // don't silently lose this metric's enabled/weight state.
+  | "platform_csat" // Platform CSAT — the outbound survey's satisfaction question.
   | "nps"
   | "sla_breaches"
   | "onboarding_period"
