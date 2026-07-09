@@ -16,14 +16,14 @@
                   account (it renews without that field ever being updated),
                   and treating "overdue" as "approaching" would mislabel most
                   of the book as perpetually up for renewal.
-     active     — any TRACKED deal has a known launch date. Two sources count,
-                  since the per-deal milestone system is new (as of this
-                  writing only one deal in the whole book uses it):
-                    - client.properties.__deal_dates[dealId].launch_date
-                      (current, per-deal)
-                    - client.properties.launch_date (legacy, account-level,
-                      predates the per-deal system — still genuine launch
-                      data, just filed under the old key)
+     active     — any TRACKED deal has a known launch date
+                  (client.properties.__deal_dates[dealId].launch_date — the
+                  per-deal "Launch" field on the deal card; this is the ONLY
+                  source now, deliberately. The old account-level
+                  client.properties.launch_date property has been removed
+                  entirely (2026-07-09 cleanup) — it let accounts show
+                  "active" off a stale/unrelated legacy value even when
+                  their real per-deal Launch field was empty).
                   OR the client has ARR but no deal rows at all (e.g. a
                   legacy account brought in via bulk CSV import, which
                   carries an ARR-ledger baseline but never gets a
@@ -68,7 +68,6 @@ function dealRenewalDate(d: StatusDeal): Date | null {
 export function computeClientStatus(
   deals: StatusDeal[],
   launchDateByDealId: Record<string, string | null | undefined>,
-  legacyLaunchDate: string | null | undefined,
   manualOverride: string | undefined,
   arr: number,
   now: Date = new Date(),
@@ -86,6 +85,6 @@ export function computeClientStatus(
   });
   if (anyRenewalApproaching) return "renewal";
 
-  const anyLaunchKnown = hasValue(legacyLaunchDate) || tracked.some((d) => hasValue(launchDateByDealId[d.id]));
+  const anyLaunchKnown = tracked.some((d) => hasValue(launchDateByDealId[d.id]));
   return anyLaunchKnown ? "active" : "onboarding";
 }

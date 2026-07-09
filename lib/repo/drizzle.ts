@@ -673,8 +673,7 @@ async function recomputeClientBody(clientId: string): Promise<void> {
   const launchDateByDealId = Object.fromEntries(
     Object.entries(dealDates).map(([dealId, dates]) => [dealId, dates?.launch_date]),
   );
-  const legacyLaunchDate = props?.launch_date as string | null | undefined;
-  const status = computeClientStatus(effective, launchDateByDealId, legacyLaunchDate, statusOverride, arr);
+  const status = computeClientStatus(effective, launchDateByDealId, statusOverride, arr);
 
   await db
     .update(schema.clients)

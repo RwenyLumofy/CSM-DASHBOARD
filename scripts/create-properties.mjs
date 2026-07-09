@@ -202,10 +202,6 @@ const DEFS = [
     options: [], group: "dates", sortOrder: 50, isSystem: true, isReadOnly: false,
   },
   {
-    key: "launch_date", label: "Launch Date", type: "date",
-    options: [], group: "dates", sortOrder: 60, isSystem: true, isReadOnly: false,
-  },
-  {
     key: "platform_start_date", label: "Platform Start Date", type: "date",
     options: [], group: "dates", sortOrder: 70, isSystem: true, isReadOnly: false,
   },

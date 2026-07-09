@@ -94,7 +94,6 @@ function rowToProps(r) {
   set("contract_effective_date_prop", flexDate(r["Contract Effective Date"]));
   set("invoice_sent_date", flexDate(r["Invoice Sent Date"]));
   set("kickoff_meeting_date", flexDate(r["Kick-Off Meeting"]));
-  set("launch_date", flexDate(r["Launch Date"]));
   set("global_library_expiry_date", flexDate(r["Global Content Library expiry dates"]));
   const [pStart, pEnd] = platformDates(r["Platform Licenses start-ending dates"]);
   set("platform_start_date", pStart);

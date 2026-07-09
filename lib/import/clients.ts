@@ -58,7 +58,6 @@ const PROPERTY_ALIASES: Record<string, string[]> = {
   global_library_expiry_date:    ["global_content_library_expiry_dates"],
   invoice_sent_date:             ["invoice_sent_date"],
   kickoff_meeting_date:          ["kick_off_meeting"],
-  launch_date:                   ["launch_date"],
   platform_dates:                ["platform_licenses_start_ending_dates"],
   platform_start_date:           ["platform_start_date"],
   platform_end_date:             ["platform_end_date"],
@@ -80,7 +79,6 @@ const PROPERTY_TYPES: Record<string, "number" | "currency" | "date" | "multi_sel
   global_library_expiry_date:    "date",
   invoice_sent_date:             "date",
   kickoff_meeting_date:          "date",
-  launch_date:                   "date",
   platform_dates:                "platform_dates",
   platform_start_date:           "date",
   platform_end_date:             "date",
@@ -137,7 +135,6 @@ export const TEMPLATE_COLUMNS: { header: string; example: string; note?: string 
   // Milestone dates
   { header: "Invoice Sent Date",                       example: "15/03/2025",            note: "DD/MM/YYYY" },
   { header: "Kick-Off Meeting",                        example: "20/04/2025",            note: "DD/MM/YYYY" },
-  { header: "Launch Date",                             example: "01/05/2025",            note: "DD/MM/YYYY" },
   { header: "Platform Start Date",                     example: "01/03/2025",            note: "DD/MM/YYYY" },
   { header: "Platform End Date",                       example: "01/03/2026",            note: "DD/MM/YYYY" },
 ];

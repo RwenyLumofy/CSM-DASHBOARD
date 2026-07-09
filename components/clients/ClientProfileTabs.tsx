@@ -264,7 +264,7 @@ const DEAL_FIELDS: { key: keyof Deal; label: string; type: OverrideFieldType }[]
   { key: "numberOfUsers", label: "Licenses", type: "number" },
   { key: "complementaryLicenses", label: "Complementary", type: "number" },
   { key: "pricePerUser", label: "User price", type: "currency" },
-  { key: "contractDuration", label: "Contract length", type: "number" },
+  { key: "contractDuration", label: "Contract length (Years)", type: "number" },
   // Product & content
   { key: "products", label: "Module", type: "multi_select" },
   { key: "useCases", label: "Use case", type: "multi_select" },
