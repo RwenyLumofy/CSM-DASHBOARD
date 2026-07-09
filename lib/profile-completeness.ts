@@ -81,13 +81,20 @@ const RED_FIELDS: FieldCheck[] = [
   // let real gaps go unflagged (confirmed live 2026-07-09: 39 accounts had an
   // empty per-deal Launch masked as "complete" by an old legacy value).
   { key: "launch_date", label: "Launch date", scope: "dealDate", dateKey: "launch_date" },
+  // Kick-off is mandatory too: it must be set on the deal itself
+  // (client.properties.__deal_dates[dealId].kickoff_meeting_date, the
+  // "Kick-off meeting" field on the deal card). No legacyFallback here either
+  // — there IS a separate, older account-level client.properties.
+  // kickoff_meeting_date property (see scripts/create-properties.mjs), but
+  // this check has never read it, so promoting this field to red carries none
+  // of launch_date's old masking risk.
+  { key: "kickoff_meeting_date", label: "Kick-off meeting", scope: "dealDate", dateKey: "kickoff_meeting_date" },
 ];
 
 const YELLOW_FIELDS: FieldCheck[] = [
   { key: "referralSource", label: "Acquisition Channel", scope: "deal", get: (d) => d.referralSource },
   { key: "contractDuration", label: "Contract length (Years)", scope: "deal", get: (d) => d.contractDuration },
   { key: "closeDate", label: "Closed won", scope: "deal", get: (d) => d.closeDate },
-  { key: "kickoff_meeting_date", label: "Kick-off meeting", scope: "dealDate", dateKey: "kickoff_meeting_date" },
   { key: "invoice_sent_date", label: "Invoice sent", scope: "dealDate", dateKey: "invoice_sent_date" },
   { key: "platform_start_date", label: "Platform start", scope: "dealDate", dateKey: "platform_start_date" },
   { key: "platform_end_date", label: "Platform end", scope: "dealDate", dateKey: "platform_end_date" },

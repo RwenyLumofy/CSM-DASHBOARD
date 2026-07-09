@@ -138,6 +138,10 @@ export function ClientsTable({
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
   const [tier, setTier] = useState("all");
+  // Profile-completeness filter — matches ProfileCompleteness["severity"]
+  // directly ("none" = Complete, "yellow" = Partial complete, "red" = Incomplete),
+  // same values already driving RowCompletenessBadge below.
+  const [completenessFilter, setCompletenessFilter] = useState<"all" | "none" | "yellow" | "red">("all");
   const [csm, setCsm] = useState("all");
   // Defaults to "all" — no pre-filtering; the four real lifecycle stages
   // (onboarding, active, renewal, churned) are each individually selectable.
@@ -188,6 +192,7 @@ export function ClientsTable({
         if (d < renewalRange.start || d >= renewalRange.end) return false;
       }
       if (tier !== "all" && c.health.tier !== tier) return false;
+      if (completenessFilter !== "all" && (completenessByClient[c.id]?.severity ?? "none") !== completenessFilter) return false;
       if (csm !== "all" && c.csm?.id !== csm) return false;
       if (channel !== "all" && channelOf(c) !== channel) return false;
       if (country !== "all" && c.country !== country) return false;
@@ -213,7 +218,7 @@ export function ClientsTable({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [clients, query, tier, csm, status, renewalRange, channel, country, accountTier, sortKey, sortDir]);
+  }, [clients, query, tier, completenessFilter, completenessByClient, csm, status, renewalRange, channel, country, accountTier, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -337,6 +342,12 @@ export function ClientsTable({
         <FilterSelect value={tier} onChange={setTier} label="Health">
           <option value="all">All health</option>
           {healthTiers.map((t) => <option key={t} value={t}>{t}</option>)}
+        </FilterSelect>
+        <FilterSelect value={completenessFilter} onChange={(v) => setCompletenessFilter(v as "all" | "none" | "yellow" | "red")} label="Profile completeness">
+          <option value="all">All profiles</option>
+          <option value="none">Complete</option>
+          <option value="yellow">Partial complete</option>
+          <option value="red">Incomplete</option>
         </FilterSelect>
         <FilterSelect value={csm} onChange={setCsm} label="CSM">
           <option value="all">All CSMs</option>
