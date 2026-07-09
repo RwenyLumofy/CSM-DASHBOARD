@@ -23,13 +23,7 @@ import type { UsageResult } from "@/lib/usage/types";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { formatDate } from "@/lib/format";
 import type { ProjectDeadlineItem } from "@/lib/projects/deadlines";
-
-/** A stakeholder-mapping entry as stored in client.properties.stakeholder_mappings. */
-export interface StakeholderMapping {
-  type: string;
-  contactId: string | null;
-  staffId: string | null;
-}
+import type { StakeholderMapping } from "@/lib/stakeholders";
 
 export interface SignalInputs {
   client: Client;
@@ -167,7 +161,7 @@ export function detectSignals(inputs: SignalInputs): ActionSignal[] {
   }
 
   // ── #6a Stakeholder mapping ─────────────────────────────────────────────
-  const mappedCount = stakeholderMappings.filter((s) => s.contactId).length;
+  const mappedCount = stakeholderMappings.filter((s) => s.contactIds.length > 0).length;
   if (mappedCount === 0) {
     out.push({
       category: "stakeholders",

@@ -41,6 +41,7 @@ import {
   Paperclip,
   Pencil,
   Phone,
+  Plus,
   Receipt,
   RefreshCw,
   Search,
@@ -75,7 +76,7 @@ import { createAttachmentUploadUrlAction, recordAttachmentAction, deleteAttachme
 import { addContactAction, deleteContactAction } from "@/app/(app)/clients/[id]/contact-actions";
 import { UsageTab } from "@/components/clients/UsageTab";
 import { ProjectsTab } from "@/components/clients/projects/ProjectsTab";
-import type { Member } from "@/components/clients/projects/shared";
+import { PopMenu, type Member } from "@/components/clients/projects/shared";
 import type { ProjectConfig } from "@/lib/projects/config";
 import type { ProjectDetail } from "@/lib/projects/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
@@ -106,6 +107,7 @@ import type {
   PropertyDefinition,
   SupportTicket,
 } from "@/lib/types";
+import { normalizeStakeholderMappings, type StakeholderMapping } from "@/lib/stakeholders";
 import { ActionFeed } from "@/components/actions/ActionFeed";
 import { NotesTab } from "@/components/clients/notes/NotesTab";
 import type { Note } from "@/lib/notes/types";
@@ -202,7 +204,7 @@ export function ClientProfileTabs(props: Props) {
       <div className="min-w-0 flex flex-col gap-5">
         {active === "general" && <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} />}
         {active === "usage" && <UsageTab clientId={client.id} />}
-        {active === "communication" && <CommunicationTab clientId={client.id} contacts={contacts} emails={emails} meetings={meetings} stakeholderMappings={Array.isArray(client.properties?.stakeholder_mappings) ? (client.properties.stakeholder_mappings as StakeholderMapping[]) : []} />}
+        {active === "communication" && <CommunicationTab clientId={client.id} contacts={contacts} emails={emails} meetings={meetings} stakeholderMappings={normalizeStakeholderMappings(client.properties?.stakeholder_mappings)} />}
         {active === "attachments" && <AttachmentsTab clientId={client.id} attachments={attachments} deals={deals} supabaseUrl={supabaseUrl} />}
         {active === "support" && <SupportTab client={client} />}
         {active === "satisfaction" && <SatisfactionTab client={client} />}
@@ -1245,12 +1247,6 @@ function AddContactButton({ clientId }: { clientId: string }) {
 
 /* ---- Stakeholder mapping matrix ------------------------------------------ */
 
-interface StakeholderMapping {
-  type: string;
-  contactId: string | null;
-  staffId: string | null;
-}
-
 interface LumofyStaffEntry {
   id: string;
   name: string;
@@ -1261,11 +1257,156 @@ interface LumofyStaffEntry {
 
 const DEFAULT_STAKEHOLDER_TYPES = ["Executive Sponsor", "Champion", "Decision Maker", "Power User", "Gatekeeper"];
 
+interface PersonOption {
+  id: string;
+  name: string;
+  sublabel: string | null;
+  initials: string;
+  detail: string | null;
+}
+
+function contactToOption(c: Contact): PersonOption {
+  const name = [c.firstName, c.lastName].filter(Boolean).join(" ") || c.email || c.id;
+  const initials = ([c.firstName?.[0], c.lastName?.[0]].filter(Boolean).join("").toUpperCase()) || "?";
+  const detailParts = [c.jobTitle, c.email, c.phone].filter(Boolean) as string[];
+  return { id: c.id, name, sublabel: c.jobTitle || c.email || null, initials, detail: detailParts.length ? detailParts.join(" · ") : null };
+}
+
+function staffToOption(s: LumofyStaffEntry): PersonOption {
+  const initials = s.name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
+  const detailParts = [s.jobTitle, s.email, s.phone].filter(Boolean) as string[];
+  return { id: s.id, name: s.name, sublabel: s.jobTitle || s.email || null, initials, detail: detailParts.length ? detailParts.join(" · ") : null };
+}
+
+const PEOPLE_THEME = {
+  sirius: {
+    chip: "border-sirius/30 bg-accent-soft text-sirius",
+    avatar: "bg-accent-soft text-sirius",
+    add: "border-sirius/30 text-sirius hover:bg-sirius/5",
+  },
+  purple: {
+    chip: "border-purple-200/60 bg-purple-50/60 text-fg dark:border-purple-800/40 dark:bg-purple-950/20",
+    avatar: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400",
+    add: "border-purple-300/60 text-purple-700 hover:bg-purple-50/60 dark:border-purple-800/40 dark:text-purple-400 dark:hover:bg-purple-950/20",
+  },
+} as const;
+
+function PersonChip({ option, theme, onRemove }: { option: PersonOption; theme: keyof typeof PEOPLE_THEME; onRemove: () => void }) {
+  const t = PEOPLE_THEME[theme];
+  return (
+    <span title={option.detail ?? option.name} className={cn("flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-1.5", t.chip)}>
+      <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-full font-body text-[10px] font-bold", t.avatar)}>
+        {option.initials}
+      </span>
+      <span className="max-w-[120px] truncate font-body text-[12px] font-semibold">{option.name}</span>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        className="flex size-4 shrink-0 items-center justify-center rounded-full text-fg-subtle transition-colors hover:bg-bg-muted hover:text-fg"
+        aria-label={"Remove " + option.name}
+      >
+        <X size={11} />
+      </button>
+    </span>
+  );
+}
+
+function PeopleMultiSelect({
+  options, selectedIds, onChange, theme, addLabel, emptyOptionsHint,
+}: {
+  options: PersonOption[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+  theme: keyof typeof PEOPLE_THEME;
+  addLabel: string;
+  emptyOptionsHint: string;
+}) {
+  const t = PEOPLE_THEME[theme];
+  const selected = selectedIds.map((id) => options.find((o) => o.id === id)).filter((o): o is PersonOption => !!o);
+  const toggle = (id: string) => onChange(selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id]);
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-bg p-1.5">
+      {selected.map((o) => (
+        <PersonChip key={o.id} option={o} theme={theme} onRemove={() => toggle(o.id)} />
+      ))}
+      <PopMenu
+        menuWidth={260}
+        trigger={() => (
+          <span className={cn("flex items-center gap-1 rounded-lg border border-dashed px-2 py-1 font-body text-[11.5px] font-semibold transition-colors", t.add)}>
+            <Plus size={12} /> {selected.length === 0 ? addLabel : "Add"}
+          </span>
+        )}
+      >
+        {() => <PeoplePickerList options={options} selectedIds={selectedIds} onToggle={toggle} emptyOptionsHint={emptyOptionsHint} />}
+      </PopMenu>
+    </div>
+  );
+}
+
+function PeoplePickerList({
+  options, selectedIds, onToggle, emptyOptionsHint,
+}: {
+  options: PersonOption[];
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+  emptyOptionsHint: string;
+}) {
+  const [query, setQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? options.filter((o) => o.name.toLowerCase().includes(q) || o.sublabel?.toLowerCase().includes(q))
+    : options;
+
+  return (
+    <div className="flex w-60 flex-col gap-1">
+      <div className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2 py-1.5">
+        <Search size={13} className="shrink-0 text-fg-subtle" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by name…"
+          className="w-full bg-transparent font-body text-[13px] text-fg outline-none placeholder:text-fg-subtle"
+        />
+      </div>
+      <div className="flex max-h-[240px] flex-col gap-0.5 overflow-y-auto">
+        {filtered.length === 0 ? (
+          <div className="px-2.5 py-3 text-center font-body text-[12px] text-fg-subtle">
+            {options.length === 0 ? emptyOptionsHint : "No matches"}
+          </div>
+        ) : (
+          filtered.map((o) => {
+            const on = selectedIds.includes(o.id);
+            return (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => onToggle(o.id)}
+                className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-bg-muted"
+              >
+                <span className={cn("flex size-4 shrink-0 items-center justify-center rounded border", on ? "border-sirius bg-sirius text-white" : "border-border")}>
+                  {on && <Check size={11} />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-body text-[13px] text-fg">{o.name}</span>
+                  {o.sublabel && <span className="block truncate font-body text-[11px] text-fg-muted">{o.sublabel}</span>}
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: string; contacts: Contact[]; initialMappings: StakeholderMapping[] }) {
   const [types, setTypes] = useState<string[]>([]);
   const [staff, setStaff] = useState<LumofyStaffEntry[]>([]);
-  // Mappings come straight from the server (client.properties.stakeholder_mappings),
-  // so there's no client-side round-trip to load them.
   const [mappings, setMappings] = useState<StakeholderMapping[]>(initialMappings);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1290,14 +1431,14 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
   }, []);
 
   function getMapping(type: string): StakeholderMapping {
-    return mappings.find((m) => m.type === type) ?? { type, contactId: null, staffId: null };
+    return mappings.find((m) => m.type === type) ?? { type, contactIds: [], staffIds: [] };
   }
 
   function updateMapping(type: string, patch: Partial<Omit<StakeholderMapping, "type">>) {
     setMappings((prev) => {
       const existing = prev.find((m) => m.type === type);
       if (existing) return prev.map((m) => m.type === type ? { ...m, ...patch } : m);
-      return [...prev, { type, contactId: null, staffId: null, ...patch }];
+      return [...prev, { type, contactIds: [], staffIds: [], ...patch }];
     });
   }
 
@@ -1316,95 +1457,46 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
     return <div className="flex items-center justify-center py-12 text-fg-muted font-body text-sm">Loading stakeholder map…</div>;
   }
 
-  const contactById = (id: string | null) => contacts.find((c) => c.id === id) ?? null;
-  const staffById = (id: string | null) => staff.find((s) => s.id === id) ?? null;
+  const contactOptions = contacts.map(contactToOption);
+  const staffOptions = staff.map(staffToOption);
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Matrix header */}
       <div className="grid grid-cols-[180px_1fr_1fr] gap-3">
         <div className="font-body text-[11px] font-semibold uppercase tracking-wider text-fg-muted px-1">Stakeholder Type</div>
         <div className="font-body text-[11px] font-semibold uppercase tracking-wider text-fg-muted px-1">Client Stakeholder</div>
         <div className="font-body text-[11px] font-semibold uppercase tracking-wider text-fg-muted px-1">Lumofy Owner</div>
       </div>
 
-      {/* Matrix rows */}
       <div className="flex flex-col gap-2">
         {types.map((type) => {
           const mapping = getMapping(type);
-          const contact = contactById(mapping.contactId);
-          const member = staffById(mapping.staffId);
-
           return (
             <div key={type} className="grid grid-cols-[180px_1fr_1fr] gap-3 rounded-xl border border-border bg-bg p-3 transition-shadow hover:shadow-sm">
-              {/* Type label */}
               <div className="flex items-center">
                 <span className="rounded-lg bg-accent-soft px-3 py-1.5 font-body text-xs font-semibold text-sirius">{type}</span>
               </div>
-
-              {/* Client contact slot */}
-              <div className="flex flex-col gap-2">
-                {contact ? (
-                  <div className="flex items-start gap-2 rounded-lg border border-sirius/20 bg-sirius/5 p-2.5">
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft font-body text-xs font-bold text-sirius">
-                      {([contact.firstName?.[0], contact.lastName?.[0]].filter(Boolean).join("").toUpperCase()) || "?"}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-body text-xs font-semibold text-fg truncate">
-                        {[contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.email}
-                      </div>
-                      {contact.jobTitle && <div className="font-body text-[11px] text-fg-muted truncate">{contact.jobTitle}</div>}
-                      {contact.email && <div className="font-body text-[11px] text-fg-muted truncate">{contact.email}</div>}
-                      {contact.phone && <div className="font-body text-[11px] text-fg-muted">{contact.phone}</div>}
-                    </div>
-                  </div>
-                ) : null}
-                <select
-                  className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-xs text-fg outline-none ring-sirius focus:ring-2"
-                  value={mapping.contactId ?? ""}
-                  onChange={(e) => updateMapping(type, { contactId: e.target.value || null })}
-                >
-                  <option value="">— Select contact —</option>
-                  {contacts.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {[c.firstName, c.lastName].filter(Boolean).join(" ") || c.email || c.id}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Lumofy staff slot */}
-              <div className="flex flex-col gap-2">
-                {member ? (
-                  <div className="flex items-start gap-2 rounded-lg border border-purple-200/60 bg-purple-50/60 p-2.5 dark:border-purple-800/40 dark:bg-purple-950/20">
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/40 font-body text-xs font-bold text-purple-700 dark:text-purple-400">
-                      {member.name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-body text-xs font-semibold text-fg truncate">{member.name}</div>
-                      {member.jobTitle && <div className="font-body text-[11px] text-fg-muted truncate">{member.jobTitle}</div>}
-                      {member.email && <div className="font-body text-[11px] text-fg-muted truncate">{member.email}</div>}
-                      {member.phone && <div className="font-body text-[11px] text-fg-muted">{member.phone}</div>}
-                    </div>
-                  </div>
-                ) : null}
-                <select
-                  className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-xs text-fg outline-none ring-sirius focus:ring-2"
-                  value={mapping.staffId ?? ""}
-                  onChange={(e) => updateMapping(type, { staffId: e.target.value || null })}
-                >
-                  <option value="">— Select team member —</option>
-                  {staff.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}{s.jobTitle ? ` · ${s.jobTitle}` : ""}</option>
-                  ))}
-                </select>
-              </div>
+              <PeopleMultiSelect
+                options={contactOptions}
+                selectedIds={mapping.contactIds}
+                onChange={(ids) => updateMapping(type, { contactIds: ids })}
+                theme="sirius"
+                addLabel="Select contacts"
+                emptyOptionsHint="No contacts yet"
+              />
+              <PeopleMultiSelect
+                options={staffOptions}
+                selectedIds={mapping.staffIds}
+                onChange={(ids) => updateMapping(type, { staffIds: ids })}
+                theme="purple"
+                addLabel="Select team members"
+                emptyOptionsHint="No team members yet"
+              />
             </div>
           );
         })}
       </div>
 
-      {/* Save button */}
       <div className="flex items-center gap-3 pt-2">
         <button
           type="button"

@@ -11,7 +11,8 @@ import "server-only";
 import type { Client, Deal } from "@/lib/types";
 import { dealOverridesMap, applyDealOverrides, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
 import { getClientUsage } from "@/lib/usage";
-import { detectSignals, type SignalInputs, type StakeholderMapping } from "@/lib/actions/signals";
+import { detectSignals, type SignalInputs } from "@/lib/actions/signals";
+import { normalizeStakeholderMappings } from "@/lib/stakeholders";
 import { enrichSignals } from "@/lib/actions/enrich";
 import { withDbTimeout } from "@/lib/db/client";
 import { computeProjectDeadlines } from "@/lib/projects/deadlines";
@@ -43,16 +44,8 @@ async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<n
   return subtotals.reduce((a, b) => a + b, 0);
 }
 
-function stakeholderMappingsOf(client: Client): StakeholderMapping[] {
-  const raw = client.properties?.stakeholder_mappings;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((m): m is Record<string, unknown> => !!m && typeof m === "object")
-    .map((m) => ({
-      type: String(m.type ?? ""),
-      contactId: m.contactId != null ? String(m.contactId) : null,
-      staffId: m.staffId != null ? String(m.staffId) : null,
-    }));
+function stakeholderMappingsOf(client: Client) {
+  return normalizeStakeholderMappings(client.properties?.stakeholder_mappings);
 }
 
 /** Assemble the pure-function inputs for one client (fetches usage + contacts). */

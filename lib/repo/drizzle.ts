@@ -30,6 +30,7 @@ import { computeHealthScore } from "@/lib/metrics/health";
 import { getClientHealthConfig } from "@/lib/assignment/config";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
+import { normalizeStakeholderMappings } from "@/lib/stakeholders";
 import type { UsageSnapshot } from "@/lib/usage/types";
 
 type Row = typeof schema.clients.$inferSelect;
@@ -761,10 +762,8 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
   const onboarding = computeOnboardingPeriod(tracked, dealDates);
   const useCasesRollup = computeUseCasesRollup(tracked);
   const { severity } = computeProfileCompleteness(client, tracked, dealDates);
-  const mappings = Array.isArray(client.properties?.stakeholder_mappings)
-    ? (client.properties!.stakeholder_mappings as { contactId?: unknown }[])
-    : [];
-  const stakeholderMapped = mappings.some((m) => m && m.contactId != null && m.contactId !== "");
+  const mappings = normalizeStakeholderMappings(client.properties?.stakeholder_mappings);
+  const stakeholderMapped = mappings.some((m) => m.contactIds.length > 0);
 
   // Dynamic import: lib/usage/index.ts is `"server-only"`-guarded, and this
   // file (unlike lib/actions/*) is imported directly by plain Node scripts
