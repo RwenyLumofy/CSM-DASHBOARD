@@ -442,6 +442,13 @@ function BriefBlock({ name, text }: { name: string | null; text: string }) {
 /* Attachments (own tab)                                                  */
 /* ===================================================================== */
 
+// Mirrors AttachmentCategoriesManager's own DEFAULT_CATEGORIES — shown until a
+// super-admin actually saves a list in Settings (workspace_config has no row
+// for "attachment_categories" until then, so the fetch below would otherwise
+// come back empty and the picker would offer nothing but "Uncategorized").
+// Same fallback-to-defaults pattern DEFAULT_STAKEHOLDER_TYPES already uses.
+const DEFAULT_ATTACHMENT_CATEGORIES = ["Contract", "Proposal", "Invoice", "Deck / Presentation", "Statement of Work", "Other"];
+
 function AttachmentsTab({
   clientId,
   attachments,
@@ -464,8 +471,8 @@ function AttachmentsTab({
   useEffect(() => {
     fetch("/api/admin/stakeholder-config?key=attachment_categories")
       .then((r) => r.json())
-      .then((data) => setCategories(Array.isArray(data.value) ? data.value : []))
-      .catch(() => {});
+      .then((data) => setCategories(Array.isArray(data.value) && data.value.length ? data.value : DEFAULT_ATTACHMENT_CATEGORIES))
+      .catch(() => setCategories(DEFAULT_ATTACHMENT_CATEGORIES));
   }, []);
 
   // Union of the admin-configured list with any value already present on this
