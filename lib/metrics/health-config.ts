@@ -25,7 +25,8 @@ export interface HealthMetricConfig {
    *  enabled set always sums to 100% of the score — meaningless while
    *  !enabled. */
   weight: number;
-  /** Per-metric tunables — only sla_breaches and onboarding_period use these. */
+  /** Per-metric tunables — only sla_breaches, onboarding_period, and the
+   *  three satisfaction metrics (nps/csat/platform_csat) use these. */
   params?: {
     /** sla_breaches: open-breach count at which the sub-score bottoms out at 0. */
     maxBreaches?: number;
@@ -33,6 +34,12 @@ export interface HealthMetricConfig {
     targetDays?: number;
     /** onboarding_period: days at/over which the sub-score is 0. */
     maxDays?: number;
+    /** nps / csat / platform_csat: raw value at/below which the sub-score is
+     *  0 ("nothing" — no credit). */
+    zeroAt?: number;
+    /** nps / csat / platform_csat: raw value at/over which the sub-score is
+     *  100 ("full" credit); linear ("partial" credit) in between. */
+    fullAt?: number;
   };
 }
 
@@ -73,9 +80,9 @@ export const HEALTH_METRIC_LABELS: Record<HealthMetricKey, string> = {
  *  builder, so a super-admin knows exactly what they're weighting. */
 export const HEALTH_METRIC_HELP: Record<HealthMetricKey, string> = {
   usage: "Product adoption score (0–100) from the Usage tab — activation, breadth of modules used, and recent momentum. Skipped if the account isn't linked to a Lumofy environment.",
-  csat: "The % of Intercom conversation ratings that were satisfied (4–5★) — a support-quality signal, not the overall product. Skipped if the account has no rated conversations yet.",
-  platform_csat: "The % of \"satisfied\" (4–5) answers to the outbound survey's platform-satisfaction question — a whole-product signal, distinct from Tickets CSAT above. Skipped if the account has no survey responses yet.",
-  nps: "Latest NPS from the outbound survey (promoters − detractors), rescaled to 0–100 as (NPS + 100) ÷ 2. Skipped if the account has no survey responses yet.",
+  csat: "The % of Intercom conversation ratings that were satisfied (4–5★) — a support-quality signal, not the overall product. Scores 0 at/under the low cutoff (\"nothing\") and 100 at/over the high cutoff (\"full\"), linear (\"partial\") between — both admin-set below, defaulting to 0/100 (today's direct pass-through). Skipped if the account has no rated conversations yet.",
+  platform_csat: "The % of \"satisfied\" (4–5) answers to the outbound survey's platform-satisfaction question — a whole-product signal, distinct from Tickets CSAT above. Scores 0 at/under the low cutoff (\"nothing\") and 100 at/over the high cutoff (\"full\"), linear (\"partial\") between — both admin-set below, defaulting to 0/100 (today's direct pass-through). Skipped if the account has no survey responses yet.",
+  nps: "Latest NPS from the outbound survey (promoters − detractors), on the standard -100..100 scale. Scores 0 at/under the low cutoff (\"nothing\") and 100 at/over the high cutoff (\"full\"), linear (\"partial\") between — both admin-set below, defaulting to -100/100 (today's (NPS + 100) ÷ 2 rule). Skipped if the account has no survey responses yet.",
   sla_breaches: "How many currently-open tickets have blown their SLA target. Scores 100 at zero breaches, sliding to 0 once the count hits the ‘breaches → 0’ ceiling. Skipped if the account has no support level set.",
   onboarding_period: "Measured on the account's latest-kick-off deal — its Kick-off → Launch days (or Kick-off → today while not launched); a newer deal supersedes an older one, and only deals sharing that same latest kick-off are averaged. Scores 100 at/under the target days and 0 at/over the max days, linear between. Skipped only if no deal has a kick-off date.",
   use_case_set: "100 if at least one Use Case is set across the account's deals, otherwise 0.",
@@ -120,7 +127,11 @@ export const DEFAULT_CLIENT_HEALTH_CONFIG: ClientHealthConfig = {
         ? { maxBreaches: 5 }
         : key === "onboarding_period"
           ? { targetDays: 30, maxDays: 90 }
-          : undefined,
+          : key === "nps"
+            ? { zeroAt: -100, fullAt: 100 }
+            : key === "csat" || key === "platform_csat"
+              ? { zeroAt: 0, fullAt: 100 }
+              : undefined,
   })),
   tiers: DEFAULT_HEALTH_TIERS,
 };

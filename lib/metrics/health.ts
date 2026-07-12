@@ -7,6 +7,12 @@ import { normalizeCsat } from "@/lib/metrics/portfolio";
 
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
+/** Linear 0–100 score between two admin-set cutoffs: at/below zeroAt → 0
+ *  ("nothing"), at/over fullAt → 100 ("full"), linear in between
+ *  ("partial"). Guards the degenerate zeroAt === fullAt as a step function. */
+const scoreWithCutoffs = (value: number, zeroAt: number, fullAt: number) =>
+  fullAt === zeroAt ? (value >= fullAt ? 100 : 0) : clamp(((value - zeroAt) / (fullAt - zeroAt)) * 100);
+
 /** Everything computeHealthScore needs, already resolved by the caller
  *  (lib/repo/drizzle.ts recomputeClientHealth) — this function itself does
  *  no I/O, so it's easy to test/tune in isolation. */
@@ -33,7 +39,8 @@ function subscoreFor(m: HealthMetricConfig, inputs: HealthComputeInputs): number
       // Tickets CSAT — Intercom conversation ratings (post-support-interaction).
       const { csat, csatScale, csatResponses } = inputs.support;
       if (csat == null || csatResponses === 0) return null;
-      return clamp(normalizeCsat(csat, csatScale));
+      const value = normalizeCsat(csat, csatScale);
+      return scoreWithCutoffs(value, m.params?.zeroAt ?? 0, m.params?.fullAt ?? 100);
     }
 
     case "platform_csat": {
@@ -43,13 +50,13 @@ function subscoreFor(m: HealthMetricConfig, inputs: HealthComputeInputs): number
       // needed, unlike csat above.
       const { platformCsat, platformCsatResponses } = inputs.support;
       if (platformCsat == null || platformCsatResponses === 0) return null;
-      return clamp(platformCsat);
+      return scoreWithCutoffs(platformCsat, m.params?.zeroAt ?? 0, m.params?.fullAt ?? 100);
     }
 
     case "nps": {
       const { nps } = inputs.support;
       if (nps == null) return null;
-      return clamp((nps + 100) / 2);
+      return scoreWithCutoffs(nps, m.params?.zeroAt ?? -100, m.params?.fullAt ?? 100);
     }
 
     case "sla_breaches": {

@@ -553,6 +553,25 @@ function MetricRow({ metric, onChange }: { metric: HealthMetricConfig; onChange:
             />
             <span className="font-body text-[11px] text-fg-subtle">d</span>
           </div>
+        ) : metric.key === "nps" || metric.key === "csat" || metric.key === "platform_csat" ? (
+          <div
+            className="flex items-center justify-end gap-1"
+            title='Value at/below scores 0 ("nothing"), value at/over scores 100 ("full"), linear ("partial") between'
+          >
+            <input
+              type="number" min={metric.key === "nps" ? -100 : 0} max={100}
+              value={metric.params?.zeroAt ?? (metric.key === "nps" ? -100 : 0)}
+              onChange={(e) => onChange({ params: { ...metric.params, zeroAt: Number(e.target.value) } })}
+              className={cn(inputCls, noSpin, "w-14 px-2 text-right tabular")}
+            />
+            <span className="font-body text-[11px] text-fg-subtle">→</span>
+            <input
+              type="number" min={metric.key === "nps" ? -100 : 0} max={100}
+              value={metric.params?.fullAt ?? 100}
+              onChange={(e) => onChange({ params: { ...metric.params, fullAt: Number(e.target.value) } })}
+              className={cn(inputCls, noSpin, "w-14 px-2 text-right tabular")}
+            />
+          </div>
         ) : (
           <span />
         )}
