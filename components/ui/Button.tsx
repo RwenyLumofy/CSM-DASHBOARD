@@ -7,15 +7,15 @@ type Size = "sm" | "md" | "lg";
 
 const VARIANTS: Record<Variant, string> = {
   primary: "bg-sirius text-white border border-sirius hover:bg-accent-hover active:bg-accent-pressed",
-  secondary: "bg-transparent text-fg border border-border-strong hover:bg-accent-soft hover:border-sirius-200",
+  secondary: "bg-surface text-fg border border-border hover:bg-accent-soft hover:border-sirius-200",
   ghost: "bg-transparent text-sirius border border-transparent hover:bg-accent-soft",
   dark: "bg-cosmos text-white border border-cosmos hover:bg-neutral-800",
 };
 
 const SIZES: Record<Size, string> = {
-  sm: "px-3.5 py-2 text-[13px] rounded-[10px] gap-1.5",
-  md: "px-[18px] py-[11px] text-sm rounded-md gap-2",
-  lg: "px-6 py-3.5 text-[15px] rounded-[14px] gap-2",
+  sm: "px-3.5 py-2 text-[13px] rounded-sm gap-1.5",
+  md: "px-[18px] py-[11px] text-sm rounded-sm gap-2",
+  lg: "px-6 py-3.5 text-[15px] rounded-[10px] gap-2",
 };
 
 const ICON_SIZE: Record<Size, number> = { sm: 16, md: 18, lg: 19 };

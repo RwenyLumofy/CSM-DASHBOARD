@@ -46,7 +46,7 @@ export function AppShell({
           <button
             onClick={() => setSidebarOpen(true)}
             title="Open sidebar"
-            className="absolute left-4 top-4 z-20 rounded-lg border border-border bg-surface p-1.5 text-fg-muted shadow-sm transition-colors hover:bg-bg-muted hover:text-fg"
+            className="absolute left-4 top-4 z-20 rounded-md border border-border bg-surface p-1.5 text-fg-muted shadow-sm transition-colors hover:bg-bg-muted hover:text-fg"
           >
             <PanelLeftOpen size={16} strokeWidth={1.75} />
           </button>

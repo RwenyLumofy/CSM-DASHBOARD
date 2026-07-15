@@ -10,9 +10,9 @@ import { markAllReadAction, markReadAction } from "@/app/(app)/inbox/actions";
 import { cn } from "@/lib/cn";
 
 const TYPE_DOT: Record<string, string> = {
-  assignment_needs_admin: "bg-[#B23A57]",
+  assignment_needs_admin: "bg-danger",
   assignment_review: "bg-sirius",
-  client_assigned: "bg-[#2DB47A]",
+  client_assigned: "bg-success",
   system: "bg-fg-subtle",
 };
 
@@ -80,7 +80,7 @@ export function NotificationsBell({
       >
         <Bell size={18} strokeWidth={1.75} />
         {unread > 0 && (
-          <span className="absolute right-1 top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-[#B23A57] px-1 text-[9px] font-bold text-white">
+          <span className="absolute right-1 top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-danger px-1 text-[9px] font-bold text-white">
             {unread > 9 ? "9+" : unread}
           </span>
         )}
@@ -99,7 +99,7 @@ export function NotificationsBell({
         // would trap it.
         <div
           style={{ left: panelPos.left, bottom: panelPos.bottom }}
-          className="fixed z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-surface shadow-lg"
+          className="fixed z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-surface shadow-lg"
         >
           <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2.5">
             <span className="font-body text-[13px] font-semibold text-fg">Notifications</span>

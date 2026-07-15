@@ -49,7 +49,7 @@ export function Sidebar({
   }
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col gap-6 border-r border-border bg-bg px-4 py-5">
+    <aside className="flex h-full w-60 shrink-0 flex-col gap-6 border-r border-border bg-bg-subtle px-4 py-5">
       <div className="flex items-center justify-between px-2 py-1">
         <Link href="/" aria-label="Lumofy home">
           <Logo kind="primary-horizontal" height={26} />
@@ -58,7 +58,7 @@ export function Sidebar({
           <button
             onClick={onCollapse}
             title="Collapse sidebar"
-            className="rounded-lg p-1 text-fg-subtle transition-colors hover:bg-bg-muted hover:text-fg"
+            className="rounded-md p-1 text-fg-subtle transition-colors hover:bg-bg-muted hover:text-fg"
           >
             <PanelLeftClose size={17} strokeWidth={1.75} />
           </button>
@@ -74,7 +74,7 @@ export function Sidebar({
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-[10px] px-3 py-2.5 font-body text-sm transition-all duration-[140ms] [transition-timing-function:var(--ease-standard)]",
+                "flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-sm transition-colors duration-[140ms] [transition-timing-function:var(--ease-standard)]",
                 active ? "bg-accent-soft font-semibold text-sirius" : "font-medium text-fg hover:bg-bg-muted",
               )}
             >
@@ -95,7 +95,7 @@ export function Sidebar({
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 rounded-[10px] px-3 py-2.5 font-body text-sm transition-all duration-[140ms] [transition-timing-function:var(--ease-standard)]",
+                  "flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-sm transition-colors duration-[140ms] [transition-timing-function:var(--ease-standard)]",
                   active ? "bg-accent-soft font-semibold text-sirius" : "font-medium text-fg hover:bg-bg-muted",
                 )}
               >

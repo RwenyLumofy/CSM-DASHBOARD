@@ -98,7 +98,7 @@ export function SyncManager({
           type="button"
           onClick={() => run(false)}
           disabled={disabled}
-          className="inline-flex shrink-0 items-center gap-2 rounded-[10px] bg-sirius px-4 py-2 font-body text-[13px] font-semibold text-white transition-colors hover:bg-cosmos disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-2 rounded-[10px] bg-sirius px-4 py-2 font-body text-[13px] font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
         >
           {running === "incremental" ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
           {running === "incremental" ? "Syncing…" : "Sync now"}

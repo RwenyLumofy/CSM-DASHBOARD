@@ -71,7 +71,7 @@ function FilterSelect({ value, onChange, label, children }: { value: string; onC
       aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-md border border-border bg-surface px-3 py-2 font-body text-[13px] font-medium text-fg-muted outline-none transition-colors hover:text-fg focus:border-sirius-200"
+      className="rounded-sm border border-border bg-surface px-3.5 py-2.5 font-body text-sm font-semibold text-fg-muted outline-none transition-colors hover:text-fg focus:border-sirius-200"
     >
       {children}
     </select>
@@ -94,7 +94,7 @@ function ActionCard({ a, mode, onDismiss }: { a: ActionRow; mode: "global" | "cl
   }
 
   return (
-    <li className="flex flex-wrap items-start gap-3 rounded-xl border border-border bg-surface p-4 shadow-sm">
+    <li className="flex flex-wrap items-start gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm">
       <span className={cn("mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border", cat.tone)}>
         <CatIcon size={16} />
       </span>
@@ -128,7 +128,7 @@ function ActionCard({ a, mode, onDismiss }: { a: ActionRow; mode: "global" | "cl
         onClick={dismiss}
         disabled={busy}
         title="Dismiss — hides this action until the situation changes"
-        className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-body text-[12px] font-semibold text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-sm border border-border px-2.5 py-1.5 font-body text-[12px] font-semibold text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
       >
         {busy ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />} Dismiss
       </button>
@@ -193,7 +193,7 @@ export function ActionFeed({ items, mode, clientId }: { items: ActionRow[]; mode
         <button
           onClick={regenerate}
           disabled={regenerating}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 font-body text-[12.5px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-sm border border-border px-3.5 py-2.5 font-body text-sm font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius disabled:opacity-50"
         >
           {regenerating ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Regenerate
         </button>
@@ -221,7 +221,7 @@ export function ActionFeed({ items, mode, clientId }: { items: ActionRow[]; mode
       )}
 
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-surface px-6 py-12 text-center">
+        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-surface px-6 py-12 text-center">
           <Sparkles size={26} className="text-sirius" />
           <p className="font-body text-sm font-medium text-fg">
             {items.length === 0 ? "No actions right now." : "No actions match these filters."}

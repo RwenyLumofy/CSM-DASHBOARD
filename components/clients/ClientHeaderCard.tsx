@@ -119,7 +119,7 @@ function OwnerCell({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             disabled={busy}
-            className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] text-fg outline-none ring-sirius focus:ring-2"
+            className="w-full rounded-[10px] border border-border bg-bg px-3 py-2 font-body text-[13px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15"
           >
             <option value="">Unassigned</option>
             {options.map((o) => (

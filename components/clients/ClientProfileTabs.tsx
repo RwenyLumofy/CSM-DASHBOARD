@@ -758,7 +758,7 @@ function AttachmentUploadButton({ clientId, deals, supabaseUrl, categories }: { 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={close} />
-          <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-bg shadow-2xl">
+          <div className="relative z-10 w-full max-w-md rounded-lg border border-border bg-bg shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h2 className="font-display text-[15px] font-semibold text-fg">Upload attachment</h2>
               <button onClick={close} className="rounded-md p-1 text-fg-muted hover:bg-bg-muted hover:text-fg">
@@ -785,7 +785,7 @@ function AttachmentUploadButton({ clientId, deals, supabaseUrl, categories }: { 
                   value={dealId}
                   onChange={(e) => setDealId(e.target.value)}
                   disabled={busy}
-                  className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] text-fg outline-none ring-sirius focus:ring-2"
+                  className="w-full rounded-[10px] border border-border bg-bg px-3 py-2 font-body text-[13px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15"
                 >
                   <option value="">No deal</option>
                   {deals.map((d) => (
@@ -801,7 +801,7 @@ function AttachmentUploadButton({ clientId, deals, supabaseUrl, categories }: { 
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                   disabled={busy}
-                  className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] text-fg outline-none ring-sirius focus:ring-2"
+                  className="w-full rounded-[10px] border border-border bg-bg px-3 py-2 font-body text-[13px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15"
                 >
                   <option value="">No category</option>
                   {categories.map((c) => (
@@ -900,7 +900,7 @@ function CommunicationTab({ clientId, contacts, emails, meetings, stakeholderMap
           (sortedEmails.length === 0 ? (
             <EmptyHint icon={Mail} title="No emails" body="Emails sync from this account across all deals and contacts in HubSpot." />
           ) : (
-            <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
+            <div className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
               {sortedEmails.map((e) => <EmailCard key={e.id} email={e} />)}
             </div>
           ))}
@@ -909,7 +909,7 @@ function CommunicationTab({ clientId, contacts, emails, meetings, stakeholderMap
           (sortedMeetings.length === 0 ? (
             <EmptyHint icon={Calendar} title="No meetings" body="Meetings sync from this account across all deals and contacts in HubSpot." />
           ) : (
-            <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
+            <div className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
               {sortedMeetings.map((m) => <MeetingCard key={m.id} meeting={m} />)}
             </div>
           ))}
@@ -1171,7 +1171,7 @@ function ContactsTable({ contacts, clientId }: { contacts: Contact[]; clientId: 
   }
 
   return (
-    <div className="overflow-x-auto overflow-hidden rounded-xl border border-border">
+    <div className="overflow-x-auto overflow-hidden rounded-lg border border-border">
       <table className="w-full min-w-[560px] border-collapse font-body">
         <thead>
           <tr className="border-b border-border bg-bg-muted/60">
@@ -1322,7 +1322,7 @@ function AddContactButton({ clientId }: { clientId: string }) {
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={close} />
-          <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-bg shadow-2xl">
+          <div className="relative z-10 w-full max-w-md rounded-lg border border-border bg-bg shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h2 className="font-display text-[15px] font-semibold text-fg">Add contact</h2>
               <button onClick={close} className="rounded-md p-1 text-fg-muted hover:bg-bg-muted hover:text-fg">
@@ -1337,7 +1337,7 @@ function AddContactButton({ clientId }: { clientId: string }) {
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
                     disabled={busy}
-                    className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] text-fg outline-none ring-sirius focus:ring-2"
+                    className="w-full rounded-[10px] border border-border bg-bg px-3 py-2 font-body text-[13px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15"
                   />
                 </div>
                 <div>
@@ -1346,7 +1346,7 @@ function AddContactButton({ clientId }: { clientId: string }) {
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
                     disabled={busy}
-                    className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] text-fg outline-none ring-sirius focus:ring-2"
+                    className="w-full rounded-[10px] border border-border bg-bg px-3 py-2 font-body text-[13px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15"
                   />
                 </div>
               </div>
@@ -1357,7 +1357,7 @@ function AddContactButton({ clientId }: { clientId: string }) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={busy}
-                  className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] text-fg outline-none ring-sirius focus:ring-2"
+                  className="w-full rounded-[10px] border border-border bg-bg px-3 py-2 font-body text-[13px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1367,7 +1367,7 @@ function AddContactButton({ clientId }: { clientId: string }) {
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     disabled={busy}
-                    className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] text-fg outline-none ring-sirius focus:ring-2"
+                    className="w-full rounded-[10px] border border-border bg-bg px-3 py-2 font-body text-[13px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15"
                   />
                 </div>
                 <div>
@@ -1376,7 +1376,7 @@ function AddContactButton({ clientId }: { clientId: string }) {
                     value={jobTitle}
                     onChange={(e) => setJobTitle(e.target.value)}
                     disabled={busy}
-                    className="w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] text-fg outline-none ring-sirius focus:ring-2"
+                    className="w-full rounded-[10px] border border-border bg-bg px-3 py-2 font-body text-[13px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15"
                   />
                 </div>
               </div>
@@ -1625,7 +1625,7 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
         {types.map((type) => {
           const mapping = getMapping(type);
           return (
-            <div key={type} className="grid grid-cols-[180px_1fr_1fr] gap-3 rounded-xl border border-border bg-bg p-3 transition-shadow hover:shadow-sm">
+            <div key={type} className="grid grid-cols-[180px_1fr_1fr] gap-3 rounded-lg border border-border bg-bg p-3 transition-shadow hover:shadow-sm">
               <div className="flex items-center">
                 <span className="rounded-lg bg-accent-soft px-3 py-1.5 font-body text-xs font-semibold text-sirius">{type}</span>
               </div>
@@ -1863,7 +1863,7 @@ function SatisfactionKpi({
   const DeltaIcon = delta == null || delta === 0 ? Minus : delta > 0 ? TrendingUp : TrendingDown;
   const deltaColor = delta == null || delta === 0 ? "text-fg-subtle" : delta > 0 ? "text-success" : "text-danger";
   return (
-    <div className="relative overflow-hidden rounded-xl border border-border-subtle bg-surface p-4">
+    <div className="relative overflow-hidden rounded-lg border border-border-subtle bg-surface p-4">
       <span className="absolute inset-x-0 top-0 h-1" style={{ background: color }} aria-hidden />
       <div className="flex items-center justify-between gap-2">
         <span className="caption flex items-center gap-1.5">
@@ -2118,7 +2118,7 @@ function Section({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+    <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -2342,7 +2342,7 @@ function StatusField({ clientId, status, manuallyChurned }: { clientId: string; 
   );
 }
 
-const editCls = "w-full rounded-md border border-sirius-200 bg-surface px-2 py-1 font-body text-[13px] text-fg outline-none focus:ring-2 focus:ring-sirius/10";
+const editCls = "w-full rounded-[10px] border border-sirius-200 bg-surface px-2.5 py-2 font-body text-[13.5px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15";
 
 /** Searchable dropdown multi-select picker used inside deal-card / property cells. */
 function MultiSelectDropdown({
@@ -2408,7 +2408,7 @@ function MultiSelectDropdown({
       {open && (
         <div
           ref={panelRef}
-          className="absolute left-0 top-full z-50 mt-1.5 w-72 overflow-hidden rounded-xl border border-border bg-bg shadow-xl"
+          className="absolute left-0 top-full z-50 mt-1.5 w-72 overflow-hidden rounded-lg border border-border bg-bg shadow-xl"
         >
           {/* Search input */}
           <div className="border-b border-border p-2">
@@ -2533,7 +2533,7 @@ function EditInput({
 
   const buttons = (
     <span className="flex shrink-0 items-center gap-1">
-      <button type="button" disabled={saving} onClick={save} title="Save" className="grid size-6 place-items-center rounded-md bg-sirius text-white transition-colors hover:bg-cosmos disabled:opacity-50">
+      <button type="button" disabled={saving} onClick={save} title="Save" className="grid size-6 place-items-center rounded-md bg-sirius text-white transition-colors hover:bg-accent-hover disabled:opacity-50">
         <Check size={13} />
       </button>
       <button type="button" disabled={saving} onClick={onCancel} title="Cancel" className="grid size-6 place-items-center rounded-md text-fg-subtle transition-colors hover:bg-bg-muted disabled:opacity-50">
@@ -2781,7 +2781,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
   ];
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+    <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
       {/* Header — click to collapse / expand the whole section. */}
       <button
         onClick={() => setOpen((o) => !o)}
@@ -2872,7 +2872,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
                   Reset
                 </button>
                 <button type="button" onClick={save} disabled={saving || isPending}
-                  className="inline-flex items-center gap-1.5 rounded-[10px] bg-sirius px-4 py-1.5 font-body text-[13px] font-semibold text-white transition-colors hover:bg-cosmos disabled:opacity-60">
+                  className="inline-flex items-center gap-1.5 rounded-[10px] bg-sirius px-4 py-1.5 font-body text-[13px] font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-60">
                   {(saving || isPending) ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save
                 </button>
               </div>
@@ -2992,10 +2992,10 @@ function DealCard({
   };
 
   return (
-    <li className={cn("rounded-xl border border-border-subtle transition-opacity", !checked && "opacity-60")}>
+    <li className={cn("rounded-lg border border-border-subtle transition-opacity", !checked && "opacity-60")}>
       {/* Always-visible header — click anywhere (except the checkbox) to expand / collapse */}
       <div
-        className="flex cursor-pointer items-start gap-3 rounded-xl p-4 transition-colors hover:bg-bg-subtle"
+        className="flex cursor-pointer items-start gap-3 rounded-lg p-4 transition-colors hover:bg-bg-subtle"
         onClick={() => setOpen((o) => !o)}
       >
         <input
@@ -3056,7 +3056,7 @@ function DealCard({
                     value={briefDraft}
                     onChange={(e) => setBriefDraft(e.target.value)}
                     placeholder="Write the account brief here…"
-                    className="w-full resize-y rounded-md border border-sirius-200 bg-surface px-2.5 py-1.5 font-body text-[13px] text-fg outline-none focus:ring-2 focus:ring-sirius/10 disabled:opacity-50"
+                    className="w-full resize-y rounded-[10px] border border-sirius-200 bg-surface px-3 py-2 font-body text-[13.5px] leading-relaxed text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15 disabled:opacity-50"
                   />
                   <div className="flex justify-end gap-1.5">
                     <button disabled={savingBrief} onClick={() => setEditingBrief(false)}
@@ -3064,7 +3064,7 @@ function DealCard({
                       Cancel
                     </button>
                     <button disabled={savingBrief} onClick={commitBrief}
-                      className="inline-flex items-center gap-1.5 rounded-[8px] bg-sirius px-3 py-1 font-body text-[12px] font-semibold text-white transition-colors hover:bg-cosmos disabled:opacity-60">
+                      className="inline-flex items-center gap-1.5 rounded-[8px] bg-sirius px-3 py-1 font-body text-[12px] font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-60">
                       {savingBrief ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Save
                     </button>
                   </div>
@@ -3351,7 +3351,7 @@ function TagsInput({ value, saving, onCommit, onCancel }: { value: string[]; sav
     <div className="flex items-center gap-1.5">
       <input autoFocus disabled={saving} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} placeholder="comma, separated" className={editCls} />
       <span className="flex shrink-0 items-center gap-1">
-        <button type="button" disabled={saving} onClick={save} title="Save" className="grid size-6 place-items-center rounded-md bg-sirius text-white transition-colors hover:bg-cosmos disabled:opacity-50">
+        <button type="button" disabled={saving} onClick={save} title="Save" className="grid size-6 place-items-center rounded-md bg-sirius text-white transition-colors hover:bg-accent-hover disabled:opacity-50">
           <Check size={13} />
         </button>
         <button type="button" disabled={saving} onClick={onCancel} title="Cancel" className="grid size-6 place-items-center rounded-md text-fg-subtle transition-colors hover:bg-bg-muted disabled:opacity-50">

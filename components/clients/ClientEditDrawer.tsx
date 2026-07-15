@@ -178,7 +178,7 @@ function EditDrawer({ client, csmUsers, propertyDefs, onClose }: Props & { onClo
               Cancel
             </button>
             <button onClick={save} disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-[10px] bg-sirius px-4 py-2 font-body text-[13px] font-semibold text-white transition-colors hover:bg-cosmos disabled:opacity-60">
+              className="inline-flex items-center gap-1.5 rounded-[10px] bg-sirius px-4 py-2 font-body text-[13px] font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-60">
               {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
               {saving ? "Saving…" : "Save changes"}
             </button>
@@ -201,7 +201,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 const inputCls =
-  "w-full rounded-[10px] border border-border bg-surface px-3 py-2 font-body text-[13px] text-fg outline-none transition-colors focus:border-sirius-200 focus:ring-2 focus:ring-sirius/10";
+  "w-full rounded-[10px] border border-border bg-surface px-3 py-2.5 font-body text-[14px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15";
 
 function Label({ children }: { children: React.ReactNode }) {
   return <span className="mb-1.5 block font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">{children}</span>;

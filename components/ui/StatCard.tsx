@@ -37,7 +37,7 @@ export function StatCard({
         )}
       </div>
       <div className="flex items-end gap-2">
-        <span className="tabular font-display text-3xl font-bold leading-none text-fg">{value}</span>
+        <span className="tabular font-display text-3xl font-bold leading-none tracking-tight text-fg">{value}</span>
         {delta && (
           <span
             className={cn(

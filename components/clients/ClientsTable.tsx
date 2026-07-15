@@ -3,12 +3,13 @@
 import { useCallback, useMemo, useState, memo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, AlertTriangle, ChevronRight, Loader2, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Plus, X } from "lucide-react";
 import type { Client, PropertyDefinition } from "@/lib/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
 import { HealthPill } from "@/components/ui/HealthPill";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
+import { PopMenu } from "@/components/clients/projects/shared";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
@@ -17,9 +18,14 @@ import { ImportDialog } from "@/components/clients/ImportDialog";
 type SortKey = "name" | "arr" | "health" | "renewal";
 type SortDir = "asc" | "desc";
 type Csm = { id: string; name: string };
-/** "all" is a view filter (no filtering); the other four match
- *  Client["status"] (AccountStatus) exactly. */
-type StatusFilter = "onboarding" | "active" | "renewal" | "churned" | "all";
+/** Matches Client["status"] (AccountStatus) exactly. */
+type StatusValue = "onboarding" | "active" | "renewal" | "churned";
+const STATUS_OPTIONS: { value: StatusValue; label: string }[] = [
+  { value: "onboarding", label: "Onboarding" },
+  { value: "active", label: "Active" },
+  { value: "renewal", label: "Renewal" },
+  { value: "churned", label: "Churned" },
+];
 type RenewalFilter = "all" | "overdue" | "this_quarter" | "next_quarter" | "next_30" | "next_90" | "custom";
 
 function addDaysIso(ymd: string, days: number): string {
@@ -143,9 +149,10 @@ export function ClientsTable({
   // same values already driving RowCompletenessBadge below.
   const [completenessFilter, setCompletenessFilter] = useState<"all" | "none" | "yellow" | "red">("all");
   const [csm, setCsm] = useState("all");
-  // Defaults to "all" — no pre-filtering; the four real lifecycle stages
-  // (onboarding, active, renewal, churned) are each individually selectable.
-  const [status, setStatus] = useState<StatusFilter>("all");
+  // Defaults to empty — no pre-filtering; the four real lifecycle stages
+  // (onboarding, active, renewal, churned) are each independently toggleable
+  // (multi-select — e.g. Active + Renewal together).
+  const [statusFilter, setStatusFilter] = useState<Set<StatusValue>>(new Set());
   const [renewal, setRenewal] = useState<RenewalFilter>("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -185,7 +192,7 @@ export function ClientsTable({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let rows = clients.filter((c) => {
-      if (status !== "all" && c.status !== status) return false;
+      if (statusFilter.size > 0 && !statusFilter.has(c.status)) return false;
       if (renewalRange) {
         if (!c.renewalDate) return false;
         const d = c.renewalDate.slice(0, 10);
@@ -218,7 +225,7 @@ export function ClientsTable({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [clients, query, tier, completenessFilter, completenessByClient, csm, status, renewalRange, channel, country, accountTier, sortKey, sortDir]);
+  }, [clients, query, tier, completenessFilter, completenessByClient, csm, statusFilter, renewalRange, channel, country, accountTier, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -306,19 +313,19 @@ export function ClientsTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+    <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
       {/* Toolbar */}
       {showActions && (
         <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-3.5">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1.5" title={isFiltered ? `${filtered.length} of ${clients.length} clients match the current filters` : undefined}>
-              <span className="font-display text-lg font-bold leading-none tabular text-fg">{filtered.length}</span>
+              <span className="font-display text-lg font-bold tracking-tight leading-none tabular text-fg">{filtered.length}</span>
               <span className="font-body text-[13px] text-fg-muted">
                 {isFiltered ? `of ${clients.length} clients` : filtered.length === 1 ? "client" : "clients"}
               </span>
             </div>
             <div className="flex items-center gap-1.5" title={isFiltered ? `${formatCurrency(totalArr, arrCurrency, { compact: true })} of ${formatCurrency(totalArrAll, arrCurrency, { compact: true })} ARR match the current filters` : undefined}>
-              <span className="font-display text-lg font-bold leading-none tabular text-fg">{formatCurrency(totalArr, arrCurrency, { compact: true })}</span>
+              <span className="font-display text-lg font-bold tracking-tight leading-none tabular text-fg">{formatCurrency(totalArr, arrCurrency, { compact: true })}</span>
               <span className="font-body text-[13px] text-fg-muted">
                 {isFiltered ? `of ${formatCurrency(totalArrAll, arrCurrency, { compact: true })} ARR` : "ARR"}
               </span>
@@ -332,12 +339,12 @@ export function ClientsTable({
       )}
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-bg-subtle px-5 py-3">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by name, domain, country, CSM…"
-          className="min-w-[200px] flex-1 rounded-[10px] border border-border bg-bg px-3.5 py-2 font-body text-[13px] text-fg outline-none transition-colors placeholder:text-fg-subtle focus:border-sirius-200 focus:ring-2 focus:ring-sirius/10"
+          className="min-w-[200px] flex-1 rounded-sm border border-border bg-surface px-3.5 py-2.5 font-body text-[13px] text-fg outline-none transition-colors placeholder:text-fg-subtle focus:border-sirius focus:ring-2 focus:ring-sirius/15"
         />
         <FilterSelect value={tier} onChange={setTier} label="Health">
           <option value="all">All health</option>
@@ -365,13 +372,7 @@ export function ClientsTable({
           <option value="all">All tiers</option>
           {accountTiers.map((t) => <option key={t} value={t}>{t}</option>)}
         </FilterSelect>
-        <FilterSelect value={status} onChange={(v) => setStatus(v as StatusFilter)} label="Status">
-          <option value="all">All statuses</option>
-          <option value="onboarding">Onboarding</option>
-          <option value="active">Active</option>
-          <option value="renewal">Renewal</option>
-          <option value="churned">Churned</option>
-        </FilterSelect>
+        <FilterMultiSelect label="Status" allLabel="All statuses" options={STATUS_OPTIONS} selected={statusFilter} onChange={setStatusFilter} />
         <FilterSelect value={renewal} onChange={(v) => setRenewal(v as RenewalFilter)} label="Renewal">
           <option value="all">Any renewal date</option>
           <option value="overdue">Overdue</option>
@@ -388,7 +389,7 @@ export function ClientsTable({
               value={customStart}
               onChange={(e) => setCustomStart(e.target.value)}
               aria-label="Renewal from"
-              className="rounded-md border border-border bg-surface px-2.5 py-2 font-body text-[13px] text-fg-muted outline-none transition-colors focus:border-sirius-200"
+              className="rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] text-fg-muted outline-none transition-colors focus:border-sirius-200"
             />
             <span className="caption">to</span>
             <input
@@ -396,7 +397,7 @@ export function ClientsTable({
               value={customEnd}
               onChange={(e) => setCustomEnd(e.target.value)}
               aria-label="Renewal to"
-              className="rounded-md border border-border bg-surface px-2.5 py-2 font-body text-[13px] text-fg-muted outline-none transition-colors focus:border-sirius-200"
+              className="rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] text-fg-muted outline-none transition-colors focus:border-sirius-200"
             />
           </span>
         )}
@@ -416,7 +417,7 @@ export function ClientsTable({
           <button
             onClick={applyBulk}
             disabled={!currentBulk || bulkValue === "" || bulkSaving}
-            className="inline-flex items-center gap-1.5 rounded-[10px] bg-sirius px-3.5 py-2 font-body text-[13px] font-semibold text-white transition-colors hover:bg-cosmos disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-sm bg-sirius px-3.5 py-2.5 font-body text-[13px] font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
           >
             {bulkSaving && <Loader2 size={14} className="animate-spin" />} Apply
           </button>
@@ -547,7 +548,7 @@ const ClientRow = memo(function ClientRow({
               value={c.csm?.id ?? ""}
               disabled={savingCsm}
               onChange={(e) => onSetCsm(c.id, e.target.value)}
-              className="max-w-[150px] truncate rounded-md border border-transparent bg-transparent py-1 pl-1.5 pr-5 font-body text-[13px] text-fg-muted outline-none transition-colors hover:border-border hover:bg-bg focus:border-sirius-200"
+              className="max-w-[150px] truncate rounded-sm border border-transparent bg-transparent py-1 pl-1.5 pr-5 font-body text-[13px] text-fg-muted outline-none transition-colors hover:border-border hover:bg-accent-soft focus:border-sirius-200"
             >
               <option value="">Unassigned</option>
               {rowCsms.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -592,7 +593,7 @@ function BulkValueControl({
   value: string;
   onChange: (v: string) => void;
 }) {
-  const cls = "rounded-md border border-border bg-surface px-3 py-2 font-body text-[13px] text-fg outline-none focus:border-sirius-200";
+  const cls = "rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] text-fg outline-none focus:border-sirius-200";
   if (field.kind === "csm") {
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)} className={cls}>
@@ -658,7 +659,7 @@ function Th({ children, onClick, active, dir, align = "left" }: { children?: Rea
 }
 
 function Td({ children, align = "left" }: { children?: React.ReactNode; align?: "left" | "right" }) {
-  return <td className={cn("px-5 py-3 align-middle", align === "right" && "text-right")}>{children}</td>;
+  return <td className={cn("px-5 py-3.5 align-middle", align === "right" && "text-right")}>{children}</td>;
 }
 
 function FilterSelect({ value, onChange, label, children }: { value: string; onChange: (v: string) => void; label: string; children: React.ReactNode }) {
@@ -667,9 +668,81 @@ function FilterSelect({ value, onChange, label, children }: { value: string; onC
       aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-md border border-border bg-surface px-3 py-2.5 font-body text-[13px] font-medium text-fg-muted outline-none transition-colors hover:text-fg focus:border-sirius-200"
+      className="rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] font-semibold text-fg-muted outline-none transition-colors hover:text-fg focus:border-sirius-200"
     >
       {children}
     </select>
+  );
+}
+
+/** Checklist popover filter — an empty `selected` set means "no filter" (all
+ *  match), matching FilterSelect's "all" option semantics but letting more
+ *  than one value be picked at once (e.g. Active + Renewal together). Built
+ *  on the same portal-rendered PopMenu used elsewhere so it can't be clipped
+ *  by the filter row's overflow. */
+function FilterMultiSelect<T extends string>({
+  label, allLabel, options, selected, onChange,
+}: {
+  label: string;
+  allLabel: string;
+  options: { value: T; label: string }[];
+  selected: Set<T>;
+  onChange: (next: Set<T>) => void;
+}) {
+  const toggle = (v: T) => {
+    const next = new Set(selected);
+    next.has(v) ? next.delete(v) : next.add(v);
+    onChange(next);
+  };
+  const summary =
+    selected.size === 0 ? allLabel
+    : selected.size === 1 ? (options.find((o) => selected.has(o.value))?.label ?? allLabel)
+    : `${selected.size} selected`;
+
+  return (
+    <PopMenu
+      menuWidth={200}
+      trigger={() => (
+        <span
+          aria-label={label}
+          className="inline-flex items-center gap-1.5 rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] font-semibold text-fg-muted transition-colors hover:text-fg"
+        >
+          <span className="text-fg-subtle">{label}:</span> {summary}
+          <ChevronDown size={13} className="text-fg-subtle" />
+        </span>
+      )}
+    >
+      {() => (
+        <div className="flex flex-col gap-0.5 py-1">
+          <button
+            type="button"
+            onClick={() => onChange(new Set())}
+            className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-bg-muted"
+          >
+            <span className={cn("flex size-4 shrink-0 items-center justify-center rounded border", selected.size === 0 ? "border-sirius bg-sirius text-white" : "border-border")}>
+              {selected.size === 0 && <Check size={11} />}
+            </span>
+            <span className="font-body text-[13px] text-fg">{allLabel}</span>
+          </button>
+          <div className="my-1 border-t border-border-subtle" />
+          {options.map((o) => {
+            const on = selected.has(o.value);
+            return (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => toggle(o.value)}
+                className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-bg-muted"
+              >
+                <span className={cn("flex size-4 shrink-0 items-center justify-center rounded border", on ? "border-sirius bg-sirius text-white" : "border-border")}>
+                  {on && <Check size={11} />}
+                </span>
+                <span className="font-body text-[13px] text-fg">{o.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </PopMenu>
   );
 }
