@@ -75,7 +75,7 @@ export function Sidebar({
               href={item.href}
               className={cn(
                 "flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-sm transition-colors duration-[140ms] [transition-timing-function:var(--ease-standard)]",
-                active ? "bg-accent-soft font-semibold text-sirius" : "font-medium text-fg hover:bg-bg-muted",
+                active ? "bg-sirius font-semibold text-white shadow-sm" : "font-medium text-fg-muted hover:bg-bg-muted hover:text-fg",
               )}
             >
               <Icon size={18} strokeWidth={1.75} />
@@ -96,7 +96,7 @@ export function Sidebar({
                 href={item.href}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2.5 font-body text-sm transition-colors duration-[140ms] [transition-timing-function:var(--ease-standard)]",
-                  active ? "bg-accent-soft font-semibold text-sirius" : "font-medium text-fg hover:bg-bg-muted",
+                  active ? "bg-sirius font-semibold text-white shadow-sm" : "font-medium text-fg-muted hover:bg-bg-muted hover:text-fg",
                 )}
               >
                 <Icon size={18} strokeWidth={1.75} />

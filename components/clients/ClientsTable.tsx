@@ -319,13 +319,13 @@ export function ClientsTable({
         <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-3.5">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1.5" title={isFiltered ? `${filtered.length} of ${clients.length} clients match the current filters` : undefined}>
-              <span className="font-display text-lg font-bold tracking-tight leading-none tabular text-fg">{filtered.length}</span>
+              <span className="font-display text-2xl font-bold tracking-tight leading-none tabular text-fg">{filtered.length}</span>
               <span className="font-body text-[13px] text-fg-muted">
                 {isFiltered ? `of ${clients.length} clients` : filtered.length === 1 ? "client" : "clients"}
               </span>
             </div>
             <div className="flex items-center gap-1.5" title={isFiltered ? `${formatCurrency(totalArr, arrCurrency, { compact: true })} of ${formatCurrency(totalArrAll, arrCurrency, { compact: true })} ARR match the current filters` : undefined}>
-              <span className="font-display text-lg font-bold tracking-tight leading-none tabular text-fg">{formatCurrency(totalArr, arrCurrency, { compact: true })}</span>
+              <span className="font-display text-2xl font-bold tracking-tight leading-none tabular text-fg">{formatCurrency(totalArr, arrCurrency, { compact: true })}</span>
               <span className="font-body text-[13px] text-fg-muted">
                 {isFiltered ? `of ${formatCurrency(totalArrAll, arrCurrency, { compact: true })} ARR` : "ARR"}
               </span>
