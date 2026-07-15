@@ -18,6 +18,8 @@ const isPublic = createRouteMatcher([
   "/api/churn-import(.*)",
   // One-off single-company backfill (same secret check as above).
   "/api/add-account(.*)",
+  // Force-refresh one client's Metabase usage snapshot (same secret check).
+  "/api/usage-refresh(.*)",
   "/api/cron(.*)",
 ]);
 
