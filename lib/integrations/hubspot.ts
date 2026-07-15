@@ -27,11 +27,26 @@ const DIRECT_SALES_CLOSED_WON  = "deal_registration_closed_won";
 const INDIRECT_SALES_CLOSED_WON = "140914462";
 const CS_PIPELINE_RENEWED       = "180725914";
 const CS_PIPELINE_EXPANDED      = "1362217384";
+// CS-pipeline "closed" stages that represent a LOSS, not revenue. Surfaced on
+// the account (so a CSM sees the churn/downgrade) but inserted tracked=false so
+// their amounts never enter the tracked-deal ARR sum in recomputeClient().
+const CS_PIPELINE_CONFIRMED_CHURNED = "180390199";
+const CS_PIPELINE_DOWNGRADED        = "1340008486";
+
+// Company lifecycle stage id for a churned account, and HubSpot's auto-stamped
+// "date entered the Churn stage" property — the source for the churned-account
+// import's per-account churn date (see lib/integrations/churn-import.ts).
+const LIFECYCLE_CHURN         = "978708591";
+const CHURN_ENTERED_DATE_PROP = "hs_v2_date_entered_978708591";
 
 const PIPELINES = [
   { id: DIRECT_SALES_PIPELINE,   wonStage: DIRECT_SALES_CLOSED_WON,  label: "direct"   as const },
   { id: INDIRECT_SALES_PIPELINE, wonStage: INDIRECT_SALES_CLOSED_WON, label: "indirect" as const },
 ];
+
+/** CS-pipeline stages that must be surfaced on the account but kept out of ARR
+ *  (inserted tracked=false). Confirmed Churned + Downgraded. */
+const CS_NON_ARR_STAGES = new Set<string>([CS_PIPELINE_CONFIRMED_CHURNED, CS_PIPELINE_DOWNGRADED]);
 
 // ---- Engagement object properties ----------------------------------------
 
@@ -91,7 +106,11 @@ const DEAL_PROPERTIES = [
 const WON_DEAL_STAGES = new Map<string, { stages: string[]; label: "direct" | "indirect" | "cs" }>([
   [DIRECT_SALES_PIPELINE,   { stages: [DIRECT_SALES_CLOSED_WON],                       label: "direct"   }],
   [INDIRECT_SALES_PIPELINE, { stages: [INDIRECT_SALES_CLOSED_WON],                     label: "indirect" }],
-  [CS_PIPELINE,             { stages: [CS_PIPELINE_RENEWED, CS_PIPELINE_EXPANDED],      label: "cs"       }],
+  // CS: Renewed/Expanded (revenue, tracked) + Confirmed-Churned/Downgraded
+  // (loss records, surfaced but inserted tracked=false — see the deal-shaping
+  // loop in fetchClientEngagement and CS_NON_ARR_STAGES). This is what makes a
+  // future account's churn/downgrade deal appear so the CSM can mark it churned.
+  [CS_PIPELINE,             { stages: [CS_PIPELINE_RENEWED, CS_PIPELINE_EXPANDED, CS_PIPELINE_CONFIRMED_CHURNED, CS_PIPELINE_DOWNGRADED], label: "cs" }],
 ]);
 
 // ---- Company properties --------------------------------------------------
@@ -107,6 +126,9 @@ const COMPANY_PROPERTIES = [
   "lifecyclestage",
   "customer_type",
   "hs_v2_date_entered_customer",
+  // "Date entered Churn (Lifecycle Stage Pipeline)" — source for the churned-
+  // account import's per-account churn date.
+  CHURN_ENTERED_DATE_PROP,
   "hs_lastmodifieddate",
   "hubspot_owner_id",
   "csm", // custom company prop — the assigned CSM (a HubSpot owner id)
@@ -155,6 +177,10 @@ export interface HubspotCompany {
    *  the reliable key for linking Intercom support data. Null when unset. */
   mixpanelCompanyId: string | null;
   startedAt: string | null;
+  /** ISO date the company entered the Churn lifecycle stage
+   *  (hs_v2_date_entered_978708591). Null unless currently churned. Source for
+   *  the churned-account import's per-account churn date. */
+  churnDate: string | null;
   lastModifiedAt: string | null;
   /** Default initial renewal date = latest won close date + 1 year. */
   renewalDate: string | null;
@@ -177,6 +203,30 @@ export interface HubspotOwner {
 /** Everything acquisition-related, assembled in one pass. */
 export interface HubspotAcquisition {
   companies: HubspotCompany[];
+  warnings: string[];
+}
+
+/** One churned company + the data the one-time import needs to persist it. */
+export interface ChurnedCompanyImport {
+  company: HubspotCompany;
+  /** ISO date the company entered the Churn stage (== company.churnDate). */
+  churnDate: string | null;
+  /** All qualifying deals (Direct/Indirect Closed Won + CS Renewed/Expanded/
+   *  Confirmed-Churned/Downgraded), each already shaped with tracked=false —
+   *  a churned account has no active revenue; the deals are historical records. */
+  deals: Deal[];
+  /** The pre-churn ARR to record as the ledger baseline (and churn amount).
+   *  Priority: sum of Direct/Indirect Closed Won → else CS Renewed → else CS
+   *  Confirmed-Churned. 0 when the company has none of these (imports as a
+   *  churned logo with no retention impact). */
+  baseline: number;
+  /** Earliest close date among the deals that produced `baseline` (YYYY-MM-DD),
+   *  used to date the baseline ledger event before the churn. */
+  baselineDate: string | null;
+}
+
+export interface ChurnedAcquisition {
+  companies: ChurnedCompanyImport[];
   warnings: string[];
 }
 
@@ -499,6 +549,7 @@ export class HubSpotClient {
       csmOwnerId: p.csm ?? null,
       mixpanelCompanyId: p.mixpanel_company_id?.trim() || null,
       startedAt: isoDate(p.hs_v2_date_entered_customer),
+      churnDate: dateOnly(p[CHURN_ENTERED_DATE_PROP]),
       lastModifiedAt: p.hs_lastmodifieddate ?? null,
       renewalDate: null,
       wonDeals: [],
@@ -839,10 +890,153 @@ export class HubSpotClient {
         accountBrief: p.use_case_brief?.trim() || null,
         // CS-pipeline "Expanded" stage = expansion; everything else = renewal.
         category: won.label === "cs" && p.dealstage === CS_PIPELINE_EXPANDED ? "expansion" : "renewal",
+        // Confirmed-Churned / Downgraded CS deals are loss records: surface them
+        // on the account but keep them tracked=false so their amount never adds
+        // to the account's ARR (recomputeClient sums tracked deals). All other
+        // qualifying deals keep the column default (tracked=true).
+        tracked: won.label === "cs" && CS_NON_ARR_STAGES.has(p.dealstage ?? "") ? false : undefined,
         createdAt: now,
       });
     }
 
     return { contacts, emails, meetings, deals };
+  }
+
+  /**
+   * The churned-account import (one-time backfill — see
+   * lib/integrations/churn-import.ts). Company-first: finds every company
+   * currently in the Churn lifecycle stage whose customer_type includes "arr",
+   * reads its churn date + qualifying deals, and returns everything the import
+   * needs. Unlike fetchAcquisition this reaches CS-pipeline deals and does NOT
+   * filter by hs_lastmodifieddate — it's a full backfill, not the incremental
+   * acquisition sync (which is left completely untouched).
+   */
+  async fetchChurnedAcquisition(): Promise<ChurnedAcquisition> {
+    const warnings: string[] = [];
+
+    // 1. Companies in the Churn stage with customer_type ~ "arr".
+    const companyIds: string[] = [];
+    let after: string | undefined;
+    do {
+      type SearchResponse = { results: { id: string }[]; paging?: { next?: { after?: string } } };
+      const data = await this.post<SearchResponse>("/crm/v3/objects/companies/search", {
+        filterGroups: [
+          {
+            filters: [
+              { propertyName: "lifecyclestage", operator: "EQ", value: LIFECYCLE_CHURN },
+              { propertyName: "customer_type", operator: "CONTAINS_TOKEN", value: "arr" },
+            ],
+          },
+        ],
+        properties: ["name"],
+        limit: 100,
+        ...(after ? { after } : {}),
+      });
+      for (const r of data.results) companyIds.push(r.id);
+      after = data.paging?.next?.after;
+    } while (after);
+
+    if (companyIds.length === 0) return { companies: [], warnings };
+
+    // 2. Company properties (incl. churn date) + owners (for AE names).
+    const companyProps = await this.batchReadProperties("companies", companyIds, COMPANY_PROPERTIES);
+    const owners = await this.fetchOwners().catch((e) => {
+      warnings.push(`HubSpot owners lookup failed: ${e}`);
+      return new Map<string, HubspotOwner>();
+    });
+
+    // 3. Each company's deals (all stages read; filtered to qualifying below).
+    const coDeals = await this.fetchAllAssociations("companies", "deals", companyIds);
+    const allDealIds = [...new Set([...coDeals.values()].flat())];
+    const dealProps = await this.batchReadProperties("deals", allDealIds, DEAL_PROPERTIES);
+
+    const now = new Date().toISOString();
+    const portal = process.env.HUBSPOT_PORTAL_ID ?? "";
+
+    // Classify a deal → { label, tier } or null (not a qualifying stage). The
+    // baseline tier picks the pre-churn ARR source in priority order:
+    // 0 = Direct/Indirect Closed Won, 1 = CS Renewed, 2 = CS Confirmed Churned;
+    // 3 = surfaced on the account but never seeds the baseline (Expanded/Downgraded).
+    const classify = (pipeline: string, stage: string): { label: "direct" | "indirect" | "cs"; tier: number } | null => {
+      if (pipeline === DIRECT_SALES_PIPELINE && stage === DIRECT_SALES_CLOSED_WON) return { label: "direct", tier: 0 };
+      if (pipeline === INDIRECT_SALES_PIPELINE && stage === INDIRECT_SALES_CLOSED_WON) return { label: "indirect", tier: 0 };
+      if (pipeline === CS_PIPELINE) {
+        if (stage === CS_PIPELINE_RENEWED) return { label: "cs", tier: 1 };
+        if (stage === CS_PIPELINE_CONFIRMED_CHURNED) return { label: "cs", tier: 2 };
+        if (stage === CS_PIPELINE_EXPANDED || stage === CS_PIPELINE_DOWNGRADED) return { label: "cs", tier: 3 };
+      }
+      return null;
+    };
+
+    const companies: ChurnedCompanyImport[] = [];
+    for (const cid of companyIds) {
+      const cp = companyProps.get(cid);
+      if (!cp) continue;
+      const company = this.mapCompany(cid, cp);
+      const deals: Deal[] = [];
+      const tierSum = [0, 0, 0]; // summed amounts for baseline tiers 0/1/2
+      const tierEarliest: (string | null)[] = [null, null, null];
+
+      for (const dId of coDeals.get(cid) ?? []) {
+        const p = dealProps.get(dId);
+        if (!p) continue;
+        const cls = classify(p.pipeline ?? "", p.dealstage ?? "");
+        if (!cls) continue;
+        const amount = num(p.amount) ?? 0;
+        const close = dateOnly(p.closedate);
+        if (cls.tier <= 2) {
+          tierSum[cls.tier] += amount;
+          if (close && (!tierEarliest[cls.tier] || close < tierEarliest[cls.tier]!)) tierEarliest[cls.tier] = close;
+        }
+        const ae = p.account_executive ? owners.get(p.account_executive) : undefined;
+        deals.push({
+          id: `hs-deal-${dId}`,
+          clientId: cid,
+          hubspotDealId: dId,
+          name: p.dealname ?? null,
+          amount,
+          closeDate: close ? `${close}T00:00:00.000Z` : null,
+          pipeline: cls.label,
+          referralSource: null,
+          ownerName: ae?.name ?? null,
+          ownerEmail: ae?.email ?? null,
+          hubspotUrl: `https://app.hubspot.com/contacts/${portal}/record/0-3/${dId}`,
+          numberOfUsers: num(p.number_of_users),
+          pricePerUser: num(p.price_per_user),
+          complementaryLicenses: num(p.complementary_licenses),
+          contractDuration: num(p.contract_duration),
+          products: splitMulti(p.modules),
+          useCases: splitMulti(p.use_cases),
+          contractStartDate: flexDate(p.contract_start_date),
+          supportLevel: p.support_level?.trim() || null,
+          implementationLevel: p.implementation_level?.trim() || null,
+          globalLibraryPackage: splitMulti(p.global_libraries),
+          globalLibraryLicenses: num(p.global_libraries_licenses),
+          aiCourseCredits: num(p.custom_ai_course_development_credits),
+          accountBrief: p.use_case_brief?.trim() || null,
+          category: cls.label === "cs" && p.dealstage === CS_PIPELINE_EXPANDED ? "expansion" : "renewal",
+          // A churned account has no active revenue — every historical deal is
+          // tracked=false so none of them feed the tracked-deal ARR sum.
+          tracked: false,
+          createdAt: now,
+        });
+      }
+
+      // Baseline = first non-zero tier in priority order (Closed Won > Renewed
+      // > Confirmed Churned). 0 when the company has none of these.
+      let baseline = 0;
+      let baselineDate: string | null = null;
+      for (let t = 0; t <= 2; t++) {
+        if (tierSum[t] > 0) {
+          baseline = tierSum[t];
+          baselineDate = tierEarliest[t];
+          break;
+        }
+      }
+
+      companies.push({ company, churnDate: company.churnDate, deals, baseline, baselineDate });
+    }
+
+    return { companies, warnings };
   }
 }

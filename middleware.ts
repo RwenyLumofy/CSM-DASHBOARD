@@ -12,6 +12,10 @@ const authConfigured =
 const isPublic = createRouteMatcher([
   "/sign-in(.*)",
   "/api/sync(.*)",
+  // One-time churned-account backfill — authenticated by its own SYNC_SECRET/
+  // CRON_SECRET bearer check (same as /api/sync), so it must bypass auth.protect()
+  // which would otherwise 404 the request before the handler's secret check runs.
+  "/api/churn-import(.*)",
   "/api/cron(.*)",
 ]);
 

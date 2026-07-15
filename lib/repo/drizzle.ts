@@ -397,6 +397,13 @@ function dealToRow(d: Deal): typeof schema.clientDeals.$inferInsert {
     contractStartDate: d.contractStartDate ? new Date(d.contractStartDate) : null,
     accountBrief: d.accountBrief ?? null,
     category: d.category ?? "renewal",
+    // tracked is CSM-controlled and normally left at the column default (true) —
+    // only set explicitly so the churn/downgrade CS-pipeline deals (and the
+    // churned-account import) can insert as tracked=false, keeping their
+    // amounts out of the tracked-deal ARR sum in recomputeClient(). Since
+    // upsertClientDeals uses onConflictDoNothing, this only ever affects the
+    // INSERT of a brand-new deal row — a CSM's later tracked edit is preserved.
+    tracked: d.tracked ?? true,
     supportLevel: d.supportLevel ?? null,
     implementationLevel: d.implementationLevel ?? null,
     createdAt: new Date(d.createdAt),
@@ -562,13 +569,23 @@ export async function upsertClientMeetings(meetings: Meeting[]): Promise<void> {
  * exists is left untouched by every later sync (onConflictDoNothing) — only
  * a CSM's __deal_overrides can change its displayed properties after that.
  */
-export async function upsertClientDeals(deals: Deal[]): Promise<void> {
-  if (deals.length === 0) return;
+/** Upserts deals, ignoring rows that already exist by id. Returns the ids that
+ *  were genuinely new (not already present) — used by persistSync to report
+ *  real "new deal" counts distinct from "deals touched by this sync". */
+export async function upsertClientDeals(deals: Deal[]): Promise<string[]> {
+  if (deals.length === 0) return [];
   const db = getDb();
+  const insertedIds: string[] = [];
   await mapLimit(deals, 10, async (d) => {
     const row = dealToRow(d);
-    await db.insert(schema.clientDeals).values(row).onConflictDoNothing({ target: schema.clientDeals.id });
+    const rows = await db
+      .insert(schema.clientDeals)
+      .values(row)
+      .onConflictDoNothing({ target: schema.clientDeals.id })
+      .returning({ id: schema.clientDeals.id });
+    if (rows.length > 0) insertedIds.push(rows[0].id);
   });
+  return insertedIds;
 }
 
 /** Persist a HubSpot engagement bundle (contacts/emails/meetings/deals). */
@@ -971,7 +988,7 @@ async function insertArrEventIfAbsent(e: ArrEvent): Promise<void> {
  * so those ids are not returned — the assignment workflow runs only for new
  * clients, never re-assigning an account that already has owners.
  */
-export async function persistSync(bundle: SyncBundle): Promise<{ newClientIds: string[] }> {
+export async function persistSync(bundle: SyncBundle): Promise<{ newClientIds: string[]; newDealIds: string[] }> {
   // Resolve each HubSpot company to an EXISTING client by hubspot_id, so the
   // sync never creates a duplicate row for a company that's already tracked
   // (e.g. one imported from Excel). Import rows — the curated list users
@@ -988,6 +1005,7 @@ export async function persistSync(bundle: SyncBundle): Promise<{ newClientIds: s
 
   const newClients: Client[] = [];
   const brandNewIds: string[] = [];
+  const newDealIds: string[] = [];
   for (const c of bundle.clients) {
     const companyId = c.hubspotId ?? c.id;
     const target = canonical.get(companyId);
@@ -997,7 +1015,7 @@ export async function persistSync(bundle: SyncBundle): Promise<{ newClientIds: s
       // Company already exists under a different id (matched by hubspot_id) —
       // enrich it with its deals only. Never create a second client row and
       // never add a second ARR baseline (that would double-count revenue).
-      await upsertClientDeals(deals.map((d) => ({ ...d, clientId: target })));
+      newDealIds.push(...(await upsertClientDeals(deals.map((d) => ({ ...d, clientId: target })))));
       continue;
     }
 
@@ -1005,7 +1023,7 @@ export async function persistSync(bundle: SyncBundle): Promise<{ newClientIds: s
     if (!existingIds.has(c.id)) brandNewIds.push(c.id);
     await upsertClient(c, existingById.get(c.id)?.properties);
     for (const e of bundle.arrEvents.filter((e) => e.clientId === c.id)) await insertArrEventIfAbsent(e);
-    await upsertClientDeals(deals);
+    newDealIds.push(...(await upsertClientDeals(deals)));
     newClients.push(c);
   }
 
@@ -1016,7 +1034,7 @@ export async function persistSync(bundle: SyncBundle): Promise<{ newClientIds: s
   await mapLimit(newClients, 5, (c) => recomputeClient(c.id));
   await mapLimit(newClients, 5, (c) => recomputeClientReferral(c.id));
 
-  return { newClientIds: brandNewIds };
+  return { newClientIds: brandNewIds, newDealIds };
 }
 
 /** Append one ARR event and re-materialize the client. */
@@ -1033,6 +1051,27 @@ export async function importClientsDb(payload: { clients: Client[]; baselineEven
   // baseline events must exist before ARR is re-materialized from the ledger.
   await mapLimit(payload.clients, 5, (c) => upsertClientFull(c));
   await mapLimit(payload.baselineEvents, 5, (e) => upsertArrEvent(e));
+  await mapLimit(payload.clients, 5, (c) => recomputeClient(c.id));
+}
+
+/**
+ * Persist a one-time churned-account import (see lib/integrations/churn-import.ts).
+ * Ordered phases, same as importClientsDb but with DEALS and idempotent events:
+ *   1. client rows (upsertClientFull — merges properties, so __status_override
+ *      "churned" + __field_overrides ["churnedAt"] land and survive re-runs)
+ *   2. deals (upsertClientDeals — onConflictDoNothing; imported deals carry
+ *      tracked=false so their amounts never enter the tracked-deal ARR sum)
+ *   3. ledger events (insertArrEventIfAbsent — deterministic ids, so a re-run
+ *      inserts nothing new: the +baseline / −churn pair per client)
+ *   4. recompute — materializes arr (nets to 0) and status ("churned" via the
+ *      __status_override the phase-1 merge wrote) from the ledger + deals.
+ * Fully idempotent: re-running re-merges clients, skips existing deals/events,
+ * and recomputes to the identical arr=0, status="churned".
+ */
+export async function persistChurnedImport(payload: { clients: Client[]; deals: Deal[]; events: ArrEvent[] }): Promise<void> {
+  await mapLimit(payload.clients, 5, (c) => upsertClientFull(c));
+  await upsertClientDeals(payload.deals);
+  await mapLimit(payload.events, 5, (e) => insertArrEventIfAbsent(e));
   await mapLimit(payload.clients, 5, (c) => recomputeClient(c.id));
 }
 
@@ -1155,6 +1194,7 @@ export interface ClientFieldUpdate {
   status?: Client["status"];
   renewalDate?: string | null; // ISO date
   startedAt?: string | null; // ISO date
+  churnedAt?: string | null; // ISO date — CSM-editable churn date (see churnedAt in CORE_OVERRIDABLE_FIELDS)
 }
 
 /**
@@ -1179,6 +1219,11 @@ export async function updateClientFields(clientId: string, fields: ClientFieldUp
   if (fields.status !== undefined) set.status = fields.status;
   if (fields.renewalDate !== undefined) set.renewalDate = fields.renewalDate ? new Date(fields.renewalDate) : null;
   if (fields.startedAt !== undefined) { set.startedAt = fields.startedAt ? new Date(fields.startedAt) : null; touched.push("startedAt"); }
+  // churnedAt: a CSM-editable lifecycle date (the churned-account import seeds it
+  // from HubSpot's "entered Churn" date). Marked in __field_overrides so no sync
+  // ever nulls a CSM's correction — churnedAt is otherwise ledger-derived and
+  // written by the sync/import upserts, which dropOverriddenFields now skips.
+  if (fields.churnedAt !== undefined) { set.churnedAt = fields.churnedAt ? new Date(fields.churnedAt) : null; touched.push("churnedAt"); }
 
   if (touched.length > 0) {
     const [row] = await db.select({ properties: schema.clients.properties }).from(schema.clients).where(eq(schema.clients.id, clientId));

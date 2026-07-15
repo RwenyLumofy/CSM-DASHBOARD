@@ -24,8 +24,13 @@ import { env, integrations, hasDatabase } from "@/lib/config";
 
 export interface SyncResult {
   ok: boolean;
+  /** Companies/deals HubSpot returned inside this run's fetch window — includes
+   *  existing clients whose deals were merely touched, NOT just new ones. */
   clientCount: number;
   dealCount: number;
+  /** Rows that didn't exist before this sync — the actual "new" counts. */
+  newClientCount: number;
+  newDealCount: number;
   dealEventCount: number;
   persisted: boolean;
   incremental: boolean;
@@ -285,6 +290,8 @@ export async function runSync(): Promise<SyncResult> {
         ok: false,
         clientCount: 0,
         dealCount: 0,
+        newClientCount: 0,
+        newDealCount: 0,
         dealEventCount: 0,
         persisted: false,
         incremental: true,
@@ -341,13 +348,15 @@ async function runSyncInner(): Promise<SyncResult> {
 
   let persisted = false;
   let engagement = { contacts: 0, emails: 0, meetings: 0, deals: 0 };
+  let newClientIds: string[] = [];
+  let newDealIds: string[] = [];
 
   if (hasDatabase()) {
     const { persistSync, setSyncCheckpoint } = await import("@/lib/repo/drizzle");
-    let newClientIds: string[] = [];
     if (!firstRun) {
       const res = await persistSync(bundle);
       newClientIds = res.newClientIds;
+      newDealIds = res.newDealIds;
     }
     try {
       engagement = await syncClientEngagement();
@@ -383,6 +392,8 @@ async function runSyncInner(): Promise<SyncResult> {
     ok: true,
     clientCount: bundle.clients.length,
     dealCount: bundle.deals.length,
+    newClientCount: newClientIds.length,
+    newDealCount: newDealIds.length,
     dealEventCount: bundle.arrEvents.length,
     persisted,
     incremental: true,

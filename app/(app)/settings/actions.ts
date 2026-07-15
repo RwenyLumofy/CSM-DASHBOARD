@@ -19,6 +19,8 @@ export interface SyncActionResult {
   error?: string;
   clientCount?: number;
   dealCount?: number;
+  newClientCount?: number;
+  newDealCount?: number;
   lastSyncedAt?: string | null;
   overridesCleared?: number;
   skipped?: boolean;
@@ -41,7 +43,14 @@ export async function syncNowAction(): Promise<SyncActionResult> {
   try {
     const r = await runSync();
     if (r.skipped) return { ok: false, error: "A sync is already running — try again in a moment.", skipped: true };
-    return { ok: true, clientCount: r.clientCount, dealCount: r.dealCount, lastSyncedAt: r.lastSyncedAt };
+    return {
+      ok: true,
+      clientCount: r.clientCount,
+      dealCount: r.dealCount,
+      newClientCount: r.newClientCount,
+      newDealCount: r.newDealCount,
+      lastSyncedAt: r.lastSyncedAt,
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -65,7 +74,15 @@ export async function fullResyncAction(): Promise<SyncActionResult> {
     if (r.skipped) {
       return { ok: false, error: "A sync is already running — try again in a moment.", skipped: true, overridesCleared };
     }
-    return { ok: true, clientCount: r.clientCount, dealCount: r.dealCount, lastSyncedAt: r.lastSyncedAt, overridesCleared };
+    return {
+      ok: true,
+      clientCount: r.clientCount,
+      dealCount: r.dealCount,
+      newClientCount: r.newClientCount,
+      newDealCount: r.newDealCount,
+      lastSyncedAt: r.lastSyncedAt,
+      overridesCleared,
+    };
   } catch (e) {
     return { ok: false, error: String(e) };
   }

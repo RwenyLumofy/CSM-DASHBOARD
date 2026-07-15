@@ -47,9 +47,23 @@ export function SyncManager({
       if (!data.ok) {
         setResult({ ok: false, msg: data.error ?? "Sync failed." });
       } else {
-        const parts = [`${data.dealCount ?? 0} deals`, `${data.clientCount ?? 0} clients`];
+        const dealCount = data.dealCount ?? 0;
+        const clientCount = data.clientCount ?? 0;
+        const parts = [`${dealCount} deal${dealCount === 1 ? "" : "s"}`, `${clientCount} client${clientCount === 1 ? "" : "s"}`];
         if (full) parts.push(`${data.overridesCleared ?? 0} override${data.overridesCleared === 1 ? "" : "s"} cleared`);
-        setResult({ ok: true, msg: `${full ? "Full re-sync" : "Sync"} complete — ${parts.join(", ")}.` });
+        // dealCount/clientCount above are how many rows HubSpot returned inside
+        // this run's fetch window — that includes existing clients whose deals
+        // were merely touched (e.g. a renewal edited in HubSpot), not just new
+        // ones. newClientCount/newDealCount are the genuinely-new counts, so a
+        // "1 client" sync that's actually a renewal update reads as 0 new here
+        // instead of implying a client was just added.
+        const newClients = data.newClientCount ?? 0;
+        const newDeals = data.newDealCount ?? 0;
+        const newNote =
+          newClients > 0 || newDeals > 0
+            ? ` (${newClients} new client${newClients === 1 ? "" : "s"}, ${newDeals} new deal${newDeals === 1 ? "" : "s"})`
+            : " (nothing new — renewals/updates only)";
+        setResult({ ok: true, msg: `${full ? "Full re-sync" : "Sync"} complete — touched ${parts.join(", ")}${newNote}.` });
         if (data.lastSyncedAt) setLastSyncedAt(data.lastSyncedAt);
       }
     } catch (e) {

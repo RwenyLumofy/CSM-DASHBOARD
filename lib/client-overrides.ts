@@ -24,7 +24,7 @@ export const FIELD_OVERRIDES_KEY = "__field_overrides";
  *  status and renewalDate are deliberately excluded — they're fully
  *  auto-computed by recomputeClient() (see lib/status.ts), not manually set
  *  from this path. */
-export const CORE_OVERRIDABLE_FIELDS = ["name", "domain", "industry", "country", "employees", "segment", "startedAt"] as const;
+export const CORE_OVERRIDABLE_FIELDS = ["name", "domain", "industry", "country", "employees", "segment", "startedAt", "churnedAt"] as const;
 
 export function fieldOverridesSet(properties: Record<string, unknown> | undefined | null): Set<string> {
   const arr = (properties?.[FIELD_OVERRIDES_KEY] as string[] | undefined) ?? [];

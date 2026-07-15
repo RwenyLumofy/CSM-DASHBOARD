@@ -369,6 +369,9 @@ function GeneralTab({
             <EditableField clientId={id} label={tierDef.label} value={props[tierDef.key]} type={tierDef.type} options={selectOpts(tierDef.options)} target={{ prop: tierDef.key }} />
           )}
           <StatusField clientId={id} status={client.status} manuallyChurned={props[STATUS_OVERRIDE_KEY] === "churned"} />
+          {(client.status === "churned" || client.churnedAt) && (
+            <EditableField clientId={id} label="Churn date" value={client.churnedAt} type="date" target={{ core: "churnedAt" }} />
+          )}
         </FieldGrid>
         {client.tags.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-1.5 border-t border-border-subtle pt-4">
