@@ -29,7 +29,6 @@ import type { HubspotCompany } from "@/lib/integrations/hubspot";
 import { persistChurnedImport } from "@/lib/repo/drizzle";
 import type { ArrEvent, Client, Deal } from "@/lib/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
-import { FIELD_OVERRIDES_KEY } from "@/lib/client-overrides";
 import { emptyHealth, emptySupport, emptyUsage } from "@/lib/import/clients";
 
 export interface ChurnImportResult {
@@ -55,7 +54,7 @@ function segmentOf(employees: number | null): Client["segment"] {
   return "smb";
 }
 
-function buildChurnedClient(co: HubspotCompany, churnDate: string | null): Client {
+function buildChurnedClient(co: HubspotCompany): Client {
   const portal = process.env.HUBSPOT_PORTAL_ID ?? "";
   return {
     id: co.id,
@@ -79,7 +78,13 @@ function buildChurnedClient(co: HubspotCompany, churnDate: string | null): Clien
     previousArr: 0,
     startedAt: co.startedAt,
     renewalDate: null,
-    churnedAt: churnDate,
+    // Deliberately NOT auto-filled from HubSpot's "date entered Churn" property
+    // (hs_v2_date_entered_978708591, still used below only to date the ARR
+    // ledger's churn event) — that property isn't a trustworthy per-account
+    // churn date (large batches share the same bulk-edit date). churnedAt is a
+    // manual, CSM-entered field only; the account-level date and the ledger's
+    // GRR/NRR-period date are intentionally decoupled.
+    churnedAt: null,
     segment: segmentOf(co.employees),
     logoUrl: null,
     hubspotUrl: co.id ? `https://app.hubspot.com/contacts/${portal}/record/0-2/${co.id}` : undefined,
@@ -87,11 +92,9 @@ function buildChurnedClient(co: HubspotCompany, churnDate: string | null): Clien
     support: emptySupport(),
     usage: emptyUsage(),
     tags: [],
-    // __status_override → churned (survives every recompute); __field_overrides
-    // → ["churnedAt"] so the CSM-editable churn date is never nulled by a sync.
+    // __status_override → churned (survives every recompute).
     properties: {
       [STATUS_OVERRIDE_KEY]: "churned",
-      [FIELD_OVERRIDES_KEY]: ["churnedAt"],
     },
   };
 }
@@ -110,8 +113,11 @@ export async function importChurnedClients(): Promise<ChurnImportResult> {
   let zeroBaseline = 0;
 
   for (const cc of companies) {
+    // effectiveChurnDate dates the ARR ledger's churn event only (drives which
+    // GRR/NRR period reflects this churn) — deliberately decoupled from the
+    // client.churnedAt display field above, which is CSM-entered only.
     const effectiveChurnDate = cc.churnDate ?? today;
-    clients.push(buildChurnedClient(cc.company, cc.churnDate));
+    clients.push(buildChurnedClient(cc.company));
     deals.push(...cc.deals);
 
     if (cc.baseline > 0) {

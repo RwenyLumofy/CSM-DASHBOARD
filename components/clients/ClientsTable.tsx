@@ -516,6 +516,7 @@ const ClientRow = memo(function ClientRow({
 }) {
   const dtr = daysToRenewal(c.renewalDate);
   const renewalSoon = dtr != null && dtr >= 0 && dtr <= 90;
+  const renewalOverdue = dtr != null && dtr < 0 && c.status !== "churned";
   // A controlled <select> whose value matches no <option> renders as
   // "Unassigned". So always include the currently-assigned owner as an
   // option (even if they've left the team or the options list is empty) —
@@ -561,7 +562,10 @@ const ClientRow = memo(function ClientRow({
         <span className="tabular font-body text-sm font-semibold text-fg">{formatCurrency(c.arr, c.currency, { compact: true })}</span>
       </Td>
       <Td>
-        <span className={cn("tabular font-body text-[13px]", renewalSoon ? "font-semibold text-[#8A6A0A]" : "text-fg-muted")}>{formatDate(c.renewalDate)}</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={cn("tabular font-body text-[13px]", renewalSoon ? "font-semibold text-[#8A6A0A]" : "text-fg-muted")}>{formatDate(c.renewalDate)}</span>
+          {renewalOverdue && <Badge tone="nova">Overdue renewal</Badge>}
+        </span>
       </Td>
       <Td>{c.status === "churned" ? <Badge tone="neutral">Churned</Badge> : <HealthPill health={c.health} compact />}</Td>
       <Td align="right">
