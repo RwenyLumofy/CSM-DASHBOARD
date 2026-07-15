@@ -566,12 +566,19 @@ export async function upsertClientMeetings(meetings: Meeting[]): Promise<void> {
 
 /**
  * Record a deal's properties the FIRST time it's seen; a deal that already
- * exists is left untouched by every later sync (onConflictDoNothing) — only
- * a CSM's __deal_overrides can change its displayed properties after that.
+ * exists has every OTHER field left untouched by later syncs — amount, dates,
+ * tracked, etc. are frozen at insert time so a CSM's edits (__deal_overrides,
+ * the tracked toggle) always survive a re-sync. `category` is the single
+ * exception: it's a pure HubSpot-stage classification with no CSM override
+ * path (it just picks which Contracts & deals tab the deal shows in), so it's
+ * corrected on every sync if the deal's real HubSpot stage has moved since —
+ * e.g. a deal reaching the CS pipeline's Confirmed Churned/Downgraded stage
+ * after it was first synced as a Renewal.
  */
-/** Upserts deals, ignoring rows that already exist by id. Returns the ids that
- *  were genuinely new (not already present) — used by persistSync to report
- *  real "new deal" counts distinct from "deals touched by this sync". */
+/** Upserts deals, updating only `category` on conflict. Returns the ids that
+ *  were genuinely newly INSERTED (not already present) — used by persistSync
+ *  to report real "new deal" counts distinct from "deals touched by this
+ *  sync" or "deals whose category got corrected". */
 export async function upsertClientDeals(deals: Deal[]): Promise<string[]> {
   if (deals.length === 0) return [];
   const db = getDb();
@@ -581,9 +588,15 @@ export async function upsertClientDeals(deals: Deal[]): Promise<string[]> {
     const rows = await db
       .insert(schema.clientDeals)
       .values(row)
-      .onConflictDoNothing({ target: schema.clientDeals.id })
-      .returning({ id: schema.clientDeals.id });
-    if (rows.length > 0) insertedIds.push(rows[0].id);
+      .onConflictDoUpdate({
+        target: schema.clientDeals.id,
+        set: { category: row.category },
+      })
+      // xmax = 0 marks a row this statement actually INSERTED (vs. one that
+      // hit the conflict branch and only had its category corrected) — needed
+      // to keep the "genuinely new" count accurate (see doc comment above).
+      .returning({ id: schema.clientDeals.id, inserted: sql<boolean>`xmax = 0` });
+    if (rows.length > 0 && rows[0].inserted) insertedIds.push(rows[0].id);
   });
   return insertedIds;
 }

@@ -252,8 +252,11 @@ export interface Deal {
   contractStartDate?: string | null; // ISO → Contract Effective Date
   /** Sales → CSM handover narrative (HubSpot deal `use_case_brief`, free text). */
   accountBrief?: string | null;
-  /** "renewal" (direct/indirect won + CS renewed) | "expansion" (CS expanded). */
-  category?: "renewal" | "expansion";
+  /** Contracts & deals tab bucket. "renewal" = direct/indirect Closed Won + CS
+   *  Renewed (also the fallback for any unclassified CS stage); "expansion" =
+   *  CS Expanded; "confirmed_churn" = CS Confirmed Churned; "downgraded" = CS
+   *  Downgraded. The Sales tab is pipeline-based, not category-based. */
+  category?: "renewal" | "expansion" | "confirmed_churn" | "downgraded";
   /** Synced from HubSpot deal selects (read-only badges on the card). */
   supportLevel?: string | null;
   implementationLevel?: string | null;

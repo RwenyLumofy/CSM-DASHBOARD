@@ -2649,11 +2649,23 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(true);
   const sales = deals.filter((d) => d.pipeline !== "cs");
-  const renewals = deals.filter((d) => d.pipeline === "cs" && d.category !== "expansion");
-  const expansions = deals.filter((d) => d.category === "expansion");
-  const [tab, setTab] = useState<"sales" | "renewals" | "expansion">(
-    sales.length > 0 ? "sales" : renewals.length === 0 && expansions.length > 0 ? "expansion" : "renewals",
+  const expansions = deals.filter((d) => d.pipeline === "cs" && d.category === "expansion");
+  const confirmedChurns = deals.filter((d) => d.pipeline === "cs" && d.category === "confirmed_churn");
+  const downgrades = deals.filter((d) => d.pipeline === "cs" && d.category === "downgraded");
+  // Catch-all: any CS deal not in one of the three explicit buckets above
+  // (i.e. category === "renewal", or an as-yet-unclassified CS stage).
+  const renewals = deals.filter(
+    (d) => d.pipeline === "cs" && d.category !== "expansion" && d.category !== "confirmed_churn" && d.category !== "downgraded",
   );
+  type DealTab = "sales" | "renewals" | "expansion" | "confirmed_churn" | "downgrade";
+  const TAB_ORDER: { key: DealTab; n: number }[] = [
+    { key: "sales", n: sales.length },
+    { key: "renewals", n: renewals.length },
+    { key: "expansion", n: expansions.length },
+    { key: "confirmed_churn", n: confirmedChurns.length },
+    { key: "downgrade", n: downgrades.length },
+  ];
+  const [tab, setTab] = useState<DealTab>(TAB_ORDER.find((t) => t.n > 0)?.key ?? "renewals");
 
   // Optimistic local copies — updated immediately on save so the UI reflects
   // changes without waiting for the server round-trip from router.refresh().
@@ -2752,11 +2764,18 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
     } catch { setLocalDates(prev); }
   }
 
-  const shown = tab === "sales" ? sales : tab === "renewals" ? renewals : expansions;
-  const TOGGLE: { key: "sales" | "renewals" | "expansion"; label: string; n: number }[] = [
+  const shown =
+    tab === "sales" ? sales
+    : tab === "renewals" ? renewals
+    : tab === "expansion" ? expansions
+    : tab === "confirmed_churn" ? confirmedChurns
+    : downgrades;
+  const TOGGLE: { key: DealTab; label: string; n: number }[] = [
     { key: "sales", label: "Sales", n: sales.length },
-    { key: "renewals", label: "Renewals", n: renewals.length },
+    { key: "renewals", label: "Renewal", n: renewals.length },
     { key: "expansion", label: "Expansion", n: expansions.length },
+    { key: "confirmed_churn", label: "Confirmed Churn", n: confirmedChurns.length },
+    { key: "downgrade", label: "Downgrade", n: downgrades.length },
   ];
 
   return (
@@ -2806,13 +2825,19 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
             {shown.length === 0 ? (
               <EmptyHint
                 icon={Tag}
-                title={tab === "sales" ? "No sales deals" : tab === "renewals" ? "No renewal deals" : "No expansion deals"}
+                title={
+                  tab === "sales" ? "No sales deals"
+                  : tab === "renewals" ? "No renewal deals"
+                  : tab === "expansion" ? "No expansion deals"
+                  : tab === "confirmed_churn" ? "No confirmed churn deals"
+                  : "No downgrade deals"
+                }
                 body={
-                  tab === "sales"
-                    ? "Closed-won deals from Direct Sales or Indirect Sales pipelines appear here."
-                    : tab === "renewals"
-                    ? "CS pipeline deals in the Renewed stage appear here."
-                    : "Deals in the CS pipeline's Expansion stage appear here."
+                  tab === "sales" ? "Closed-won deals from Direct Sales or Indirect Sales pipelines appear here."
+                  : tab === "renewals" ? "CS pipeline deals in the Renewed stage appear here."
+                  : tab === "expansion" ? "Deals in the CS pipeline's Expansion stage appear here."
+                  : tab === "confirmed_churn" ? "Deals in the CS pipeline's Confirmed Churned stage appear here."
+                  : "Deals in the CS pipeline's Downgraded stage appear here."
                 }
               />
             ) : (

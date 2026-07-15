@@ -48,6 +48,16 @@ const PIPELINES = [
  *  (inserted tracked=false). Confirmed Churned + Downgraded. */
 const CS_NON_ARR_STAGES = new Set<string>([CS_PIPELINE_CONFIRMED_CHURNED, CS_PIPELINE_DOWNGRADED]);
 
+/** Classify a CS-pipeline deal's stage into its Contracts & deals tab bucket.
+ *  "renewal" is the catch-all/fallback (matches CS_PIPELINE_RENEWED and any
+ *  other CS stage that reaches WON_DEAL_STAGES in the future). */
+function classifyCsCategory(dealstage: string | null | undefined): "renewal" | "expansion" | "confirmed_churn" | "downgraded" {
+  if (dealstage === CS_PIPELINE_EXPANDED) return "expansion";
+  if (dealstage === CS_PIPELINE_CONFIRMED_CHURNED) return "confirmed_churn";
+  if (dealstage === CS_PIPELINE_DOWNGRADED) return "downgraded";
+  return "renewal";
+}
+
 // ---- Engagement object properties ----------------------------------------
 
 const CONTACT_PROPERTIES = ["firstname", "lastname", "email", "phone", "mobilephone", "jobtitle"];
@@ -968,8 +978,10 @@ export class HubSpotClient {
         aiCourseCredits: num(p.custom_ai_course_development_credits),
         // Sales → CSM handover brief (free text); empty until sales fills it in.
         accountBrief: p.use_case_brief?.trim() || null,
-        // CS-pipeline "Expanded" stage = expansion; everything else = renewal.
-        category: won.label === "cs" && p.dealstage === CS_PIPELINE_EXPANDED ? "expansion" : "renewal",
+        // CS-pipeline stage -> Contracts & deals tab bucket. Direct/Indirect
+        // deals don't use this for tab grouping (the Sales tab is pipeline-
+        // based), but "renewal" is a harmless default for them too.
+        category: won.label === "cs" ? classifyCsCategory(p.dealstage) : "renewal",
         // Confirmed-Churned / Downgraded CS deals are loss records: surface them
         // on the account but keep them tracked=false so their amount never adds
         // to the account's ARR (recomputeClient sums tracked deals). All other
@@ -1094,7 +1106,7 @@ export class HubSpotClient {
           globalLibraryLicenses: num(p.global_libraries_licenses),
           aiCourseCredits: num(p.custom_ai_course_development_credits),
           accountBrief: p.use_case_brief?.trim() || null,
-          category: cls.label === "cs" && p.dealstage === CS_PIPELINE_EXPANDED ? "expansion" : "renewal",
+          category: cls.label === "cs" ? classifyCsCategory(p.dealstage) : "renewal",
           // A churned account has no active revenue — every historical deal is
           // tracked=false so none of them feed the tracked-deal ARR sum.
           tracked: false,
