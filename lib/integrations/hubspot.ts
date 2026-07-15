@@ -478,6 +478,86 @@ export class HubSpotClient {
   }
 
   /**
+   * Same assembly + qualification rules as fetchAcquisition (customer_type ~
+   * "arr" AND lifecyclestage = "customer"; deals limited to Direct/Indirect
+   * Closed Won), but sourced from EXPLICIT company ids instead of a
+   * date-filtered deal search. For one-off backfills of a single account whose
+   * qualifying deal wasn't itself modified inside a normal incremental sync's
+   * window — e.g. a reactivation that only changed the company's lifecycle
+   * stage, not its deal. Never force-adds a non-qualifying company (skips +
+   * warns instead, same as fetchAcquisition). Not used by the recurring sync.
+   */
+  async fetchAcquisitionByCompanyIds(companyIds: string[]): Promise<HubspotAcquisition> {
+    const warnings: string[] = [];
+    if (companyIds.length === 0) return { companies: [], warnings };
+
+    const companyProps = await this.batchReadProperties("companies", companyIds, COMPANY_PROPERTIES);
+    const coDeals = await this.fetchAllAssociations("companies", "deals", companyIds);
+    const allDealIds = [...new Set([...coDeals.values()].flat())];
+    const dealProps = await this.batchReadProperties("deals", allDealIds, [
+      "dealname",
+      "amount",
+      "closedate",
+      "pipeline",
+      "dealstage",
+      "tamkeen_subsidy",
+      "deal_child_campaign",
+      "account_executive",
+    ]);
+
+    const byCompany = new Map<string, HubspotCompany>();
+    for (const cid of companyIds) {
+      const p = companyProps.get(cid);
+      if (!p) {
+        warnings.push(`Company ${cid} not found in HubSpot.`);
+        continue;
+      }
+      const customerType = (p.customer_type ?? "").toLowerCase();
+      const lifecycle = (p.lifecyclestage ?? "").toLowerCase();
+      if (!customerType.includes("arr") || lifecycle !== "customer") {
+        warnings.push(`Company ${cid} (${p.name ?? cid}) skipped — not customer_type=ARR + lifecyclestage=Customer.`);
+        continue;
+      }
+      byCompany.set(cid, this.mapCompany(cid, p));
+    }
+
+    for (const [cid, dealIds] of coDeals) {
+      const co = byCompany.get(cid);
+      if (!co) continue;
+      for (const dId of dealIds) {
+        const p = dealProps.get(dId);
+        if (!p) continue;
+        // Same qualifying rule as fetchWonDeals: Direct/Indirect Closed Won only.
+        const pipe = PIPELINES.find((pp) => pp.id === p.pipeline && pp.wonStage === p.dealstage);
+        if (!pipe) continue;
+        co.wonDeals.push({
+          id: dId,
+          name: p.dealname ?? null,
+          amount: num(p.amount) ?? 0,
+          closeDate: dateOnly(p.closedate),
+          pipeline: pipe.label,
+          isTamkeen: p.tamkeen_subsidy ?? null,
+          childCampaign: p.deal_child_campaign ?? null,
+          accountExecutiveOwnerId: p.account_executive ?? null,
+          companyId: cid,
+        });
+      }
+    }
+
+    for (const company of byCompany.values()) {
+      const latestClose = company.wonDeals
+        .map((d) => d.closeDate)
+        .filter((d): d is string => !!d)
+        .sort()
+        .at(-1) ?? null;
+      company.renewalDate = plusOneYear(latestClose);
+      if (!company.startedAt && latestClose) company.startedAt = isoDate(latestClose);
+    }
+
+    return { companies: [...byCompany.values()], warnings };
+  }
+
+  /**
    * All Closed Won deals in the Direct & Indirect pipelines.
    * When `sinceDate` is provided, an additional filter restricts results to
    * deals whose `hs_lastmodifieddate` is ≥ that timestamp (ms epoch string),

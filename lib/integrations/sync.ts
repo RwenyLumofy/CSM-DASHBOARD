@@ -48,14 +48,25 @@ export interface SyncBundle {
   arrEvents: ArrEvent[]; // hubspot-sourced new_business events only
 }
 
-export async function buildUnifiedData(opts?: { sinceDate?: string }): Promise<{ bundle: SyncBundle; warnings: string[] }> {
+export async function buildUnifiedData(
+  opts?: {
+    sinceDate?: string;
+    /** Bypass the incremental deal-search discovery and pull these HubSpot
+     *  company ids directly (same qualification rules, see
+     *  HubSpotClient.fetchAcquisitionByCompanyIds). For one-off backfills only
+     *  — the recurring sync never passes this. */
+    companyIds?: string[];
+  },
+): Promise<{ bundle: SyncBundle; warnings: string[] }> {
   const warnings: string[] = [];
 
   const hs = new HubSpotClient();
   if (!hs.configured) throw new Error("HUBSPOT_ACCESS_TOKEN is required to sync the client list.");
 
   const [acquisition, owners] = await Promise.all([
-    hs.fetchAcquisition(opts?.sinceDate),
+    opts?.companyIds && opts.companyIds.length > 0
+      ? hs.fetchAcquisitionByCompanyIds(opts.companyIds)
+      : hs.fetchAcquisition(opts?.sinceDate),
     hs.fetchOwners().catch((e) => {
       warnings.push(`HubSpot owners lookup failed: ${e}`);
       return new Map<string, HubspotOwner>();

@@ -16,6 +16,8 @@ const isPublic = createRouteMatcher([
   // CRON_SECRET bearer check (same as /api/sync), so it must bypass auth.protect()
   // which would otherwise 404 the request before the handler's secret check runs.
   "/api/churn-import(.*)",
+  // One-off single-company backfill (same secret check as above).
+  "/api/add-account(.*)",
   "/api/cron(.*)",
 ]);
 
