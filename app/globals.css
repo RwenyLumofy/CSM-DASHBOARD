@@ -108,6 +108,9 @@
   --color-bg-subtle: #FAFAFA;
   --color-bg-muted: #EFEFEF;
   --color-bg-inverse: #0C0C0C;
+  /* App canvas — a soft cool gray behind white surfaces so cards read as
+     layered/elevated instead of dissolving into a flat white page. */
+  --color-canvas: #F1F4FA;
   --color-surface: #FFFFFF;
   --color-surface-raised: #FFFFFF;
   --color-surface-sunken: #FAFAFA;
@@ -201,6 +204,7 @@
   --color-bg-subtle: #141414;
   --color-bg-muted: #1C1C1C;
   --color-bg-inverse: #FFFFFF;
+  --color-canvas: #080808;
   --color-surface: #141414;
   --color-surface-raised: #1F1F1F;
   --color-surface-sunken: #0C0C0C;

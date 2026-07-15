@@ -76,7 +76,7 @@ export function NotificationsBell({
         ref={buttonRef}
         aria-label="Notifications"
         onClick={toggleOpen}
-        className="relative grid size-9 shrink-0 place-items-center rounded-md text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
+        className="relative grid size-9 shrink-0 place-items-center rounded-md text-neutral-300 transition-colors hover:bg-white/10 hover:text-white"
       >
         <Bell size={18} strokeWidth={1.75} />
         {unread > 0 && (

@@ -22,7 +22,7 @@ export function AppShell({
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-bg">
+    <div className="flex h-dvh overflow-hidden bg-canvas">
       {/* Sidebar — slides in/out via width transition */}
       <div
         className={cn(
