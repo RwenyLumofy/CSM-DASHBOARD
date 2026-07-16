@@ -1,34 +1,52 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Sparkles } from "lucide-react";
-import { Card } from "@/components/ui/Card";
 import type { Headline as HeadlineData } from "@/lib/metrics/exec";
 import { periodDisplay } from "@/lib/metrics/exec";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
-/* The period's story in one sentence — now behind a toggle rather than always
-   occupying the top of the page.
+/* The period's story in one sentence, as a popover in the control bar.
 
    It replaced a static description that restated the title, and it earns its
-   place when you want it: it's the paragraph you'd paste into a board pack. But
-   as a permanent fixture it's a wall of prose above numbers people came to
-   scan, and scanning is the more common intent. Collapsed by default, one click
-   to read.
+   place on demand: it's the paragraph you'd paste into a board pack. But as a
+   permanent fixture it was a wall of prose above numbers people came to scan.
 
-   Deliberately NOT the arrow-only disclosure everyone builds: the trigger states
-   what it is ("Summary of Q2 2026") so it's worth pressing, rather than a naked
-   chevron you have to gamble on. */
+   As a bare toggle it was worse — a lone pill floating between the control bar
+   and the first section, anchored to nothing. It belongs in the bar: that row
+   is where you set the scope, and this is what the scope SAYS. Controls on the
+   left, readouts on the right.
+
+   A popover rather than an inline expand, so opening it doesn't stretch the bar
+   and shove the page down — and it matches the Filters panel next to it.
+
+   Deliberately NOT an arrow-only disclosure: the trigger says what it is
+   ("Summary of Q2 2026"), so it's worth pressing rather than a gamble. */
 
 export function Headline({ data, currency }: { data: HeadlineData; currency: string }) {
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
   const money = (v: number) => formatCurrency(v, currency, { compact: true });
   const down = (data.arrChange ?? 0) < 0;
   const flat = data.arrChange != null && Math.abs(data.arrChange) < 0.001;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="relative" ref={ref}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -51,8 +69,8 @@ export function Headline({ data, currency }: { data: HeadlineData; currency: str
       </button>
 
       {open && (
-        <Card className="pm-fade border-l-[3px] border-l-sirius">
-          <p className="font-body text-[15px] leading-relaxed text-fg-muted">
+        <div className="pm-overlay-in absolute right-0 top-[calc(100%+6px)] z-50 w-[min(92vw,520px)] rounded-lg border border-border border-l-[3px] border-l-sirius bg-surface p-4 shadow-lg">
+          <p className="font-body text-[14px] leading-relaxed text-fg-muted">
             <Num>{periodDisplay(data.period)}</Num>
             {data.inProgress ? " is tracking at " : " closed at "}
             <Num>{money(data.closingArr)}</Num>
@@ -114,7 +132,7 @@ export function Headline({ data, currency }: { data: HeadlineData; currency: str
               "No renewals due in the next 90 days."
             )}
           </p>
-        </Card>
+        </div>
       )}
     </div>
   );

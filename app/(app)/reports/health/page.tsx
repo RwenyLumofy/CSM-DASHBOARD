@@ -42,19 +42,28 @@ export default async function HealthPage({
       {/* No date control, and the reason is stated rather than left as an
           apparent oversight: health is overwritten on each recompute, so there
           is no history to select a period from. */}
-      <InsightsControls options={options} noPeriodReason="As of today — health has no history to filter by" />
+      <InsightsControls
+        options={options}
+        noPeriodReason="As of today — health has no history to filter by"
+        readout={
+          <span className="caption tabular whitespace-nowrap">
+            {filtered ? (
+              <>
+                <span className="font-semibold text-fg">{r.filteredCount}</span> of {r.totalCount} accounts
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-fg">{live}</span> live accounts
+              </>
+            )}
+          </span>
+        }
+      />
 
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border pb-2">
         <h2 className="h5">Portfolio health</h2>
-        <span className="caption tabular">
-          {filtered ? (
-            <>
-              <span className="font-semibold text-fg">{r.filteredCount}</span> of {r.totalCount} accounts · live book
-              only
-            </>
-          ) : (
-            <>{live} live accounts · churned excluded</>
-          )}
+        <span className="tabular font-body text-[11.5px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
+          churned excluded
         </span>
       </div>
 

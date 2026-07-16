@@ -42,13 +42,29 @@ export default async function ChurnPage({
 
   return (
     <div className="flex flex-col gap-5">
-      <InsightsControls options={options} period={period} compare={compare} />
+      <InsightsControls
+        options={options}
+        period={period}
+        compare={compare}
+        readout={
+          <span className="caption tabular whitespace-nowrap">
+            {filtered ? (
+              <>
+                <span className="font-semibold text-fg">{r.filteredCount}</span> of {r.totalCount} accounts
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-fg">{r.totalCount}</span> accounts
+              </>
+            )}
+          </span>
+        }
+      />
 
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border pb-2">
         <h2 className="h5">Why we lose accounts</h2>
         <span className="tabular font-body text-[11.5px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
           {periodDisplay(period)}
-          {filtered && ` · ${r.filteredCount} of ${r.totalCount} accounts`}
         </span>
       </div>
 

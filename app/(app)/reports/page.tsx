@@ -77,8 +77,20 @@ export default async function ReportsPage({
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Dates and filters together — scoping the data is one thought. */}
-      <InsightsControls options={options} period={period} compare={compare} />
+      {/* Controls left, readouts right. The summary and the account count both
+          answer "what does this scope say", so they belong on the bar that sets
+          it — not floating beneath it. */}
+      <InsightsControls
+        options={options}
+        period={period}
+        compare={compare}
+        readout={
+          <>
+            <AccountCount filtered={r.filteredCount} total={r.totalCount} />
+            {!noData && <Headline data={headline} currency={currency} />}
+          </>
+        }
+      />
 
 
       {/* An in-progress period's numbers are still accruing — say so, rather
@@ -97,19 +109,6 @@ export default async function ReportsPage({
         <EmptyReport />
       ) : (
         <>
-          {/* The sentence the whole page is evidence for. */}
-          <Headline data={headline} currency={currency} />
-
-          {/* The filter dimension, stated where it applies. The shared bar in
-              the layout can't compute this — layouts don't receive
-              searchParams — and it means something different per subpage. */}
-          {r.filteredCount !== r.totalCount && (
-            <p className="caption tabular -mt-2">
-              Filtered to <span className="font-semibold text-fg">{r.filteredCount}</span> of {r.totalCount} accounts —
-              every figure below is recomputed for that book, not filtered after the fact.
-            </p>
-          )}
-
           {/* ============ 1. How did the period go? ============
               The period + compare controls live HERE, in the section they
               actually govern — not in the page header above eight panels they
@@ -274,6 +273,28 @@ export default async function ReportsPage({
 }
 
 /* ------------------------------------------------------------------ pieces */
+
+/** The filter dimension as a readout, not a paragraph. It used to be a
+ *  full sentence floating under the bar explaining that figures are recomputed
+ *  rather than filtered-after-the-fact — true, but a claim nobody asked for
+ *  taking a line of the page. The count is the fact; the recomputation is the
+ *  behaviour, and it's visible the moment you filter. */
+function AccountCount({ filtered, total }: { filtered: number; total: number }) {
+  const on = filtered !== total;
+  return (
+    <span className="caption tabular whitespace-nowrap" aria-live="polite">
+      {on ? (
+        <>
+          <span className="font-semibold text-fg">{filtered}</span> of {total} accounts
+        </>
+      ) : (
+        <>
+          <span className="font-semibold text-fg">{total}</span> accounts
+        </>
+      )}
+    </span>
+  );
+}
 
 /** A page-level section heading carrying its own TIME BASE.
  *

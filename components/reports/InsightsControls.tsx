@@ -37,11 +37,16 @@ export function InsightsControls({
   /** Why this page has no date control. Only set where that's a real limit
    *  rather than an oversight — saying nothing would read as a missing feature. */
   noPeriodReason,
+  /** Right-hand READOUTS — what the chosen scope says (the account count, the
+   *  summary popover). Controls left, readouts right, one row: the alternative
+   *  was a lone summary pill floating below the bar, anchored to nothing. */
+  readout,
 }: {
   options: FilterOptions;
   period?: string;
   compare?: CompareMode;
   noPeriodReason?: string;
+  readout?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border-subtle bg-bg-subtle px-2.5 py-2">
@@ -57,6 +62,7 @@ export function InsightsControls({
         </>
       ) : null}
       <ReportFilters options={options} />
+      {readout && <div className="ml-auto flex items-center gap-2.5">{readout}</div>}
     </div>
   );
 }
