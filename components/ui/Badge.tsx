@@ -2,22 +2,28 @@ import { cn } from "@/lib/cn";
 
 export type BadgeTone = "sirius" | "aurora" | "stellar" | "nova" | "eclipse" | "cosmos" | "halo" | "neutral";
 
+/* Tone → the semantic status token trio (see globals.css "Status"). These were
+   hardcoded light-mode hex, which [data-theme="dark"] cannot re-theme — so
+   every Badge stayed on a pale mint/pink chip on the dark canvas. Routing them
+   through the tokens fixes dark mode and keeps one source of truth for the
+   colours. Rendering is unchanged in light mode: the token values ARE the hex
+   that used to be inlined here. */
 const TONES: Record<BadgeTone, string> = {
-  sirius: "bg-sirius-50 text-sirius-600",
-  aurora: "bg-[#E6F9EF] text-[#1E8F61]",
-  stellar: "bg-[#FBF6E0] text-[#8A6A0A]",
-  nova: "bg-[#FBE7ED] text-[#B23A57]",
-  eclipse: "bg-[#F0E6FF] text-[#6E3FCC]",
+  sirius: "bg-info-bg text-info-fg",
+  aurora: "bg-success-bg text-success-fg",
+  stellar: "bg-warning-bg text-warning-fg",
+  nova: "bg-danger-bg text-danger-fg",
+  eclipse: "bg-eclipse-bg text-eclipse-fg",
   cosmos: "bg-cosmos text-white",
   halo: "bg-halo text-cosmos",
   neutral: "bg-bg-muted text-fg-muted",
 };
 
 const DOTS: Record<BadgeTone, string> = {
-  sirius: "bg-sirius",
-  aurora: "bg-[#2DB47A]",
-  stellar: "bg-[#C99A14]",
-  nova: "bg-[#D14B6B]",
+  sirius: "bg-info",
+  aurora: "bg-success",
+  stellar: "bg-warning",
+  nova: "bg-danger",
   eclipse: "bg-eclipse",
   cosmos: "bg-white",
   halo: "bg-neutral-500",

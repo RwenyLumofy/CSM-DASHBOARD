@@ -21,7 +21,7 @@ const NAV: NavItem[] = [
   { href: "/clients", label: "Clients", icon: Users },
   { href: "/inbox", label: "Action list", icon: Inbox },
   { href: "/playbooks", label: "Playbooks", icon: ListChecks },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
+  { href: "/reports", label: "Executive", icon: BarChart3 },
 ];
 
 const BOTTOM_NAV: NavItem[] = [

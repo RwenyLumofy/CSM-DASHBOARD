@@ -36,6 +36,13 @@ import { SAMPLE_CSMS } from "@/lib/sample/csms";
 import { buildPortfolioSummary } from "@/lib/metrics/portfolio";
 import { computeRetention, downgrades } from "@/lib/metrics/retention";
 import { currentQuarter, withRunningBalance } from "@/lib/metrics/arr";
+import {
+  buildExecReport,
+  buildFilterOptions,
+  type ExecFilters,
+  type ExecReport,
+  type FilterOptions,
+} from "@/lib/metrics/exec";
 import { env, hasDatabase } from "@/lib/config";
 import { canSeeClient, getCurrentUserEmail, getCurrentUserRole, scopeClientsToUser } from "@/lib/auth";
 import { DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, teamForRole, type Role, type Team } from "@/lib/roles";
@@ -187,6 +194,30 @@ export async function getRetention(period = currentQuarter()): Promise<Retention
 export async function getDowngrades(): Promise<{ client: Client; delta: number }[]> {
   const { clients } = await source();
   return downgrades(clients);
+}
+
+/**
+ * The filtered, period-aware rollup behind /reports. Reuses the same memoized
+ * `source()` load as every other read, so filtering and a multi-period trend
+ * cost zero extra queries.
+ *
+ * `options` is built from the UNFILTERED book so the filter dropdowns keep
+ * offering every value even once a filter narrows the data behind them.
+ */
+export async function getExecutiveReport(opts: {
+  period?: string;
+  filters?: ExecFilters;
+  trendLength?: number;
+}): Promise<ExecReport & { options: FilterOptions }> {
+  const { clients, arrEvents } = await source();
+  const report = buildExecReport({
+    clients,
+    arrEvents,
+    period: opts.period ?? currentQuarter(),
+    filters: opts.filters ?? {},
+    trendLength: opts.trendLength,
+  });
+  return { ...report, options: buildFilterOptions(clients) };
 }
 
 /* ---------- ARR ledger / contacts / attachments (per client) ----------- */

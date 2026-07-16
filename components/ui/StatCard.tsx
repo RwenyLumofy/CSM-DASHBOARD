@@ -19,12 +19,14 @@ export function StatCard({
   icon?: LucideIcon;
   accent?: "sirius" | "aurora" | "stellar" | "nova" | "eclipse";
 }) {
+  // Semantic status tokens rather than inlined light-mode hex, so the icon chip
+  // re-themes under [data-theme="dark"]. Same colours in light mode.
   const accentText: Record<string, string> = {
-    sirius: "text-sirius bg-sirius-50",
-    aurora: "text-[#1E8F61] bg-[#E6F9EF]",
-    stellar: "text-[#8A6A0A] bg-[#FBF6E0]",
-    nova: "text-[#B23A57] bg-[#FBE7ED]",
-    eclipse: "text-[#6E3FCC] bg-[#F0E6FF]",
+    sirius: "text-info-fg bg-info-bg",
+    aurora: "text-success-fg bg-success-bg",
+    stellar: "text-warning-fg bg-warning-bg",
+    nova: "text-danger-fg bg-danger-bg",
+    eclipse: "text-eclipse-fg bg-eclipse-bg",
   };
   return (
     <Card className="flex flex-col gap-3">
@@ -42,8 +44,8 @@ export function StatCard({
           <span
             className={cn(
               "tabular mb-0.5 text-xs font-semibold",
-              deltaTone === "up" && "text-[#1E8F61]",
-              deltaTone === "down" && "text-[#B23A57]",
+              deltaTone === "up" && "text-success-fg",
+              deltaTone === "down" && "text-danger-fg",
               (!deltaTone || deltaTone === "flat") && "text-fg-subtle",
             )}
           >

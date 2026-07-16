@@ -127,15 +127,30 @@
   --color-accent-pressed: #143791;
   --color-accent-soft: #EEF3FE;
 
-  /* Status */
+  /* Status.
+     Each status has THREE roles, not two:
+       --color-X      the mark itself (a dot, a bar, a chart series)
+       --color-X-bg   a tinted surface behind it
+       --color-X-fg   TEXT sitting on that tinted surface — darkened for AA
+                      contrast, which the base tone doesn't meet at 11-13px.
+     The -fg row is the one that was missing: without it every caller invented
+     its own (#B23A57 x78, #1E8F61 x15, #8A6A0A x6 …), which is both a
+     consistency problem and why the -bg/-fg pairs can't follow dark mode.
+     All three are re-themed under [data-theme="dark"] below. */
   --color-success: #2DB47A;
   --color-success-bg: #E6F9EF;
+  --color-success-fg: #1E8F61;
   --color-warning: #C99A14;
   --color-warning-bg: #FBF6E0;
+  --color-warning-fg: #8A6A0A;
   --color-danger: #D14B6B;
   --color-danger-bg: #FBE7ED;
+  --color-danger-fg: #B23A57;
   --color-info: #215BEA;
   --color-info-bg: #EEF3FE;
+  --color-info-fg: #1A49BE;
+  --color-eclipse-bg: #F0E6FF;
+  --color-eclipse-fg: #6E3FCC;
 
   /* Type families */
   --font-display: "Source Sans 3", "IBM Plex Sans Arabic", system-ui, sans-serif;
@@ -220,6 +235,21 @@
   --color-accent-hover: #7CA1F4;
   --color-accent-pressed: #ADC5F8;
   --color-accent-soft: rgba(33, 91, 234, 0.16);
+
+  /* Status on dark: the tinted surfaces become low-alpha washes of the mark
+     colour, and the -fg text lightens (the light-mode darkened text would be
+     unreadable on them). Any component using the token trio re-themes for
+     free; hardcoded hex does not. */
+  --color-success-bg: rgba(45, 180, 122, 0.16);
+  --color-success-fg: #5FD3A0;
+  --color-warning-bg: rgba(201, 154, 20, 0.16);
+  --color-warning-fg: #E0B94A;
+  --color-danger-bg: rgba(209, 75, 107, 0.16);
+  --color-danger-fg: #EE8AA3;
+  --color-info-bg: rgba(33, 91, 234, 0.16);
+  --color-info-fg: #7CA1F4;
+  --color-eclipse-bg: rgba(163, 102, 255, 0.16);
+  --color-eclipse-fg: #C39CFF;
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
