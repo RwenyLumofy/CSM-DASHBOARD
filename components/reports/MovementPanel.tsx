@@ -148,7 +148,10 @@ export function MovementPanel({
           )}
           {leading.length > 0 && (
             <Group
-              title="Leading indicators"
+              // "Leading indicators" was CS-literature jargon — it named the
+              // category the metric belongs to rather than what the rows are
+              // for. These are accounts to call before the revenue moves.
+              title="Early warnings"
               sub={`usage ${monthLabel(usageMonth)} vs the month before · revenue hasn't moved yet`}
               rows={leading}
               currency={currency}
