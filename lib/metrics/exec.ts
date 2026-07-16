@@ -33,7 +33,7 @@ import {
   type Movement,
   type RiskRow,
 } from "@/lib/metrics/movement";
-import { arrAsOf, currentQuarter, currentWeek, isRangeKey, periodBounds, periodMovement, rangeKey, shiftPeriod } from "@/lib/metrics/arr";
+import { ALL_TIME, arrAsOf, currentQuarter, currentWeek, isRangeKey, periodBounds, periodMovement, rangeKey, shiftPeriod } from "@/lib/metrics/arr";
 import { computeRetention } from "@/lib/metrics/retention";
 import { buildPortfolioSummary } from "@/lib/metrics/portfolio";
 import { buildHealthDrag, type HealthDrag } from "@/lib/metrics/health-drag";
@@ -214,6 +214,8 @@ export function parseCompare(raw: string | string[] | undefined): CompareMode {
  *  on the same slot a year earlier rather than a naive date subtraction. */
 export function comparisonPeriod(period: string, mode: CompareMode): string | null {
   if (mode === "none") return null;
+  // Nothing precedes all of history.
+  if (period === ALL_TIME) return null;
   if (mode === "prev") return shiftPeriod(period, -1);
   const grain = periodGrain(period);
   // A rolling range can't "step back a year" in window-lengths — shifting a
@@ -441,9 +443,21 @@ export function buildExecReport({
     concentration: concentrationRows,
     usageMonth,
     healthDrag: buildHealthDrag(scoped, healthConfig),
-    // All-time by design: churn PATTERNS need the whole history, not one
-    // quarter. The period-scoped churn list lives in `movements`.
-    churnAnalysis: buildChurnAnalysis(scoped, events),
+    // Follows the selected period like everything else. The churn page defaults
+    // that period to ALL_TIME (patterns usually want the whole history), but
+    // that's the reader's choice now, not a property of the page.
+    //
+    // ALL_TIME must pass NO bounds, not its bounds. periodBounds("all") returns
+    // real dates (0000-01-01 .. 9999-12-31), so handing them over made `bounds`
+    // truthy and silently took the period path: churn read 56 accounts (only the
+    // ones with a dated event) instead of 76, reported itself as a periodic rate,
+    // and hid the 20-account undated data gap entirely. Every number was
+    // plausible, which is what made it dangerous.
+    churnAnalysis: buildChurnAnalysis(
+      scoped,
+      events,
+      period === ALL_TIME ? undefined : { start: bounds.start, end: bounds.end },
+    ),
     portfolio,
     newBusiness: movement.newBusiness,
     closingArr: retention.endingArr + movement.newBusiness,
@@ -533,6 +547,7 @@ export const PRESETS: Preset[] = [
   { key: "last_year", label: "Last year", group: "calendar", resolve: (n) => String(n.getUTCFullYear() - 1) },
   { key: "this_year", label: "This year", group: "calendar", resolve: (n) => String(n.getUTCFullYear()) },
   // rolling — trailing windows, each ending yesterday
+  { key: "all_time", label: "All time", group: "rolling", resolve: () => ALL_TIME },
   { key: "last_7d", label: "Last 7 days", group: "rolling", resolve: rolling(7) },
   { key: "last_30d", label: "Last 30 days", group: "rolling", resolve: rolling(30) },
   { key: "last_90d", label: "Last 90 days", group: "rolling", resolve: rolling(90) },
@@ -607,6 +622,7 @@ export function buildHeadline(r: ExecReport): Headline {
 
 /** A short, human label for a period key ("2026-Q2" → "Q2 2026"). */
 export function periodDisplay(period: string): string {
+  if (period === ALL_TIME) return "All time";
   // An explicit range has no name — show the dates, because "Apr 1 – Apr 30" is
   // the only honest label for one. A rolling window is meaningless without them.
   if (isRangeKey(period)) {
@@ -645,7 +661,8 @@ export function periodDisplay(period: string): string {
 }
 
 /** The granularity of a period key — drives the period picker's mode toggle. */
-export function periodGrain(period: string): "range" | "week" | "month" | "quarter" | "year" {
+export function periodGrain(period: string): "all" | "range" | "week" | "month" | "quarter" | "year" {
+  if (period === ALL_TIME) return "all";
   if (isRangeKey(period)) return "range";
   if (/^\d{4}-W\d{1,2}$/i.test(period)) return "week";
   if (/^\d{4}-\d{2}$/.test(period)) return "month";
@@ -675,6 +692,7 @@ export function defaultExecPeriod(now: Date = new Date()): string {
 /** True when `period`'s window contains `now` — i.e. the numbers are still
  *  accruing and shouldn't be read as final. */
 export function periodInProgress(period: string, now: Date = new Date()): boolean {
+  if (period === ALL_TIME) return false;
   const { start, end } = periodBounds(period);
   const today = now.toISOString().slice(0, 10);
   return today >= start && today < end;

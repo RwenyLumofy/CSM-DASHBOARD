@@ -38,7 +38,7 @@ export function ChurnPanel({ churn, currency }: { churn: ChurnAnalysis; currency
     <Card>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <CardEyebrow>Churn · all time</CardEyebrow>
+          <CardEyebrow>{churn.cumulative ? "Churn · all time" : "Churn · selected period"}</CardEyebrow>
           <h3 className="h5">Who churns</h3>
         </div>
         <div className="text-right">
@@ -128,7 +128,7 @@ export function ChurnPanel({ churn, currency }: { churn: ChurnAnalysis; currency
         {/* A real data gap, stated plainly. These accounts are invisible to the
             timing chart AND to NRR — worth more than a footnote, but the fix
             belongs in the import, not in a chart. */}
-        {churn.undated > 0 && (
+        {churn.cumulative && churn.undated > 0 && (
           <div className="flex items-start gap-2 rounded-md border border-danger-bg bg-danger-bg/50 px-3 py-2">
             <TrendingDown size={13} strokeWidth={2} className="mt-[3px] shrink-0 text-danger-fg" aria-hidden />
             <p className="font-body text-[12px] leading-relaxed text-danger-fg">
@@ -144,11 +144,25 @@ export function ChurnPanel({ churn, currency }: { churn: ChurnAnalysis; currency
           </div>
         )}
 
+        {/* The denominator is what these rates MEAN, and it changes with the
+            period — so say which one is in force rather than carry a permanent
+            caveat. Over all time it's cumulative (and needs the warning);
+            scoped to a period it's a genuine periodic churn rate. */}
         <p className="caption text-fg-subtle">
-          Rates are cumulative, not annual — &quot;{Math.round((churn.bySegment[0]?.rate ?? 0) * 100)}% of{" "}
-          {churn.bySegment[0]?.label ?? "SMB"}&quot; means that share of every such account ever recorded has churned.
-          Much of this book&apos;s churn was backfilled from HubSpot in a single import, so quoting these as a periodic
-          rate would overstate them badly.
+          {churn.cumulative ? (
+            <>
+              Rates are <strong className="font-semibold text-fg">cumulative, not annual</strong> — &quot;
+              {Math.round((churn.bySegment[0]?.rate ?? 0) * 100)}% of {churn.bySegment[0]?.label ?? "SMB"}&quot; means
+              that share of every such account ever recorded has churned. Much of this book&apos;s churn was backfilled
+              from HubSpot in one import, so quoting these as a periodic rate would overstate them badly. Pick a period
+              above for a real periodic rate.
+            </>
+          ) : (
+            <>
+              Rates are <strong className="font-semibold text-fg">periodic</strong> — the share of each cohort that
+              churned within the selected period, not the share that has ever churned.
+            </>
+          )}
         </p>
       </div>
     </Card>

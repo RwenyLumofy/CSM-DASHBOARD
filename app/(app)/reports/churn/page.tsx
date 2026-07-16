@@ -1,6 +1,8 @@
 import { ChurnPanel } from "@/components/reports/ChurnPanel";
+import { PeriodControls } from "@/components/reports/PeriodControls";
 import { getExecutiveReport } from "@/lib/data";
-import { parseFilters } from "@/lib/metrics/exec";
+import { parseCompare, parseFilters, periodDisplay } from "@/lib/metrics/exec";
+import { ALL_TIME } from "@/lib/metrics/arr";
 
 export const metadata = { title: "Churn · Insights · Lumofy Signals" };
 
@@ -24,26 +26,28 @@ export default async function ChurnPage({
 }) {
   const sp = await searchParams;
   const filters = parseFilters(sp);
-  // trendLength 1 / compare "none": this page reads only churnAnalysis, and a
-  // 6-period retention loop plus a comparison window would be computed and
-  // thrown away.
-  const r = await getExecutiveReport({ filters, trendLength: 1, compare: "none" });
+  // Defaults to ALL TIME — churn patterns usually want the whole history — but
+  // it's a default, not a law. The picker is the same one Overview uses.
+  const periodRaw = Array.isArray(sp.period) ? sp.period[0] : sp.period;
+  const period = periodRaw || ALL_TIME;
+  const compare = parseCompare(sp.compare);
+  // trendLength 1: this page reads only churnAnalysis, so a 6-period retention
+  // loop would be computed and thrown away.
+  const r = await getExecutiveReport({ period, filters, trendLength: 1, compare });
 
   const filtered = r.filteredCount !== r.totalCount;
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border pb-2">
-        <h2 className="h5">Why we lose accounts</h2>
-        <span className="caption tabular">
-          {filtered ? (
-            <>
-              <span className="font-semibold text-fg">{r.filteredCount}</span> of {r.totalCount} accounts · all time
-            </>
-          ) : (
-            <>all {r.totalCount} accounts · all time</>
-          )}
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border pb-2.5">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 className="h5">Why we lose accounts</h2>
+          <span className="tabular font-body text-[11.5px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
+            {periodDisplay(period)}
+            {filtered && ` · ${r.filteredCount} of ${r.totalCount} accounts`}
+          </span>
+        </div>
+        <PeriodControls period={period} compare={compare} />
       </div>
 
       {r.churnAnalysis.churned === 0 ? (

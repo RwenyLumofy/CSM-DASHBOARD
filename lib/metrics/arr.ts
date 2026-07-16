@@ -186,6 +186,12 @@ export function isRangeKey(period: string): boolean {
   return /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(period);
 }
 
+/** "All time" — an unbounded period, so pages whose natural default is the
+ *  whole history (churn patterns) can express that AS a period rather than
+ *  having it hardcoded. Making it a first-class key means such a page gets the
+ *  same picker as everything else instead of an immovable clock. */
+export const ALL_TIME = "all";
+
 /**
  * Parse a period string into [start, end) date bounds.
  * Supports "YYYY-MM-DD..YYYY-MM-DD" (explicit inclusive range), "YYYY-Www"
@@ -193,6 +199,9 @@ export function isRangeKey(period: string): boolean {
  * back to the calendar year of an unrecognized string.
  */
 export function periodBounds(period: string): PeriodBounds {
+  if (period === ALL_TIME) {
+    return { start: "0000-01-01", end: "9999-12-31", label: "All time" };
+  }
   if (isRangeKey(period)) {
     const [s, e] = period.split("..");
     // +1 day: the key's end is inclusive, these bounds are exclusive.
@@ -247,6 +256,8 @@ export function currentWeek(now: Date = new Date()): string {
  *  shiftPeriod("2026-Q2", 1) -> "2026-Q3", shiftPeriod("2026-W01", -1) ->
  *  "2025-W52". Powers the timeline filter's prev/next navigation. */
 export function shiftPeriod(period: string, delta: number): string {
+  // All time has nowhere to step to.
+  if (period === ALL_TIME) return period;
   // An explicit range steps by its OWN length, so paging a 30-day window moves
   // 30 days — not a month, and not a calendar boundary. That keeps "last 30
   // days" comparable against "the 30 days before it", which is what a

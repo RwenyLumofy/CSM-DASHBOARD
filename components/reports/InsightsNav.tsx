@@ -8,12 +8,14 @@
    pattern, Health explains a score as of today. Real routes, so each is
    linkable, which is the point when you're pasting one at a board.
 
-   THE CLOCK IS PART OF THE LABEL. Every page here runs on a different one, and
-   that ambiguity was the single biggest source of confusion on the old
-   single-page version — three time bases interleaved as identical cards, each
-   card growing its own footnote to explain which one it was on. Stating it in
-   the nav means a reader knows before they arrive, and no panel has to
-   apologise for itself.
+   NO CLOCK IN THE LABEL. It used to read "Overview · by period", "Churn · all
+   time", "Health · as of today" — which baked a fixed time base into the nav.
+   That conflated two different things: churn being all-time was a CHOICE I made
+   (its events are dated; "who churned in Q2" is a fine question), while health
+   being as-of-today is a real DATA LIMIT (no history exists). Advertising both
+   as properties of the page made the choice look like a law. Churn now carries
+   its own date picker defaulting to All time, and health states its limit on
+   its own page, where the reason belongs.
 
    THE THING THAT WOULD BREAK SILENTLY: every link carries the current query
    string. Filters live in the URL, so a plain <Link href="/reports/churn">
@@ -29,15 +31,13 @@ import { cn } from "@/lib/cn";
 export interface InsightsTab {
   href: string;
   label: string;
-  /** The clock this page runs on. */
-  when: string;
   icon: LucideIcon;
 }
 
 export const INSIGHTS_TABS: InsightsTab[] = [
-  { href: "/reports", label: "Overview", when: "by period", icon: Activity },
-  { href: "/reports/churn", label: "Churn", when: "all time", icon: TrendingDown },
-  { href: "/reports/health", label: "Health", when: "as of today", icon: HeartPulse },
+  { href: "/reports", label: "Overview", icon: Activity },
+  { href: "/reports/churn", label: "Churn", icon: TrendingDown },
+  { href: "/reports/health", label: "Health", icon: HeartPulse },
 ];
 
 export function InsightsNav() {
@@ -62,7 +62,7 @@ export function InsightsNav() {
               href={qs ? `${t.href}?${qs}` : t.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "group flex items-center gap-2.5 rounded-md px-3 py-1.5 transition-all duration-[140ms] [transition-timing-function:var(--ease-standard)]",
+                "group flex items-center gap-2 rounded-md px-3 py-2 transition-all duration-[140ms] [transition-timing-function:var(--ease-standard)]",
                 active
                   ? "bg-surface shadow-sm ring-1 ring-border"
                   : "hover:bg-surface/60",
@@ -76,23 +76,13 @@ export function InsightsNav() {
               >
                 <Icon size={13} strokeWidth={2} />
               </span>
-              <span className="flex flex-col leading-none">
-                <span
-                  className={cn(
-                    "font-body text-[13px] font-semibold transition-colors duration-[140ms]",
-                    active ? "text-fg" : "text-fg-muted group-hover:text-fg",
-                  )}
-                >
-                  {t.label}
-                </span>
-                <span
-                  className={cn(
-                    "mt-1 font-body text-[10px] font-medium uppercase tracking-[0.06em] transition-colors duration-[140ms]",
-                    active ? "text-sirius" : "text-fg-subtle",
-                  )}
-                >
-                  {t.when}
-                </span>
+              <span
+                className={cn(
+                  "font-body text-[13px] font-semibold transition-colors duration-[140ms]",
+                  active ? "text-fg" : "text-fg-muted group-hover:text-fg",
+                )}
+              >
+                {t.label}
               </span>
             </Link>
           );

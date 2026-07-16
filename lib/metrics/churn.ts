@@ -19,10 +19,20 @@
       "why" that exists. So this module answers who/when/how-much and is honest
       that it cannot answer why.
 
-   RATE IS CUMULATIVE, NOT PERIODIC. "84% of SMB" means 84% of every SMB account
-   ever recorded has churned — not an annual rate. That's the honest reading of a
-   book whose churn was largely backfilled from HubSpot in one import, and the
-   UI must say so: quoting it as a periodic rate would be wrong by a wide margin.
+   PERIOD-SCOPED, defaulting to all time — not hardcoded to it.
+   The first cut fixed this to the whole history on the reasoning that "churn
+   PATTERNS need the whole history". That's often true and it's still the
+   default, but it was my choice imposed as a property of the page: churn events
+   are dated, so "who churned in Q2" is a perfectly good question and the reader
+   should get to ask it. All time is now just another period (ALL_TIME), so this
+   page gets the same picker as everything else.
+
+   It also fixes a real caveat. Over all time, "84% of SMB" is CUMULATIVE — 84%
+   of every SMB account ever recorded has churned, which is not an annual rate
+   and had to carry a warning saying so. Scope to a period and the same
+   arithmetic becomes a genuine periodic churn rate: churned-in-Q2 over the
+   accounts that existed. The denominator is what changes meaning, so the UI
+   reports which one it's using.
    ========================================================================= */
 
 import type { ArrEvent, Client } from "@/lib/types";
@@ -68,6 +78,9 @@ export interface ChurnAnalysis {
   /** True when no churn-reason field is configured, so the UI can say so
    *  rather than silently omitting the most important column. */
   reasonFieldMissing: true;
+  /** False when a period is applied — rates are then a real periodic churn
+   *  rate, not the cumulative "share of every account ever". The UI says which. */
+  cumulative: boolean;
 }
 
 const SEGMENT_LABELS: Record<string, string> = {
@@ -88,6 +101,15 @@ function sliceBy(
   get: (c: Client) => string | null,
   labels: Record<string, string> | undefined,
   lostByClient: Map<string, number>,
+  /** Did this account churn, for the window in force? Passed in rather than
+   *  assumed: over all time it's "is churned" (which includes the 20 accounts
+   *  with no dated event — they ARE churned, the ledger just lost their date),
+   *  but within a period it's "has a dated churn event HERE". Hardcoding the
+   *  dated-event rule made the all-time SMB rate read 51% (26/51) instead of
+   *  84% (43/51), because the undated accounts silently dropped out of every
+   *  segment while still counting in the headline total. The slices then didn't
+   *  sum to the total — a discrepancy nobody would spot on a chart. */
+  didChurn: (c: Client) => boolean,
 ): ChurnSlice[] {
   const acc = new Map<string, { churned: number; total: number; arrLost: number }>();
   for (const c of clients) {
@@ -95,8 +117,10 @@ function sliceBy(
     if (!k) continue;
     const a = acc.get(k) ?? { churned: 0, total: 0, arrLost: 0 };
     a.total += 1;
-    if (c.status === "churned") {
+    if (didChurn(c)) {
       a.churned += 1;
+      // An undated account contributes no ARR here — it has no event to read an
+      // amount from. That's the same gap the panel reports, not a second bug.
       a.arrLost += lostByClient.get(c.id) ?? 0;
     }
     acc.set(k, a);
@@ -114,10 +138,19 @@ function sliceBy(
     .sort((a, b) => b.rate - a.rate || b.total - a.total);
 }
 
-export function buildChurnAnalysis(clients: Client[], arrEvents: ArrEvent[]): ChurnAnalysis {
+export function buildChurnAnalysis(
+  clients: Client[],
+  arrEvents: ArrEvent[],
+  bounds?: { start: string; end: string },
+): ChurnAnalysis {
   const churnEvents = arrEvents.filter((e) => e.type === "churn");
   const ids = new Set(clients.map((c) => c.id));
-  const mine = churnEvents.filter((e) => ids.has(e.clientId));
+  const inPeriod = (iso: string) => {
+    if (!bounds) return true;
+    const d = iso.slice(0, 10);
+    return d >= bounds.start && d < bounds.end;
+  };
+  const mine = churnEvents.filter((e) => ids.has(e.clientId) && inPeriod(e.effectiveDate));
 
   const lostByClient = new Map<string, number>();
   for (const e of mine) {
@@ -144,7 +177,7 @@ export function buildChurnAnalysis(clients: Client[], arrEvents: ArrEvent[]): Ch
   // from the client row's startedAt, which IS populated for all 76.
   const days: number[] = [];
   for (const c of clients) {
-    if (c.status !== "churned" || !c.startedAt) continue;
+    if (!c.startedAt) continue;
     const end = mine.find((e) => e.clientId === c.id)?.effectiveDate;
     if (!end) continue;
     const d = Math.round((Date.parse(end.slice(0, 10)) - Date.parse(c.startedAt.slice(0, 10))) / 86_400_000);
@@ -171,8 +204,14 @@ export function buildChurnAnalysis(clients: Client[], arrEvents: ArrEvent[]): Ch
   //
   // Reported rather than silently corrected: guessing a churn date for them
   // would fabricate history, and the fix belongs in the import, not here.
-  const churnedClients = clients.filter((c) => c.status === "churned");
-  const undatedClients = churnedClients.filter((c) => !lostByClient.has(c.id));
+  // With a period, "churned" means churned IN it — an account that died in Q1
+  // is not part of Q2's churn. Over all time it's every churned account, and the
+  // undated ones (no churn event at all) surface as the data gap they are.
+  const didChurn = bounds
+    ? (c: Client) => lostByClient.has(c.id)
+    : (c: Client) => c.status === "churned";
+  const churnedClients = clients.filter(didChurn);
+  const undatedClients = bounds ? [] : churnedClients.filter((c) => !lostByClient.has(c.id));
 
   return {
     churned: churnedClients.length,
@@ -180,10 +219,11 @@ export function buildChurnAnalysis(clients: Client[], arrEvents: ArrEvent[]): Ch
     arrLost: [...lostByClient.values()].reduce((a, b) => a + b, 0),
     byQuarter,
     peak,
-    bySegment: sliceBy(clients, (c) => c.segment, SEGMENT_LABELS, lostByClient),
-    byIndustry: sliceBy(clients, (c) => c.industry, undefined, lostByClient).slice(0, 6),
+    bySegment: sliceBy(clients, (c) => c.segment, SEGMENT_LABELS, lostByClient, didChurn),
+    byIndustry: sliceBy(clients, (c) => c.industry, undefined, lostByClient, didChurn).slice(0, 6),
     lifetimeDays,
     noteCount: mine.filter((e) => e.note && e.note.trim()).length,
+    cumulative: !bounds,
     dated: churnedClients.length - undatedClients.length,
     undated: undatedClients.length,
     undatedArr: undatedClients.reduce((a, c) => a + (c.arr ?? 0), 0),
