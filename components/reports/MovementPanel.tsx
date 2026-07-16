@@ -23,14 +23,51 @@ import { cn } from "@/lib/cn";
    line rises while the row says "Churned".
 */
 
-const KIND: Record<MovementKind, { label: string; icon: typeof XCircle; tone: string; dot: string }> = {
-  churned: { label: "Churned", icon: XCircle, tone: "text-danger-fg bg-danger-bg", dot: "bg-danger" },
-  downgraded: { label: "Downgraded", icon: ArrowDownRight, tone: "text-warning-fg bg-warning-bg", dot: "bg-warning" },
-  usage_dormant: { label: "Went dormant", icon: MoonStar, tone: "text-danger-fg bg-danger-bg", dot: "bg-danger" },
-  usage_declined: { label: "Usage falling", icon: TrendingDown, tone: "text-warning-fg bg-warning-bg", dot: "bg-warning" },
-  expanded: { label: "Expanded", icon: ArrowUpRight, tone: "text-success-fg bg-success-bg", dot: "bg-success" },
-  new: { label: "New business", icon: Sparkles, tone: "text-info-fg bg-info-bg", dot: "bg-info" },
+/* Definitions are transcribed from the rules in lib/metrics/movement.ts, not
+   from memory of them. "Usage falling" in particular hides two thresholds
+   nobody could guess from the label — and a threshold you can't see is a number
+   you can't argue with. */
+const KIND: Record<MovementKind, { label: string; icon: typeof XCircle; tone: string; dot: string; def: string }> = {
+  churned: {
+    label: "Churned", icon: XCircle, tone: "text-danger-fg bg-danger-bg", dot: "bg-danger",
+    def: "The ARR ledger recorded a churn event in this period — the account's revenue went to zero.",
+  },
+  downgraded: {
+    label: "Downgraded", icon: ArrowDownRight, tone: "text-warning-fg bg-warning-bg", dot: "bg-warning",
+    def: "ARR was reduced but the account is still live — a contraction, or a renewal that came in lower.",
+  },
+  usage_dormant: {
+    label: "Went dormant", icon: MoonStar, tone: "text-danger-fg bg-danger-bg", dot: "bg-danger",
+    def: "Had monthly active users last month, zero this month. No revenue change yet.",
+  },
+  usage_declined: {
+    label: "Usage falling", icon: TrendingDown, tone: "text-warning-fg bg-warning-bg", dot: "bg-warning",
+    def: "Monthly actives down 25% or more vs last month, on a base of at least 10 — below that, a percentage is noise (2 users becoming 1 is “down 50%”). No revenue change yet.",
+  },
+  expanded: {
+    label: "Expanded", icon: ArrowUpRight, tone: "text-success-fg bg-success-bg", dot: "bg-success",
+    def: "ARR increased on an existing account — an expansion, reactivation, or a renewal that came in higher.",
+  },
+  new: {
+    label: "New business", icon: Sparkles, tone: "text-info-fg bg-info-bg", dot: "bg-info",
+    def: "First ARR booked for this account — a new logo landing in this period.",
+  },
 };
+
+/** A hover/focus definition, CSS-only so this panel stays a server component
+ *  (a tooltip is not worth shipping every Client object to the browser for).
+ *  Sits on the chip's own group, and never intercepts the pointer — the chip
+ *  underneath is a link and must stay clickable. */
+function Tip({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      role="tooltip"
+      className="pointer-events-none absolute right-0 top-[calc(100%+6px)] z-50 w-[min(80vw,260px)] rounded-lg border border-border bg-surface p-2.5 text-left font-body text-[11.5px] font-normal leading-relaxed text-fg-muted opacity-0 shadow-lg transition-opacity duration-[140ms] group-hover:opacity-100 group-focus-visible:opacity-100"
+    >
+      {children}
+    </span>
+  );
+}
 
 const REVENUE_KINDS: MovementKind[] = ["churned", "downgraded", "expanded", "new"];
 const CHIP_ORDER: MovementKind[] = ["churned", "downgraded", "usage_dormant", "usage_declined", "expanded", "new"];
@@ -48,9 +85,15 @@ const CHIP_ORDER: MovementKind[] = ["churned", "downgraded", "usage_dormant", "u
    would have allowed. */
 type GroupKey = "revenue" | "warning";
 
-const GROUPS: { key: GroupKey; label: string; kinds: MovementKind[] }[] = [
-  { key: "revenue", label: "Revenue moved", kinds: REVENUE_KINDS },
-  { key: "warning", label: "Early warnings", kinds: ["usage_dormant", "usage_declined"] },
+const GROUPS: { key: GroupKey; label: string; kinds: MovementKind[]; def: string }[] = [
+  {
+    key: "revenue", label: "Revenue moved", kinds: REVENUE_KINDS,
+    def: "Money that has actually moved this period, straight off the ARR ledger — the same source as the waterfall, so the two always agree.",
+  },
+  {
+    key: "warning", label: "Early warnings", kinds: ["usage_dormant", "usage_declined"],
+    def: "Usage has moved; revenue hasn't — yet. These are the accounts still worth a call.",
+  },
 ];
 
 const isGroupKey = (v: string | undefined): v is GroupKey => v === "revenue" || v === "warning";
@@ -140,13 +183,16 @@ export function MovementPanel({
                 scroll={false}
                 aria-pressed={on}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-pill border px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
+                  "group relative inline-flex items-center gap-1.5 rounded-pill border px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
                   on
                     ? "border-fg/25 bg-bg-inverse text-bg ring-2 ring-fg/15"
                     : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
                 )}
               >
                 {groupCount(g.key)} {g.label.toLowerCase()}
+                <Tip>
+                  <strong className="font-semibold text-fg">{g.label}</strong> — {g.def}
+                </Tip>
               </Link>
             );
           })}
@@ -163,13 +209,16 @@ export function MovementPanel({
                 scroll={false}
                 aria-pressed={on}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-pill px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
+                  "group relative inline-flex items-center gap-1.5 rounded-pill px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
                   K.tone,
                   on ? "ring-2 ring-fg/20" : "opacity-70 hover:opacity-100",
                 )}
               >
                 <span className={cn("size-1.5 rounded-pill", K.dot)} />
                 {counts.get(k)} {K.label.toLowerCase()}
+                <Tip>
+                  <strong className="font-semibold text-fg">{K.label}</strong> — {K.def}
+                </Tip>
               </Link>
             );
           })}
