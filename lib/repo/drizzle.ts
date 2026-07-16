@@ -1913,7 +1913,23 @@ export async function getClientUsageSnapshotFromDb(clientId: string): Promise<Us
  */
 export async function getAllUsageSnapshotsFromDb(): Promise<UsageSnapshotRecord[]> {
   const db = getDb();
-  const rows = await db.select().from(schema.clientUsageSnapshots);
+  // Explicit projection, not select(): `trends` and `learning` are the two
+  // heavy JSONB blobs on this table (a per-month TrendMap and a per-provider
+  // LearningBreakdown, per client) and no rollup reads either. A bare select()
+  // pulled them over the wire for all 121 rows just to drop them in the mapper
+  // below — paying cross-region transfer + JSON.parse for data thrown away on
+  // arrival.
+  const rows = await db
+    .select({
+      clientId: schema.clientUsageSnapshots.clientId,
+      environmentId: schema.clientUsageSnapshots.environmentId,
+      region: schema.clientUsageSnapshots.region,
+      metrics: schema.clientUsageSnapshots.metrics,
+      score: schema.clientUsageSnapshots.score,
+      fetchedAt: schema.clientUsageSnapshots.fetchedAt,
+      syncError: schema.clientUsageSnapshots.syncError,
+    })
+    .from(schema.clientUsageSnapshots);
   return rows.map((r) => ({
     clientId: r.clientId,
     environmentId: r.environmentId,

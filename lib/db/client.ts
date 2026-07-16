@@ -107,15 +107,30 @@ export function withDbTimeout<T>(promise: Promise<T>, ms = 45_000): Promise<T> {
   // "found another unwrapped spot" — still leaves a trace of which query
   // stalled and for how long, instead of a silent 500/empty result.
   const stackHint = new Error().stack?.split("\n")[2]?.trim() ?? "unknown call site";
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => {
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
         console.warn(`[db] query timed out after ${ms}ms, called from: ${stackHint}`);
         reject(new Error(`DB read timed out after ${ms}ms`));
-      }, ms),
-    ),
-  ]);
+      }, ms);
+    }),
+    // The timer MUST be cleared when the query wins the race. Promise.race
+    // settles on the first result but does nothing to the loser, so without
+    // this every SUCCESSFUL query still fired its callback `ms` later and
+    // logged "[db] query timed out after 45000ms" — a warning about a read
+    // that had already returned, naming a real call site, 45s after the fact.
+    // Every page load produced one per query (4 on a typical /reports render,
+    // long after a clean 200), which made the log read like the pool was
+    // permanently stalling and sent an investigation after connection
+    // exhaustion that pg_stat_activity then showed wasn't happening (11/60
+    // connections, zero stuck backends). withCancellableDbTimeout below always
+    // cleared its timer; this one never did.
+    //
+    // .finally rather than .then/.catch: it must fire on BOTH paths, and it
+    // deliberately returns nothing so it can never win the race itself.
+  ]).finally(() => clearTimeout(timer));
 }
 
 /**
