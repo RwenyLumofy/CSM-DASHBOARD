@@ -36,6 +36,8 @@ import {
 import { arrAsOf, currentQuarter, periodBounds, periodMovement, shiftPeriod } from "@/lib/metrics/arr";
 import { computeRetention } from "@/lib/metrics/retention";
 import { buildPortfolioSummary } from "@/lib/metrics/portfolio";
+import { buildHealthDrag, type HealthDrag } from "@/lib/metrics/health-drag";
+import type { ClientHealthConfig } from "@/lib/metrics/health-config";
 
 /* ------------------------------------------------------------------ filters */
 
@@ -267,6 +269,8 @@ export interface ExecReport {
   concentration: { rows: ConcentrationRow[]; topArrShare: number; topMauShare: number };
   /** The month the usage movement is measured over (last complete month). */
   usageMonth: string;
+  /** Why the average health score is what it is — per-metric point cost. */
+  healthDrag: HealthDrag;
   filteredCount: number;
   totalCount: number;
 }
@@ -279,6 +283,7 @@ export interface ExecReportInput {
   trendLength?: number;
   compare?: CompareMode;
   usageHistory?: UsageMonthRow[];
+  healthConfig: ClientHealthConfig;
 }
 
 export function buildExecReport({
@@ -289,6 +294,7 @@ export function buildExecReport({
   trendLength = 6,
   compare = "prev",
   usageHistory = [],
+  healthConfig,
 }: ExecReportInput): ExecReport {
   const scoped = applyFilters(clients, filters);
   const ids = new Set(scoped.map((c) => c.id));
@@ -372,6 +378,7 @@ export function buildExecReport({
     atRisk: riskRows,
     concentration: concentrationRows,
     usageMonth,
+    healthDrag: buildHealthDrag(scoped, healthConfig),
     portfolio,
     newBusiness: movement.newBusiness,
     closingArr: retention.endingArr + movement.newBusiness,
@@ -397,6 +404,68 @@ export function bookArrAsOf(events: ArrEvent[], dateISO: string, clientIds: Set<
   let total = 0;
   for (const [, list] of byClient) total += arrAsOf(list, dateISO);
   return total;
+}
+
+/* ------------------------------------------------------------ date presets */
+
+/**
+ * Named relative periods, the way a CRM offers them.
+ *
+ * The first cut made you step through time with a < > pager plus a
+ * Month/Quarter/Year toggle — two controls to answer "last quarter", which is a
+ * single thought. Salesforce (LAST_QUARTER, THIS_YEAR…), HubSpot and Vitally all
+ * lead with named relative ranges for the same reason: nobody thinks "go back
+ * one quarter from the current one", they think "last quarter".
+ *
+ * These resolve to the SAME period keys periodBounds already parses, so this is
+ * a vocabulary over the existing math rather than a second date system.
+ * Deliberately no "last 30 days"-style rolling windows: periodBounds is
+ * calendar-bucketed, and a rolling range would need real arbitrary bounds
+ * everywhere downstream (trend stepping, comparison, labels) for a question
+ * this page doesn't ask. The pager stays for stepping to an arbitrary older
+ * period, which then shows as "Custom".
+ */
+export type PresetKey =
+  | "this_quarter"
+  | "last_quarter"
+  | "this_month"
+  | "last_month"
+  | "this_year"
+  | "last_year";
+
+export const PRESETS: { key: PresetKey; label: string }[] = [
+  { key: "last_quarter", label: "Last quarter" },
+  { key: "this_quarter", label: "This quarter" },
+  { key: "last_month", label: "Last month" },
+  { key: "this_month", label: "This month" },
+  { key: "last_year", label: "Last year" },
+  { key: "this_year", label: "This year" },
+];
+
+const monthKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+
+export function resolvePreset(key: PresetKey, now: Date = new Date()): string {
+  switch (key) {
+    case "this_quarter":
+      return currentQuarter(now);
+    case "last_quarter":
+      return shiftPeriod(currentQuarter(now), -1);
+    case "this_month":
+      return monthKey(now);
+    case "last_month":
+      return shiftPeriod(monthKey(now), -1);
+    case "this_year":
+      return String(now.getUTCFullYear());
+    case "last_year":
+      return String(now.getUTCFullYear() - 1);
+  }
+}
+
+/** Which preset (if any) a period key currently corresponds to — so the picker
+ *  shows "Last quarter" rather than a raw key, and shows "Custom" once you've
+ *  paged somewhere no preset names. */
+export function matchPreset(period: string, now: Date = new Date()): PresetKey | null {
+  return PRESETS.find((p) => resolvePreset(p.key, now) === period)?.key ?? null;
 }
 
 /* ---------------------------------------------------------------- headline */

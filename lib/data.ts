@@ -47,6 +47,7 @@ import {
 } from "@/lib/metrics/exec";
 import { env, hasDatabase } from "@/lib/config";
 import { canSeeClient, getCurrentUserEmail, getCurrentUserRole, scopeClientsToUser } from "@/lib/auth";
+import { getClientHealthConfig } from "@/lib/assignment/config";
 import { DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, teamForRole, type Role, type Team } from "@/lib/roles";
 import { dbHealthy, markDbHealthy, markDbUnhealthy } from "@/lib/db/health";
 import { withDbTimeout } from "@/lib/db/client";
@@ -214,7 +215,8 @@ export async function getExecutiveReport(opts: {
   compare?: CompareMode;
 }): Promise<ExecReport & { options: FilterOptions }> {
   const { clients, arrEvents } = await source();
-  const usageHistory = await usageHistoryCache();
+  // Independent of source() and of each other — fetch concurrently.
+  const [usageHistory, healthConfig] = await Promise.all([usageHistoryCache(), getClientHealthConfig()]);
   const report = buildExecReport({
     clients,
     arrEvents,
@@ -223,6 +225,7 @@ export async function getExecutiveReport(opts: {
     trendLength: opts.trendLength,
     compare: opts.compare,
     usageHistory,
+    healthConfig,
   });
   return { ...report, options: buildFilterOptions(clients) };
 }

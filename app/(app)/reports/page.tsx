@@ -13,6 +13,7 @@ import { Card, CardEyebrow } from "@/components/ui/Card";
 import { Donut } from "@/components/ui/charts";
 import { AtRiskPanel } from "@/components/reports/AtRiskPanel";
 import { Headline } from "@/components/reports/Headline";
+import { HealthDragPanel } from "@/components/reports/HealthDragPanel";
 import { ConcentrationPanel } from "@/components/reports/ConcentrationPanel";
 import { MovementPanel } from "@/components/reports/MovementPanel";
 import { ReportControls } from "@/components/reports/ReportControls";
@@ -208,6 +209,12 @@ export default async function ReportsPage({
               answer, and labelled point-in-time — these don't move with the
               period selector. */}
           <Section title="The shape of the book" when="point-in-time" />
+
+          {/* Health, decomposed. The donut says WHAT the split is; this says
+              WHY — and separates real customer signal from our own unfilled
+              fields, which is ~a third of the deficit. */}
+          <HealthDragPanel drag={r.healthDrag} />
+
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.15fr]">
             <div className="flex flex-col gap-5">
               <div className="grid grid-cols-2 gap-4">

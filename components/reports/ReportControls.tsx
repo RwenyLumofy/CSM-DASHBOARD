@@ -21,37 +21,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, GitCompareArrows, Loader2, RotateCcw, SlidersHorizontal, X } from "lucide-react";
+import { CalendarRange, ChevronDown, ChevronLeft, ChevronRight, GitCompareArrows, Loader2, RotateCcw, SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { shiftPeriod } from "@/lib/metrics/arr";
 import {
   COMPARE_MODES,
+  PRESETS,
   comparisonPeriod,
+  matchPreset,
   periodDisplay,
-  periodGrain,
+  resolvePreset,
   type CompareMode,
   type FilterOptions,
+  type PresetKey,
 } from "@/lib/metrics/exec";
-
-const GRAINS = [
-  { key: "month", label: "Month" },
-  { key: "quarter", label: "Quarter" },
-  { key: "year", label: "Year" },
-] as const;
-
-/** Re-express `period` at a different granularity, anchored on its start date so
- *  Quarter→Month lands on that quarter's first month rather than jumping to
- *  today. */
-function reGrain(period: string, grain: (typeof GRAINS)[number]["key"]): string {
-  const q = period.match(/^(\d{4})-Q([1-4])$/i);
-  const mo = period.match(/^(\d{4})-(\d{2})$/);
-  const yr = period.match(/^(\d{4})$/);
-  const year = Number(q?.[1] ?? mo?.[1] ?? yr?.[1] ?? new Date().getUTCFullYear());
-  const month = q ? (Number(q[2]) - 1) * 3 + 1 : mo ? Number(mo[2]) : 1;
-  if (grain === "year") return String(year);
-  if (grain === "quarter") return `${year}-Q${Math.floor((month - 1) / 3) + 1}`;
-  return `${year}-${String(month).padStart(2, "0")}`;
-}
 
 const SELECTS: { key: keyof FilterOptions; label: string }[] = [
   { key: "csm", label: "CSM" },
@@ -113,38 +96,47 @@ export function ReportControls({
     };
   }, [open]);
 
-  const grain = periodGrain(period);
+  const preset = matchPreset(period);
   const active = useMemo(() => SELECTS.map((s) => ({ ...s, value: sp.get(s.key) })).filter((s) => s.value), [sp]);
   const isFiltered = active.length > 0;
 
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex flex-wrap items-center gap-2">
-        {/* period navigator */}
+        {/* Named relative range, CRM-style — "Last quarter", not "click back
+            one". The resolved period is shown alongside so the label is never
+            ambiguous, and paging off a preset reads "Custom". */}
+        <label className="relative inline-flex items-center">
+          <span className="sr-only">Date range</span>
+          <CalendarRange size={13} strokeWidth={2} aria-hidden className="pointer-events-none absolute left-2.5 text-fg-subtle" />
+          <select
+            value={preset ?? "custom"}
+            onChange={(e) => {
+              const k = e.target.value as PresetKey | "custom";
+              if (k !== "custom") setParam("period", resolvePreset(k));
+            }}
+            className="h-[31px] cursor-pointer appearance-none rounded-sm border border-border bg-surface pl-7 pr-7 font-body text-[12.5px] font-semibold text-fg transition-colors hover:border-border-strong"
+          >
+            {PRESETS.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.label} · {periodDisplay(resolvePreset(p.key))}
+              </option>
+            ))}
+            {/* Only offered once you're actually on one — never a selectable
+                "do nothing" option. */}
+            {!preset && <option value="custom">Custom · {periodDisplay(period)}</option>}
+          </select>
+          <ChevronDown size={12} strokeWidth={2.5} aria-hidden className="pointer-events-none absolute right-2 text-fg-subtle" />
+        </label>
+
+        {/* Pager — steps in the current period's own granularity, for anywhere
+            no preset names. */}
         <div className="flex items-center rounded-sm border border-border bg-surface shadow-xs">
           <NavButton label="Previous period" onClick={() => setParam("period", shiftPeriod(period, -1))} icon={ChevronLeft} />
-          <span className="tabular min-w-[96px] border-x border-border px-3 py-[7px] text-center font-body text-[13px] font-semibold text-fg">
+          <span className="tabular min-w-[84px] border-x border-border px-2.5 py-[7px] text-center font-body text-[12.5px] font-semibold text-fg-muted">
             {periodDisplay(period)}
           </span>
           <NavButton label="Next period" onClick={() => setParam("period", shiftPeriod(period, 1))} icon={ChevronRight} />
-        </div>
-
-        {/* grain */}
-        <div className="flex items-center rounded-sm border border-border bg-bg-subtle p-0.5">
-          {GRAINS.map((g) => (
-            <button
-              key={g.key}
-              type="button"
-              onClick={() => setParam("period", reGrain(period, g.key))}
-              aria-pressed={grain === g.key}
-              className={cn(
-                "rounded-[5px] px-2.5 py-1 font-body text-[12.5px] font-semibold transition-colors duration-[140ms]",
-                grain === g.key ? "bg-surface text-fg shadow-xs" : "text-fg-subtle hover:text-fg",
-              )}
-            >
-              {g.label}
-            </button>
-          ))}
         </div>
 
         {/* comparison — spells out the resolved target so a delta is never
