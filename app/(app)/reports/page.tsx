@@ -14,6 +14,7 @@ import { Donut } from "@/components/ui/charts";
 import { AtRiskPanel } from "@/components/reports/AtRiskPanel";
 import { Headline } from "@/components/reports/Headline";
 import { HealthDragPanel } from "@/components/reports/HealthDragPanel";
+import { ChurnPanel } from "@/components/reports/ChurnPanel";
 import { ConcentrationPanel } from "@/components/reports/ConcentrationPanel";
 import { MovementPanel } from "@/components/reports/MovementPanel";
 import { ReportControls } from "@/components/reports/ReportControls";
@@ -213,6 +214,13 @@ export default async function ReportsPage({
               Questions a board MIGHT ask, not ones it will. Demoted below the
               answer, and labelled point-in-time — these don't move with the
               period selector. */}
+          {/* ============ 4. Why do we lose accounts? ============
+              58% of the book is churned and nothing here asked about it. Its own
+              section, all-time on purpose: churn PATTERNS need the whole
+              history, not one quarter. */}
+          <Section title="Why we lose accounts" when="all time" />
+          <ChurnPanel churn={r.churnAnalysis} currency={currency} />
+
           <Section title="The shape of the book" when="point-in-time" />
 
           {/* Health, decomposed. The donut says WHAT the split is; this says

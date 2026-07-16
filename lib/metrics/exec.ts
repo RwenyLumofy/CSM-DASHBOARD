@@ -37,6 +37,7 @@ import { arrAsOf, currentQuarter, periodBounds, periodMovement, shiftPeriod } fr
 import { computeRetention } from "@/lib/metrics/retention";
 import { buildPortfolioSummary } from "@/lib/metrics/portfolio";
 import { buildHealthDrag, type HealthDrag } from "@/lib/metrics/health-drag";
+import { buildChurnAnalysis, type ChurnAnalysis } from "@/lib/metrics/churn";
 import type { ClientHealthConfig } from "@/lib/metrics/health-config";
 
 /* ------------------------------------------------------------------ filters */
@@ -279,6 +280,8 @@ export interface ExecReport {
   usageMonth: string;
   /** Why the average health score is what it is — per-metric point cost. */
   healthDrag: HealthDrag;
+  /** Who churns, when, how much. All-time, NOT period-scoped — see churn.ts. */
+  churnAnalysis: ChurnAnalysis;
   filteredCount: number;
   totalCount: number;
 }
@@ -430,6 +433,9 @@ export function buildExecReport({
     concentration: concentrationRows,
     usageMonth,
     healthDrag: buildHealthDrag(scoped, healthConfig),
+    // All-time by design: churn PATTERNS need the whole history, not one
+    // quarter. The period-scoped churn list lives in `movements`.
+    churnAnalysis: buildChurnAnalysis(scoped, events),
     portfolio,
     newBusiness: movement.newBusiness,
     closingArr: retention.endingArr + movement.newBusiness,
