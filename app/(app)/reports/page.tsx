@@ -206,7 +206,13 @@ export default async function ReportsPage({
               and what the CS category leads with (a ranked account list, not an
               average). */}
           <Section title="What changed" when={`${periodDisplay(period)} · usage ${monthName(r.usageMonth)}`} />
-          <MovementPanel movements={r.movements} currency={currency} period={period} usageMonth={r.usageMonth} />
+          <MovementPanel
+            movements={r.movements}
+            currency={currency}
+            period={period}
+            usageMonth={r.usageMonth}
+            params={sp}
+          />
 
           {/* ============ 3. What do we do next? ============
               The only panel that's forward-looking, and the only one that names

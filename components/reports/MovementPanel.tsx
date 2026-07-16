@@ -1,18 +1,27 @@
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, MoonStar, Sparkles, TrendingDown, XCircle } from "lucide-react";
-import { Card, CardEyebrow } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
 import { Sparkline } from "@/components/ui/Sparkline";
 import type { Movement, MovementKind } from "@/lib/metrics/movement";
 import { formatCurrency } from "@/lib/format";
 import { periodDisplay } from "@/lib/metrics/exec";
 import { cn } from "@/lib/cn";
 
-/* "What changed" — the centre of the page.
-   Replaces the two separate Downgrades and Churn cards. Those split one idea in
-   half and stripped out the leading indicator: an account whose usage collapsed
-   but whose ARR hasn't moved *yet* is the one you can still save, and neither
-   card could show it. Ranked by ARR at stake, because a $181k account sliding is
-   not the same event as a $312 one. */
+/* "What changed" — accounts that moved, in TWO groups.
+
+   The single ranked list mixed realized loss with potential loss: SIAD Holding
+   ACTUALLY churned for −$23.9K, while MEP has not churned and $181.1K is what's
+   exposed if it does. Sorting both by "at stake" put a hypothetical above a
+   fact, and forced one column to mean two things ("−$23.9K ARR" beside "$181.1K
+   at stake") — the same two-scales-in-one-column bug already fixed on the health
+   panel and reintroduced here.
+
+   Splitting by whether revenue has MOVED fixes all three at once: each group's
+   money column has one meaning, the ranking is like-for-like, and sparklines
+   appear only in the group where usage IS the story. On a churned row a
+   sparkline actively misleads — usage history runs past the churn date, so the
+   line rises while the row says "Churned".
+*/
 
 const KIND: Record<MovementKind, { label: string; icon: typeof XCircle; tone: string; dot: string }> = {
   churned: { label: "Churned", icon: XCircle, tone: "text-danger-fg bg-danger-bg", dot: "bg-danger" },
@@ -23,131 +32,229 @@ const KIND: Record<MovementKind, { label: string; icon: typeof XCircle; tone: st
   new: { label: "New business", icon: Sparkles, tone: "text-info-fg bg-info-bg", dot: "bg-info" },
 };
 
-// Revenue first, then leading indicators, then good news — the order a CSM
-// triages in.
-const ORDER: MovementKind[] = ["churned", "downgraded", "usage_dormant", "usage_declined", "expanded", "new"];
+const REVENUE_KINDS: MovementKind[] = ["churned", "downgraded", "expanded", "new"];
+const CHIP_ORDER: MovementKind[] = ["churned", "downgraded", "usage_dormant", "usage_declined", "expanded", "new"];
+
+const DEFAULT_LIMIT = 6;
+
+/** A URL with one `kind` filter toggled — the chips are the obvious way to
+ *  narrow this list, so they behave like it. Built server-side from the live
+ *  params; re-clicking the active chip clears it. */
+function withKind(params: Record<string, string | string[] | undefined>, kind: MovementKind | null): string {
+  const next = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    const val = Array.isArray(v) ? v[0] : v;
+    if (val) next.set(k, val);
+  }
+  const cur = next.get("kind");
+  if (!kind || cur === kind) next.delete("kind");
+  else next.set("kind", kind);
+  const qs = next.toString();
+  return qs ? `/reports?${qs}` : "/reports";
+}
+
+function withExpanded(params: Record<string, string | string[] | undefined>, on: boolean): string {
+  const next = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    const val = Array.isArray(v) ? v[0] : v;
+    if (val) next.set(k, val);
+  }
+  if (on) next.set("all", "1");
+  else next.delete("all");
+  const qs = next.toString();
+  return qs ? `/reports?${qs}` : "/reports";
+}
 
 export function MovementPanel({
   movements,
   currency,
   period,
   usageMonth,
-  limit = 12,
+  params,
 }: {
   movements: Movement[];
   currency: string;
   period: string;
   usageMonth: string;
-  limit?: number;
+  params: Record<string, string | string[] | undefined>;
 }) {
+  const activeKind = (Array.isArray(params.kind) ? params.kind[0] : params.kind) as MovementKind | undefined;
+  const expanded = (Array.isArray(params.all) ? params.all[0] : params.all) === "1";
+
+  // Counts come from the UNFILTERED set so the chips keep offering every route
+  // back out — a chip that vanishes when you click its neighbour is a trap.
   const counts = new Map<MovementKind, number>();
   for (const m of movements) counts.set(m.kind, (counts.get(m.kind) ?? 0) + 1);
-  const shown = movements.slice(0, limit);
-  const hidden = movements.length - shown.length;
+
+  const shown = activeKind ? movements.filter((m) => m.kind === activeKind) : movements;
+  const revenue = shown.filter((m) => REVENUE_KINDS.includes(m.kind));
+  const leading = shown.filter((m) => !REVENUE_KINDS.includes(m.kind));
 
   return (
     <Card>
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <CardEyebrow>Accounts that moved</CardEyebrow>
-          <h3 className="h5">What changed</h3>
-        </div>
+      {/* No <h3> here: the section heading above already says "What changed",
+          and repeating it four pixels below was pure duplication. */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <span className="eyebrow">Accounts that moved</span>
         <div className="flex flex-wrap items-center gap-1.5">
-          {ORDER.filter((k) => counts.get(k)).map((k) => {
+          {CHIP_ORDER.filter((k) => counts.get(k)).map((k) => {
             const K = KIND[k];
+            const on = activeKind === k;
             return (
-              <span
+              <Link
                 key={k}
-                className={cn("inline-flex items-center gap-1.5 rounded-pill px-2 py-1 font-body text-[11px] font-semibold", K.tone)}
+                href={withKind(params, k)}
+                scroll={false}
+                aria-pressed={on}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-pill px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
+                  K.tone,
+                  on ? "ring-2 ring-fg/20" : "opacity-70 hover:opacity-100",
+                )}
               >
                 <span className={cn("size-1.5 rounded-pill", K.dot)} />
                 {counts.get(k)} {K.label.toLowerCase()}
-              </span>
+              </Link>
             );
           })}
+          {activeKind && (
+            <Link
+              href={withKind(params, null)}
+              scroll={false}
+              className="rounded-pill px-2 py-1 font-body text-[11px] font-semibold text-fg-subtle underline-offset-2 hover:text-fg hover:underline"
+            >
+              show all
+            </Link>
+          )}
         </div>
       </div>
 
-      {movements.length === 0 ? (
+      {shown.length === 0 ? (
         <div className="rounded-md bg-bg-subtle px-3 py-6 text-center">
-          <p className="caption">Nothing moved in {periodDisplay(period)} — no churn, no downgrades, no usage slides.</p>
+          <p className="caption">Nothing moved in {periodDisplay(period)}.</p>
         </div>
       ) : (
-        <>
-          <ul className="flex flex-col">
-            {shown.map((m) => {
-              const K = KIND[m.kind];
-              const Icon = K.icon;
-              const declining = m.kind === "churned" || m.kind === "downgraded" || m.kind === "usage_dormant" || m.kind === "usage_declined";
-              return (
-                <li
-                  key={`${m.client.id}-${m.kind}`}
-                  className="flex items-center gap-3 border-b border-border-subtle py-2.5 last:border-0"
-                >
-                  <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", K.tone)}>
-                    <Icon size={14} strokeWidth={2} />
-                  </span>
-
-                  <div className="min-w-0 flex-1">
-                    <Link
-                      href={`/clients/${m.client.id}`}
-                      className="block truncate font-body text-sm font-semibold text-fg transition-colors hover:text-sirius"
-                    >
-                      {m.client.name}
-                    </Link>
-                    <span className="caption block truncate">
-                      {m.note}
-                      {m.client.csm?.name ? ` · ${m.client.csm.name}` : ""}
-                    </span>
-                  </div>
-
-                  {/* min={0} so bar heights are comparable down the column —
-                      self-scaling would make a 3→2 wobble look like a cliff. */}
-                  {m.usage && m.usage.series.length > 1 && (
-                    <Sparkline
-                      data={m.usage.series.map((s) => s.mau)}
-                      min={0}
-                      width={64}
-                      height={22}
-                      color={declining ? "var(--color-danger)" : "var(--color-success)"}
-                      className="hidden shrink-0 sm:block"
-                    />
-                  )}
-
-                  <div className="w-24 shrink-0 text-right">
-                    {m.arrDelta !== 0 ? (
-                      <span
-                        className={cn(
-                          "tabular block font-body text-sm font-semibold",
-                          m.arrDelta > 0 ? "text-success-fg" : "text-danger-fg",
-                        )}
-                      >
-                        {m.arrDelta > 0 ? "+" : "−"}
-                        {formatCurrency(Math.abs(m.arrDelta), currency, { compact: true })}
-                      </span>
-                    ) : (
-                      // Usage moved, revenue hasn't — yet. Showing the ARR at
-                      // stake rather than a "0" makes the exposure legible.
-                      <span className="tabular block font-body text-sm font-semibold text-fg-muted">
-                        {formatCurrency(m.arrAtStake, currency, { compact: true })}
-                      </span>
-                    )}
-                    <span className="caption block">{m.arrDelta !== 0 ? "ARR" : "at stake"}</span>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-          {hidden > 0 && <p className="caption mt-3">+ {hidden} more</p>}
-        </>
+        <div className="flex flex-col gap-5">
+          {revenue.length > 0 && (
+            <Group
+              title="Revenue moved"
+              sub={`booked in ${periodDisplay(period)}`}
+              rows={revenue}
+              currency={currency}
+              expanded={expanded}
+              params={params}
+              money="delta"
+            />
+          )}
+          {leading.length > 0 && (
+            <Group
+              title="Leading indicators"
+              sub={`usage ${monthLabel(usageMonth)} vs the month before · revenue hasn't moved yet`}
+              rows={leading}
+              currency={currency}
+              expanded={expanded}
+              params={params}
+              money="stake"
+            />
+          )}
+        </div>
       )}
-
-      <p className="caption mt-4 border-t border-border-subtle pt-3">
-        Revenue movement is {periodDisplay(period)}, off the ARR ledger — the same source as the waterfall, so the two
-        always agree. Usage movement compares {monthLabel(usageMonth)} against the month before it (usage history is
-        monthly, so it can&apos;t follow a part-quarter).
-      </p>
     </Card>
+  );
+}
+
+function Group({
+  title,
+  sub,
+  rows,
+  currency,
+  expanded,
+  params,
+  money,
+}: {
+  title: string;
+  sub: string;
+  rows: Movement[];
+  currency: string;
+  expanded: boolean;
+  params: Record<string, string | string[] | undefined>;
+  /** Which number this group's column carries — one meaning per column, never
+   *  both. `delta` is money that HAS moved; `stake` is money exposed. */
+  money: "delta" | "stake";
+}) {
+  const visible = expanded ? rows : rows.slice(0, DEFAULT_LIMIT);
+  const hidden = rows.length - visible.length;
+  const fmt = (v: number) => formatCurrency(Math.abs(v), currency, { compact: true });
+
+  return (
+    <div>
+      <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 border-b border-border-subtle pb-1.5">
+        <span className="font-body text-[12.5px] font-semibold text-fg">{title}</span>
+        <span className="caption">{sub}</span>
+        <span className="caption tabular ml-auto">{money === "delta" ? "ARR change" : "ARR at stake"}</span>
+      </div>
+
+      <ul className="flex flex-col">
+        {visible.map((m) => {
+          const K = KIND[m.kind];
+          const Icon = K.icon;
+          return (
+            <li key={`${m.client.id}-${m.kind}`} className="flex items-center gap-3 border-b border-border-subtle py-2.5 last:border-0">
+              <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", K.tone)}>
+                <Icon size={14} strokeWidth={2} />
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <Link
+                  href={`/clients/${m.client.id}`}
+                  className="block truncate font-body text-sm font-semibold text-fg underline-offset-2 transition-colors hover:text-sirius hover:underline"
+                >
+                  {m.client.name}
+                </Link>
+                <span className="caption block truncate">
+                  {m.note}
+                  {m.date && ` · ${m.date}`}
+                  {m.client.csm?.name ? ` · ${m.client.csm.name}` : ""}
+                </span>
+              </div>
+
+              {/* Sparkline ONLY where usage is the story. On a revenue row it
+                  misleads: history runs past the churn date, so the line climbs
+                  while the row says "Churned". */}
+              {money === "stake" && m.usage && m.usage.series.length > 1 && (
+                <Sparkline
+                  data={m.usage.series.map((s) => s.mau)}
+                  min={0}
+                  width={64}
+                  height={22}
+                  color="var(--color-danger)"
+                  className="hidden shrink-0 sm:block"
+                />
+              )}
+
+              <span
+                className={cn(
+                  "tabular w-20 shrink-0 text-right font-body text-sm font-semibold",
+                  money === "delta" ? (m.arrDelta > 0 ? "text-success-fg" : "text-danger-fg") : "text-fg-muted",
+                )}
+              >
+                {money === "delta" ? `${m.arrDelta > 0 ? "+" : "−"}${fmt(m.arrDelta)}` : fmt(m.arrAtStake)}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
+      {(hidden > 0 || expanded) && (
+        <Link
+          href={hidden > 0 ? withExpanded(params, true) : withExpanded(params, false)}
+          scroll={false}
+          className="mt-2 inline-block font-body text-[12px] font-semibold text-sirius underline-offset-2 hover:underline"
+        >
+          {hidden > 0 ? `Show ${hidden} more` : "Show fewer"}
+        </Link>
+      )}
+    </div>
   );
 }
 

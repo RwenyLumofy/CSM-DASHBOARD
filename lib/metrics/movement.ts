@@ -73,9 +73,12 @@ const FLAT_BAND = 0.1;
  *  this month, "down 50%" is arithmetically true and analytically worthless —
  *  one person took leave. Below this floor an account can still go `dormant`
  *  (a real, actionable state), but it is never surfaced as a *declining* one,
- *  which is what stops the movement list filling up with two-user accounts
- *  wobbling by one login. */
-const MIN_BASE_FOR_PCT = 5;
+ *  which is what stops the list filling with tiny accounts wobbling by one login.
+ *
+ *  Raised 5 → 10 after reading real output: "Amakin — usage down 50%, 6 → 3"
+ *  cleared a floor of 5 and ranked above real signals on $15.9K of ARR. Three
+ *  people becoming two is not a trend, however true the percentage is. */
+const MIN_BASE_FOR_PCT = 10;
 
 export function usageMovementByClient(
   rows: UsageMonthRow[],
