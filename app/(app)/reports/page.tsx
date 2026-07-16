@@ -13,9 +13,9 @@ import {
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardEyebrow } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { LineChart } from "@/components/ui/charts";
 import { Donut } from "@/components/ui/charts";
 import { ReportControls } from "@/components/reports/ReportControls";
+import { RetentionTrend } from "@/components/reports/RetentionTrend";
 import { RevenueWaterfall } from "@/components/reports/RevenueWaterfall";
 import { getExecutiveReport } from "@/lib/data";
 import {
@@ -54,8 +54,6 @@ export default async function ReportsPage({
   const logoRet = cur.logoCount ? ((cur.logoCount - cur.logoChurnCount) / cur.logoCount) * 100 : 0;
   const prevLogoRet = prev.logoCount ? ((prev.logoCount - prev.logoChurnCount) / prev.logoCount) * 100 : 0;
 
-  const trendKeys = r.trend.map((t) => t.period);
-  const labelFor = (k: string) => periodDisplay(k);
   const noData = cur.startingArr === 0 && cur.endingArr === 0 && r.filteredCount === 0;
 
   return (
@@ -155,16 +153,9 @@ export default async function ReportsPage({
             <Card>
               <CardEyebrow>Trend · last {r.trend.length} periods</CardEyebrow>
               <h3 className="h5 mb-4">Retention over time</h3>
-              <LineChart
-                months={trendKeys}
-                formatShort={labelFor}
-                formatLong={labelFor}
-                height={188}
-                series={[
-                  { label: "NRR %", color: "var(--color-sirius)", points: r.trend.map((t) => ({ month: t.period, value: t.nrr })) },
-                  { label: "GRR %", color: "var(--color-success)", points: r.trend.map((t) => ({ month: t.period, value: t.grr })) },
-                ]}
-              />
+              {/* Plain serializable rows only — the formatter functions live
+                  inside RetentionTrend, on the client. */}
+              <RetentionTrend trend={r.trend.map((t) => ({ period: t.period, nrr: t.nrr, grr: t.grr }))} />
               <div className="mt-4 grid grid-cols-3 gap-3 border-t border-border-subtle pt-4">
                 <MiniStat label="Expansion" value={formatCurrency(cur.expansion, currency, { compact: true })} tone="good" />
                 <MiniStat label="Contraction" value={formatCurrency(cur.contraction, currency, { compact: true })} tone="warn" />
