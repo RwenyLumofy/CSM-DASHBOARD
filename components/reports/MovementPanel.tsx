@@ -7,26 +7,28 @@ import { formatCurrency } from "@/lib/format";
 import { periodDisplay } from "@/lib/metrics/exec";
 import { cn } from "@/lib/cn";
 
-/* "What changed" — accounts that moved, in TWO groups.
+/* "What changed" — one ranked list of accounts that moved.
 
-   WHY TWO GROUPS AT ALL (the rationale, since it keeps getting questioned):
-   not taxonomy for its own sake — the MONEY COLUMN MEANS DIFFERENT THINGS.
-   SIAD Holding actually churned for −$23.9K; MEP has not churned and $181.1K is
-   what's exposed if it does. One list forced that column to carry both
-   ("−$23.9K ARR" beside "$181.1K at stake", disambiguated only by a sublabel)
-   and ranked a hypothetical above a fact. The split is what lets each column
-   have one meaning, keeps the ranking like-for-like, and confines sparklines to
-   the group where usage IS the story (on a churned row a sparkline misleads —
-   history runs past the churn date, so the line climbs while the row says
-   "Churned").
+   IT WAS TWO SECTIONS, and the reason was real but the fix was wrong. A single
+   money column can't carry both "−$23.9K lost" and "$181.1K at risk" under one
+   header — those are different quantities, and a column header can only name
+   one. I split the list to give each its own column.
 
-   ONE CONCEPT, ONE PLACE. An audit found the taxonomy stated three times: a
-   chip row naming the groups, section headers naming them again, and a card
-   eyebrow ("Accounts that moved") restating the heading above the card. The
-   chips now live INSIDE the header of the group they belong to — the title is
-   the group filter, its chips are the kind filters within it. Nothing names a
-   group twice, and the clock/column label sit with the rows they govern rather
-   than being hoisted into a heading that spans both.
+   But the ambiguity lives in the COLUMN, not the list: put the qualifier on the
+   ROW ("−$23.9K lost" / "$181.1K at risk") and one list is unambiguous, because
+   each row says what its own number means. Two sections was a structural answer
+   to a labelling problem, and it cost the reader a second thing to parse before
+   reading any account.
+
+   The other argument for splitting — that ranking a hypothetical above a fact
+   would offend a CFO — doesn't survive either. SIAD Holding already churned;
+   there is nothing to do about it. MEP is $181K you can still save. For a
+   worklist, ranking by money involved is right, and "already gone" vs "still
+   savable" is exactly what the row's kind badge says.
+
+   What the split DID get right is kept: sparklines appear only on usage rows.
+   On a churned row a sparkline misleads — history runs past the churn date, so
+   the line climbs while the row says "Churned".
 */
 
 /* Definitions are transcribed from the rules in lib/metrics/movement.ts, not
@@ -171,110 +173,34 @@ export function MovementPanel({
 
   return (
     <Card>
-      {shown.length === 0 ? (
-        <div className="rounded-md bg-bg-subtle px-3 py-6 text-center">
-          <p className="caption">
-            Nothing matches that filter in {periodDisplay(period)}.{" "}
-            <Link href={withKind(params, null)} scroll={false} className="font-semibold text-sirius hover:underline">
-              Show all
-            </Link>
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-6">
-          {GROUPS.map((g) => {
-            const rows = shown.filter((m) => g.kinds.includes(m.kind));
-            // A group with no rows AND no selection has nothing to say. But if
-            // it's hidden BY a selection, its header stays as the way back.
-            if (!rows.length && !(sel && !g.kinds.includes(sel as MovementKind))) return null;
-            if (!rows.length) return null;
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {GROUPS.filter((g) => groupCount(g.key) > 0).map((g) => {
+            const on = sel === g.key;
             return (
-              <Group
+              <Link
                 key={g.key}
-                group={g}
-                sub={g.key === "revenue" ? `booked in ${periodDisplay(period)}` : `usage ${monthLabel(usageMonth)} vs the month before · revenue hasn't moved yet`}
-                rows={rows}
-                counts={counts}
-                total={groupCount(g.key)}
-                sel={sel}
-                currency={currency}
-                expanded={expanded}
-                params={params}
-                money={g.key === "revenue" ? "delta" : "stake"}
-              />
+                href={withKind(params, g.key)}
+                scroll={false}
+                aria-pressed={on}
+                className={cn(
+                  "group relative inline-flex items-center gap-1.5 rounded-pill border px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
+                  on
+                    ? "border-fg/25 bg-bg-inverse text-bg ring-2 ring-fg/15"
+                    : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+                )}
+              >
+                {groupCount(g.key)} {g.label.toLowerCase()}
+                <Tip>
+                  <strong className="font-semibold text-fg">{g.label}</strong> — {g.def}
+                </Tip>
+              </Link>
             );
           })}
-          {sel && (
-            <Link
-              href={withKind(params, null)}
-              scroll={false}
-              className="font-body text-[12px] font-semibold text-fg-subtle underline-offset-2 hover:text-fg hover:underline"
-            >
-              ← Show everything that moved
-            </Link>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
 
-function Group({
-  group,
-  sub,
-  rows,
-  counts,
-  total,
-  sel,
-  currency,
-  expanded,
-  params,
-  money,
-}: {
-  group: (typeof GROUPS)[number];
-  sub: string;
-  rows: Movement[];
-  counts: Map<MovementKind, number>;
-  total: number;
-  sel: string | undefined;
-  currency: string;
-  expanded: boolean;
-  params: Record<string, string | string[] | undefined>;
-  /** Which number this group's column carries — one meaning per column, never
-   *  both. `delta` is money that HAS moved; `stake` is money exposed. */
-  money: "delta" | "stake";
-}) {
-  const visible = expanded ? rows : rows.slice(0, DEFAULT_LIMIT);
-  const hidden = rows.length - visible.length;
-  const fmt = (v: number) => formatCurrency(Math.abs(v), currency, { compact: true });
-  const groupOn = sel === group.key;
+          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
 
-  return (
-    <div>
-      {/* The header IS the group filter, and carries its own kind chips. One
-          concept, one place: the title names the group once, the clock and the
-          column label sit with the rows they actually govern. */}
-      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1.5 border-b border-border-subtle pb-2">
-        <Link
-          href={withKind(params, group.key)}
-          scroll={false}
-          aria-pressed={groupOn}
-          className={cn(
-            "group relative rounded-sm font-body text-[13px] font-semibold underline-offset-4 transition-colors duration-[140ms]",
-            groupOn ? "text-sirius underline" : "text-fg hover:text-sirius hover:underline",
-          )}
-        >
-          {group.label}
-          <span className="tabular ml-1.5 font-normal text-fg-subtle">{total}</span>
-          <Tip>
-            <strong className="font-semibold text-fg">{group.label}</strong> — {group.def}
-          </Tip>
-        </Link>
-
-        <span className="caption">{sub}</span>
-
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          {group.kinds.filter((k) => counts.get(k)).map((k) => {
+          {(Object.keys(KIND) as MovementKind[]).filter((k) => counts.get(k)).map((k) => {
             const K = KIND[k];
             const on = sel === k;
             return (
@@ -284,7 +210,7 @@ function Group({
                 scroll={false}
                 aria-pressed={on}
                 className={cn(
-                  "group relative inline-flex items-center gap-1.5 rounded-pill px-2 py-0.5 font-body text-[11px] font-semibold transition-all duration-[140ms]",
+                  "group relative inline-flex items-center gap-1.5 rounded-pill px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
                   K.tone,
                   on ? "ring-2 ring-fg/20" : "opacity-70 hover:opacity-100",
                 )}
@@ -297,68 +223,115 @@ function Group({
               </Link>
             );
           })}
-          <span className="caption tabular ml-1">{money === "delta" ? "ARR change" : "ARR at stake"}</span>
+
+          {sel && (
+            <Link
+              href={withKind(params, null)}
+              scroll={false}
+              className="rounded-pill px-2 py-1 font-body text-[11px] font-semibold text-fg-subtle underline-offset-2 hover:text-fg hover:underline"
+            >
+              show all
+            </Link>
+          )}
         </div>
+
+        {/* The column has no header: each row names its own quantity, because
+            "lost" and "at risk" can't share one. */}
+        <span className="caption tabular ml-auto">ranked by ARR involved</span>
       </div>
 
-      <ul className="flex flex-col">
-        {visible.map((m) => {
-          const K = KIND[m.kind];
-          const Icon = K.icon;
-          return (
-            <li key={`${m.client.id}-${m.kind}`} className="flex items-center gap-3 border-b border-border-subtle py-2.5 last:border-0">
-              <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", K.tone)}>
-                <Icon size={14} strokeWidth={2} />
-              </span>
-
-              <div className="min-w-0 flex-1">
-                <Link
-                  href={`/clients/${m.client.id}`}
-                  className="block truncate font-body text-sm font-semibold text-fg underline-offset-2 transition-colors hover:text-sirius hover:underline"
-                >
-                  {m.client.name}
-                </Link>
-                <span className="caption block truncate">
-                  {m.note}
-                  {m.date && ` · ${m.date}`}
-                  {m.client.csm?.name ? ` · ${m.client.csm.name}` : ""}
-                </span>
-              </div>
-
-              {money === "stake" && m.usage && m.usage.series.length > 1 && (
-                <Sparkline
-                  data={m.usage.series.map((s) => s.mau)}
-                  min={0}
-                  width={64}
-                  height={22}
-                  color="var(--color-danger)"
-                  className="hidden shrink-0 sm:block"
-                />
-              )}
-
-              <span
-                className={cn(
-                  "tabular w-20 shrink-0 text-right font-body text-sm font-semibold",
-                  money === "delta" ? (m.arrDelta > 0 ? "text-success-fg" : "text-danger-fg") : "text-fg-muted",
-                )}
-              >
-                {money === "delta" ? `${m.arrDelta > 0 ? "+" : "−"}${fmt(m.arrDelta)}` : fmt(m.arrAtStake)}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-
-      {(hidden > 0 || (expanded && rows.length > DEFAULT_LIMIT)) && (
-        <Link
-          href={hidden > 0 ? withExpanded(params, true) : withExpanded(params, false)}
-          scroll={false}
-          className="mt-2 inline-block font-body text-[12px] font-semibold text-sirius underline-offset-2 hover:underline"
-        >
-          {hidden > 0 ? `Show ${hidden} more` : "Show fewer"}
-        </Link>
+      {shown.length === 0 ? (
+        <div className="rounded-md bg-bg-subtle px-3 py-6 text-center">
+          <p className="caption">
+            Nothing matches that filter in {periodDisplay(period)}.{" "}
+            <Link href={withKind(params, null)} scroll={false} className="font-semibold text-sirius hover:underline">
+              Show all
+            </Link>
+          </p>
+        </div>
+      ) : (
+        <>
+          <ul className="flex flex-col">
+            {(expanded ? shown : shown.slice(0, DEFAULT_LIMIT)).map((m) => (
+              <Row key={`${m.client.id}-${m.kind}`} m={m} currency={currency} />
+            ))}
+          </ul>
+          {shown.length > DEFAULT_LIMIT && (
+            <Link
+              href={withExpanded(params, !expanded)}
+              scroll={false}
+              className="mt-2 inline-block font-body text-[12px] font-semibold text-sirius underline-offset-2 hover:underline"
+            >
+              {expanded ? "Show fewer" : `Show ${shown.length - DEFAULT_LIMIT} more`}
+            </Link>
+          )}
+        </>
       )}
-    </div>
+
+      <p className="caption mt-4 border-t border-border-subtle pt-3">
+        Revenue movement is {periodDisplay(period)}, off the ARR ledger — the same source as the waterfall. Usage
+        compares {monthLabel(usageMonth)} against the month before (usage history is monthly, so it can&apos;t follow a
+        part-quarter).
+      </p>
+    </Card>
+  );
+}
+
+function Row({ m, currency }: { m: Movement; currency: string }) {
+  const K = KIND[m.kind];
+  const Icon = K.icon;
+  const fmt = (v: number) => formatCurrency(Math.abs(v), currency, { compact: true });
+  // Realized money is signed and coloured; exposed money is neither — it hasn't
+  // moved. The word is what disambiguates, per row, which is what a shared
+  // column header could never do.
+  const realized = m.arrDelta !== 0;
+
+  return (
+    <li className="flex items-center gap-3 border-b border-border-subtle py-2.5 last:border-0">
+      <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", K.tone)}>
+        <Icon size={14} strokeWidth={2} />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <Link
+          href={`/clients/${m.client.id}`}
+          className="block truncate font-body text-sm font-semibold text-fg underline-offset-2 transition-colors hover:text-sirius hover:underline"
+        >
+          {m.client.name}
+        </Link>
+        <span className="caption block truncate">
+          {m.note}
+          {m.date && ` · ${m.date}`}
+          {m.client.csm?.name ? ` · ${m.client.csm.name}` : ""}
+        </span>
+      </div>
+
+      {/* Sparkline only where usage IS the story. On a churned row it misleads:
+          history runs past the churn date, so the line climbs while the row
+          says "Churned". */}
+      {!realized && m.usage && m.usage.series.length > 1 && (
+        <Sparkline
+          data={m.usage.series.map((s) => s.mau)}
+          min={0}
+          width={64}
+          height={22}
+          color="var(--color-danger)"
+          className="hidden shrink-0 sm:block"
+        />
+      )}
+
+      <div className="w-24 shrink-0 text-right">
+        <span
+          className={cn(
+            "tabular block font-body text-sm font-semibold",
+            realized ? (m.arrDelta > 0 ? "text-success-fg" : "text-danger-fg") : "text-fg",
+          )}
+        >
+          {realized ? `${m.arrDelta > 0 ? "+" : "−"}${fmt(m.arrDelta)}` : fmt(m.arrAtStake)}
+        </span>
+        <span className="caption block">{realized ? (m.arrDelta > 0 ? "added" : "lost") : "at risk"}</span>
+      </div>
+    </li>
   );
 }
 
