@@ -101,6 +101,19 @@ export interface UsageSnapshot {
   score: AdoptionScore;
 }
 
+/** A persisted snapshot row keyed back to its client, for portfolio-wide
+ *  rollups (getAllUsageSnapshotsFromDb). Carries only what an aggregate needs —
+ *  `trends`/`learning` are the heavy JSONB blobs and are left on the table. */
+export interface UsageSnapshotRecord {
+  clientId: string;
+  environmentId: string;
+  region: "aws" | "ksa";
+  metrics: UsageSnapshotRow;
+  score: AdoptionScore;
+  fetchedAt: string; // ISO
+  syncError: string | null;
+}
+
 /** When the account can't (yet) be shown live. */
 export interface UsageUnavailable {
   status: "unlinked" | "not_configured" | "error";

@@ -31,7 +31,7 @@ import { getClientHealthConfig } from "@/lib/assignment/config";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { normalizeStakeholderMappings } from "@/lib/stakeholders";
-import type { UsageSnapshot } from "@/lib/usage/types";
+import type { UsageSnapshot, UsageSnapshotRecord } from "@/lib/usage/types";
 
 type Row = typeof schema.clients.$inferSelect;
 type EventRow = typeof schema.arrEvents.$inferSelect;
@@ -1898,6 +1898,31 @@ export async function getClientUsageSnapshotFromDb(clientId: string): Promise<Us
     learning: row.learning,
     score: row.score,
   };
+}
+
+/** One row per client, for portfolio-wide usage rollups.
+ *
+ *  Deliberately NOT reusing getClientUsageSnapshotFromDb in a loop: that's one
+ *  round-trip per account, and the Insights page needs the whole book at once.
+ *  Returns the cached Metabase snapshot only — it never triggers a live fetch,
+ *  so a rollup can't fan out 50+ Metabase queries on a page render. Accounts
+ *  that have never synced simply have no row.
+ *
+ *  `syncError` rows are returned rather than dropped so callers can distinguish
+ *  "no usage" from "usage is broken" — they mean very different things to a CSM.
+ */
+export async function getAllUsageSnapshotsFromDb(): Promise<UsageSnapshotRecord[]> {
+  const db = getDb();
+  const rows = await db.select().from(schema.clientUsageSnapshots);
+  return rows.map((r) => ({
+    clientId: r.clientId,
+    environmentId: r.environmentId,
+    region: r.region as "aws" | "ksa",
+    metrics: r.metrics,
+    score: r.score,
+    fetchedAt: r.fetchedAt.toISOString(),
+    syncError: r.syncError,
+  }));
 }
 
 /** Persist a freshly-fetched usage snapshot (clears any prior sync_error). */

@@ -15,10 +15,17 @@
 
 import { useCallback, useMemo, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, Loader2, RotateCcw, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, GitCompareArrows, Loader2, RotateCcw, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { shiftPeriod } from "@/lib/metrics/arr";
-import { periodDisplay, periodGrain, type FilterOptions } from "@/lib/metrics/exec";
+import {
+  COMPARE_MODES,
+  comparisonPeriod,
+  periodDisplay,
+  periodGrain,
+  type CompareMode,
+  type FilterOptions,
+} from "@/lib/metrics/exec";
 
 const GRAINS = [
   { key: "month", label: "Month" },
@@ -53,11 +60,13 @@ const SELECTS: { key: keyof FilterOptions; label: string; width?: string }[] = [
 
 export function ReportControls({
   period,
+  compare,
   options,
   filteredCount,
   totalCount,
 }: {
   period: string;
+  compare: CompareMode;
   options: FilterOptions;
   filteredCount: number;
   totalCount: number;
@@ -126,6 +135,29 @@ export function ReportControls({
             </button>
           ))}
         </div>
+
+        {/* compare-to. The resulting period is spelled out rather than left as
+            "Previous period", so a reader always knows exactly what the deltas
+            on the KPI tiles are measured against. */}
+        <label className="relative inline-flex items-center">
+          <span className="sr-only">Compare against</span>
+          <GitCompareArrows size={13} strokeWidth={2} aria-hidden className="pointer-events-none absolute left-2.5 text-fg-subtle" />
+          <select
+            value={compare}
+            onChange={(e) => setParam("compare", e.target.value === "prev" ? "" : e.target.value)}
+            className="h-[31px] cursor-pointer appearance-none rounded-sm border border-border bg-surface pl-7 pr-7 font-body text-[12.5px] font-semibold text-fg-muted transition-colors hover:border-border-strong hover:text-fg"
+          >
+            {COMPARE_MODES.map((m) => {
+              const target = comparisonPeriod(period, m.value);
+              return (
+                <option key={m.value} value={m.value}>
+                  vs {target ? periodDisplay(target) : "nothing"}
+                </option>
+              );
+            })}
+          </select>
+          <ChevronRight size={12} strokeWidth={2.5} aria-hidden className="pointer-events-none absolute right-2 rotate-90 text-fg-subtle" />
+        </label>
 
         <div className="ml-auto flex items-center gap-2">
           {pending && <Loader2 size={14} className="animate-spin text-fg-subtle" aria-hidden />}

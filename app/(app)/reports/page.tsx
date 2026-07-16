@@ -17,9 +17,11 @@ import { Donut } from "@/components/ui/charts";
 import { ReportControls } from "@/components/reports/ReportControls";
 import { RetentionTrend } from "@/components/reports/RetentionTrend";
 import { RevenueWaterfall } from "@/components/reports/RevenueWaterfall";
+import { UsagePanel } from "@/components/reports/UsagePanel";
 import { getExecutiveReport } from "@/lib/data";
 import {
   defaultExecPeriod,
+  parseCompare,
   parseFilters,
   periodDisplay,
   periodInProgress,
@@ -28,7 +30,7 @@ import {
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
-export const metadata = { title: "Executive · Lumofy Signals" };
+export const metadata = { title: "Insights · Lumofy Signals" };
 
 /** Period + every filter is read from the URL, so a filtered view is a link an
  *  exec can paste into a board pack and re-open unchanged next quarter. */
@@ -43,16 +45,28 @@ export default async function ReportsPage({
   // a 16-day-old quarter showed a flat, empty report.
   const period = periodRaw || defaultExecPeriod();
   const filters = parseFilters(sp);
+  const compare = parseCompare(sp.compare);
   const inProgress = periodInProgress(period);
   const progress = inProgress ? periodProgress(period) : null;
 
-  const r = await getExecutiveReport({ period, filters, trendLength: 6 });
+  const r = await getExecutiveReport({ period, filters, trendLength: 6, compare });
   const { retention: cur, previous: prev, portfolio, currency } = r;
 
-  const grossChurnPct = cur.startingArr ? ((cur.churn + cur.contraction) / cur.startingArr) * 100 : 0;
-  const prevGrossChurnPct = prev.startingArr ? ((prev.churn + prev.contraction) / prev.startingArr) * 100 : 0;
+  // Deltas are only meaningful when a comparison period exists (compare="none"
+  // → prev is null → every tile renders without a delta chip).
+  const pctOf = (part: number, whole: number) => (whole ? (part / whole) * 100 : 0);
+  const grossChurnPct = pctOf(cur.churn + cur.contraction, cur.startingArr);
   const logoRet = cur.logoCount ? ((cur.logoCount - cur.logoChurnCount) / cur.logoCount) * 100 : 0;
-  const prevLogoRet = prev.logoCount ? ((prev.logoCount - prev.logoChurnCount) / prev.logoCount) * 100 : 0;
+  const d = prev
+    ? {
+        nrr: cur.nrr - prev.nrr,
+        grr: cur.grr - prev.grr,
+        churn: grossChurnPct - pctOf(prev.churn + prev.contraction, prev.startingArr),
+        logo:
+          logoRet - (prev.logoCount ? ((prev.logoCount - prev.logoChurnCount) / prev.logoCount) * 100 : 0),
+      }
+    : null;
+  const vs = r.comparison.period ? `vs ${periodDisplay(r.comparison.period)}` : undefined;
 
   const noData = cur.startingArr === 0 && cur.endingArr === 0 && r.filteredCount === 0;
 
@@ -60,12 +74,13 @@ export default async function ReportsPage({
     <div className="flex flex-col gap-6 p-5 md:p-8">
       <PageHeader
         eyebrow={`Portfolio · ${periodDisplay(period)}`}
-        title="Executive report"
-        description="Retention, revenue movement, and portfolio health across the ARR base — filterable, and shareable as a link."
+        title="Insights"
+        description="Retention, revenue movement, product usage, and portfolio health across the ARR base — filterable, comparable, and shareable as a link."
       />
 
       <ReportControls
         period={period}
+        compare={compare}
         options={r.options}
         filteredCount={r.filteredCount}
         totalCount={r.totalCount}
@@ -92,7 +107,8 @@ export default async function ReportsPage({
             <Kpi
               label="Net revenue retention"
               value={`${cur.nrr}%`}
-              delta={cur.nrr - prev.nrr}
+              delta={d?.nrr}
+              vs={vs}
               unit="pp"
               tone={cur.nrr >= 100 ? "good" : "bad"}
               icon={cur.nrr >= 100 ? TrendingUp : TrendingDown}
@@ -101,7 +117,8 @@ export default async function ReportsPage({
             <Kpi
               label="Gross revenue retention"
               value={`${cur.grr}%`}
-              delta={cur.grr - prev.grr}
+              delta={d?.grr}
+              vs={vs}
               unit="pp"
               tone={cur.grr >= 90 ? "good" : "warn"}
               sub="excl. expansion"
@@ -109,7 +126,8 @@ export default async function ReportsPage({
             <Kpi
               label="Gross ARR churn"
               value={`${grossChurnPct.toFixed(1)}%`}
-              delta={grossChurnPct - prevGrossChurnPct}
+              delta={d?.churn}
+              vs={vs}
               unit="pp"
               invert
               tone={grossChurnPct > 5 ? "bad" : "good"}
@@ -118,7 +136,8 @@ export default async function ReportsPage({
             <Kpi
               label="Logo retention"
               value={`${logoRet.toFixed(1)}%`}
-              delta={logoRet - prevLogoRet}
+              delta={d?.logo}
+              vs={vs}
               unit="pp"
               tone={logoRet >= 90 ? "good" : "warn"}
               sub={`${cur.logoChurnCount} of ${cur.logoCount} churned`}
@@ -163,6 +182,9 @@ export default async function ReportsPage({
               </div>
             </Card>
           </div>
+
+          {/* ---------------- product usage ---------------- */}
+          <UsagePanel usage={r.usage} />
 
           {/* ---------------- portfolio health ---------------- */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.4fr]">
@@ -279,6 +301,7 @@ function Kpi({
   value,
   sub,
   delta,
+  vs,
   unit = "",
   tone = "neutral",
   invert = false,
@@ -287,7 +310,10 @@ function Kpi({
   label: string;
   value: string;
   sub?: string;
+  /** Undefined = no comparison selected; the delta chip is omitted entirely. */
   delta?: number;
+  /** Spelled-out comparison target for the chip's tooltip, e.g. "vs Q1 2026". */
+  vs?: string;
   unit?: string;
   tone?: Tone;
   invert?: boolean;
@@ -316,7 +342,7 @@ function Kpi({
               "tabular mb-1 inline-flex items-center gap-0.5 rounded-pill px-1.5 py-0.5 text-[11px] font-semibold",
               flat ? "bg-bg-muted text-fg-subtle" : positive ? "bg-success-bg text-success-fg" : "bg-danger-bg text-danger-fg",
             )}
-            title={`vs previous period`}
+            title={vs ?? "vs comparison period"}
           >
             <DeltaIcon size={11} strokeWidth={2.5} aria-hidden />
             {flat ? "flat" : `${Math.abs(d).toFixed(1)}${unit}`}

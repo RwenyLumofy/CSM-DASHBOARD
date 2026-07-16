@@ -26,6 +26,7 @@ import type {
   RetentionMetrics,
   TimelineEvent,
 } from "@/lib/types";
+import type { UsageSnapshotRecord } from "@/lib/usage/types";
 import {
   SAMPLE_PLAYBOOKS,
   sampleAppendArrEvent,
@@ -39,6 +40,7 @@ import { currentQuarter, withRunningBalance } from "@/lib/metrics/arr";
 import {
   buildExecReport,
   buildFilterOptions,
+  type CompareMode,
   type ExecFilters,
   type ExecReport,
   type FilterOptions,
@@ -59,6 +61,7 @@ import {
   getDealsByClient,
   getEmailsByClient,
   getMeetingsByClient,
+  getAllUsageSnapshotsFromDb,
   importClientsDb,
 } from "@/lib/repo/drizzle";
 
@@ -208,17 +211,41 @@ export async function getExecutiveReport(opts: {
   period?: string;
   filters?: ExecFilters;
   trendLength?: number;
+  compare?: CompareMode;
 }): Promise<ExecReport & { options: FilterOptions }> {
   const { clients, arrEvents } = await source();
+  const usageSnapshots = await usageSnapshotCache();
   const report = buildExecReport({
     clients,
     arrEvents,
     period: opts.period ?? currentQuarter(),
     filters: opts.filters ?? {},
     trendLength: opts.trendLength,
+    compare: opts.compare,
+    usageSnapshots,
   });
   return { ...report, options: buildFilterOptions(clients) };
 }
+
+/**
+ * All persisted Metabase usage snapshots, request-memoized like source().
+ *
+ * Kept OUT of loadSource() on purpose: every page in the app pays for
+ * loadSource, and only Insights needs the usage table. A failure here must
+ * degrade the usage panel, never take down the ARR report next to it — so it
+ * swallows and returns [], which buildUsageRollup reports as "unlinked".
+ */
+const usageSnapshotCache = cache(async (): Promise<UsageSnapshotRecord[]> => {
+  if (!hasDatabase() || !dbHealthy()) return [];
+  try {
+    const rows = await withDbTimeout(getAllUsageSnapshotsFromDb());
+    markDbHealthy();
+    return rows;
+  } catch (err) {
+    console.warn("[data] usage snapshot read failed:", err);
+    return [];
+  }
+});
 
 /* ---------- ARR ledger / contacts / attachments (per client) ----------- */
 
