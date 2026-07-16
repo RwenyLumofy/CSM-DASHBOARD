@@ -4,16 +4,15 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   CalendarClock,
+  HeartPulse,
   Minus,
   TrendingDown,
   TrendingUp,
   Wallet,
 } from "lucide-react";
 import { Card, CardEyebrow } from "@/components/ui/Card";
-import { Donut } from "@/components/ui/charts";
 import { AtRiskPanel } from "@/components/reports/AtRiskPanel";
 import { Headline } from "@/components/reports/Headline";
-import { HealthDragPanel } from "@/components/reports/HealthDragPanel";
 import { ConcentrationPanel } from "@/components/reports/ConcentrationPanel";
 import { MovementPanel } from "@/components/reports/MovementPanel";
 import { PeriodControls } from "@/components/reports/PeriodControls";
@@ -219,49 +218,41 @@ export default async function ReportsPage({
               Questions a board MIGHT ask, not ones it will. Demoted below the
               answer, and labelled point-in-time — these don't move with the
               period selector. */}
+          {/* ============ 4. Context ============
+              Health lives on its own subpage now — a board asks whether health
+              is MOVING, not why it's 67, and the decomposition is a one-time
+              diagnostic about the scoring config, not a permanent fixture. */}
           <Section title="The shape of the book" when="as of today · follows your filters" />
-
-          {/* Health, decomposed. The donut says WHAT the split is; this says
-              WHY — and separates real customer signal from our own unfilled
-              fields, which is ~a third of the deficit. */}
-          <HealthDragPanel drag={r.healthDrag} />
-
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.15fr]">
-            <div className="flex flex-col gap-5">
-              <div className="grid grid-cols-2 gap-4">
-                <Kpi
-                  label="Total ARR"
-                  value={formatCurrency(portfolio.totalArr, currency, { compact: true })}
-                  icon={Wallet}
-                  tone="accent"
-                  sub={`${portfolio.totalClients} active accounts`}
-                />
-                <Kpi
-                  label="Up for renewal"
-                  value={formatCurrency(portfolio.arrUpForRenewal90d, currency, { compact: true })}
-                  icon={CalendarClock}
-                  tone={portfolio.renewalsNext90d > 0 ? "warn" : "neutral"}
-                  sub={`${portfolio.renewalsNext90d} accounts · next 90 days`}
-                />
-              </div>
-              <Card>
-                <CardEyebrow>Portfolio</CardEyebrow>
-                <h3 className="h5 mb-4">Health distribution</h3>
-                <Donut
-                  size={124}
-                  centerLabel={String(portfolio.avgHealth)}
-                  centerSub="avg score"
-                  segments={[
-                    { label: "Healthy", value: r.healthSplit.healthy, color: "var(--color-success)" },
-                    { label: "Watch", value: r.healthSplit.watch, color: "var(--color-warning)" },
-                    { label: "At risk", value: r.healthSplit.atRisk, color: "var(--color-danger)" },
-                  ]}
-                />
-                <p className="caption mt-4 border-t border-border-subtle pt-3">
-                  Point-in-time. Health is overwritten on each recompute, so there is no history behind this yet —
-                  unlike usage, it can&apos;t show movement.
-                </p>
-              </Card>
+            <div className="grid h-fit grid-cols-2 gap-4">
+              <Kpi
+                label="Total ARR"
+                value={formatCurrency(portfolio.totalArr, currency, { compact: true })}
+                icon={Wallet}
+                tone="accent"
+                sub={`${portfolio.totalClients} active accounts`}
+              />
+              <Kpi
+                label="Up for renewal"
+                value={formatCurrency(portfolio.arrUpForRenewal90d, currency, { compact: true })}
+                icon={CalendarClock}
+                tone={portfolio.renewalsNext90d > 0 ? "warn" : "neutral"}
+                sub={`${portfolio.renewalsNext90d} accounts · next 90 days`}
+              />
+              <Kpi
+                label="Average health"
+                value={String(portfolio.avgHealth)}
+                icon={HeartPulse}
+                tone={portfolio.avgHealth >= 75 ? "good" : portfolio.avgHealth >= 55 ? "warn" : "bad"}
+                sub={`${r.healthSplit.atRisk} at risk · see Health`}
+              />
+              <Kpi
+                label="Open tickets"
+                value={String(portfolio.openTickets)}
+                icon={AlertTriangle}
+                tone={portfolio.openTickets > 20 ? "warn" : "neutral"}
+                sub="across the filtered book"
+              />
             </div>
 
             <ConcentrationPanel
@@ -271,6 +262,7 @@ export default async function ReportsPage({
               currency={currency}
             />
           </div>
+
         </>
       )}
     </div>

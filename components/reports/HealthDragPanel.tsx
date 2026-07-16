@@ -74,33 +74,47 @@ export function HealthDragPanel({ drag }: { drag: HealthDrag }) {
         </div>
       )}
 
-      {/* ranked drags */}
-      <ul className="flex flex-col gap-2.5">
+      {/* Ranked drags.
+          Two lines per metric, not one. The first cut crammed name + bar + drag
+          + score into a single row: names truncated ("Stakeholder ma…",
+          "Breached SLA ti…") and — worse — the BAR encoded drag (longer = worse)
+          while the number beside it encoded score (higher = better), so a row
+          read "long red bar … 51/100" and the eye had to reconcile two opposite
+          scales. The bar and the headline number now both mean COST; the score
+          and coverage are context underneath, in words. */}
+      <ul className="flex flex-col gap-3">
         {drag.metrics.map((m) => {
           const c = KIND_COLOR[m.kind];
           return (
-            <li key={m.key} className="flex items-center gap-3">
-              <span className="w-[104px] shrink-0 truncate font-body text-[12.5px] font-semibold text-fg" title={m.label}>
-                {m.label}
-              </span>
-
-              <div className="flex-1">
-                <div className="h-2.5 overflow-hidden rounded-pill bg-bg-muted">
-                  <div
-                    className="h-full rounded-pill transition-all duration-[220ms]"
-                    style={{ width: `${Math.max(2, (m.drag / maxDrag) * 100)}%`, background: c.bar }}
-                  />
-                </div>
+            <li key={m.key} className="flex flex-col gap-1.5">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="font-body text-[13px] font-semibold text-fg">{m.label}</span>
+                <span className={cn("tabular shrink-0 font-body text-[13px] font-bold", c.text)}>
+                  −{m.drag.toFixed(1)} pts
+                </span>
               </div>
 
-              <span className={cn("tabular w-11 shrink-0 text-right font-body text-[12px] font-semibold", c.text)}>
-                −{m.drag.toFixed(1)}
-              </span>
+              <div className="h-2 overflow-hidden rounded-pill bg-bg-muted">
+                <div
+                  className="h-full rounded-pill transition-all duration-[220ms]"
+                  style={{ width: `${Math.max(1.5, (m.drag / maxDrag) * 100)}%`, background: c.bar }}
+                />
+              </div>
 
-              <span className="caption tabular hidden w-[86px] shrink-0 text-right sm:block">
-                {m.avgScore.toFixed(0)}/100
-                {m.missing > 0 && <span className="text-fg-subtle"> · {m.covered} acc</span>}
-              </span>
+              <p className="caption">
+                Scores <strong className="tabular font-semibold text-fg">{m.avgScore.toFixed(0)}/100</strong> across{" "}
+                {m.covered} {m.covered === 1 ? "account" : "accounts"}
+                {m.missing > 0 && <> · {m.missing} skipped (no data)</>}
+                {m.zeros > 0 && (
+                  <>
+                    {" · "}
+                    <strong className={cn("font-semibold", c.text)}>{m.zeros} at zero</strong>
+                    {m.binary && " — an unfilled field"}
+                  </>
+                )}
+                {" · worth "}
+                {(m.share * 100).toFixed(0)}% of the formula
+              </p>
             </li>
           );
         })}
