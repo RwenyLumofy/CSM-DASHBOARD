@@ -101,6 +101,17 @@ export interface UsageSnapshot {
   score: AdoptionScore;
 }
 
+/** One month of usage history for one account (client_usage_monthly).
+ *  `mau` here is a CALENDAR-MONTH distinct-active count — deliberately not the
+ *  trailing-30-day figure UsageSnapshotRow.mau reports. A trailing window can't
+ *  be reconstructed for a past month, and movement needs stable buckets, so the
+ *  two will differ slightly and are not interchangeable. */
+export interface UsageMonthRow {
+  clientId: string;
+  month: string; // "YYYY-MM"
+  mau: number;
+}
+
 /** A persisted snapshot row keyed back to its client, for portfolio-wide
  *  rollups (getAllUsageSnapshotsFromDb). Carries only what an aggregate needs —
  *  `trends`/`learning` are the heavy JSONB blobs and are left on the table. */

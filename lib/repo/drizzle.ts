@@ -31,7 +31,7 @@ import { getClientHealthConfig } from "@/lib/assignment/config";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { normalizeStakeholderMappings } from "@/lib/stakeholders";
-import type { UsageSnapshot, UsageSnapshotRecord } from "@/lib/usage/types";
+import type { UsageMonthRow, UsageSnapshot, UsageSnapshotRecord } from "@/lib/usage/types";
 
 type Row = typeof schema.clients.$inferSelect;
 type EventRow = typeof schema.arrEvents.$inferSelect;
@@ -1939,6 +1939,21 @@ export async function getAllUsageSnapshotsFromDb(): Promise<UsageSnapshotRecord[
     fetchedAt: r.fetchedAt.toISOString(),
     syncError: r.syncError,
   }));
+}
+
+/** Per-account monthly usage history (client_usage_monthly) — the whole table.
+ *  ~130 clients x ~12 months of integers is a few thousand tiny rows, so it
+ *  loads whole and gets grouped in memory rather than per-client querying. */
+export async function getUsageMonthlyFromDb(): Promise<UsageMonthRow[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      clientId: schema.clientUsageMonthly.clientId,
+      month: schema.clientUsageMonthly.month,
+      mau: schema.clientUsageMonthly.mau,
+    })
+    .from(schema.clientUsageMonthly);
+  return rows.map((r) => ({ clientId: r.clientId, month: r.month, mau: r.mau }));
 }
 
 /** Persist a freshly-fetched usage snapshot (clears any prior sync_error). */

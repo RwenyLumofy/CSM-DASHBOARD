@@ -10,6 +10,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   serial,
   text,
   timestamp,
@@ -354,6 +355,52 @@ export const clientUsageSnapshots = pgTable("client_usage_snapshots", {
   syncError: text("sync_error"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Per-account usage HISTORY, one row per client per calendar month.
+ *
+ * The table `client_usage_snapshots` above deliberately cannot answer "did this
+ * account's usage drop?" — it's keyed by client_id and overwritten every sync,
+ * so yesterday's number is gone. Every risk signal the CS category actually
+ * uses is a DELTA ("declining usage", "% change in active users"), so without
+ * history there is no movement view, only levels.
+ *
+ * Two things make this cheap rather than a wait-90-days-for-data problem:
+ *  - It's BACKFILLABLE. Metabase's users_userlogin holds the raw login rows, so
+ *    a month's MAU can be recomputed for any month still in that table rather
+ *    than only accrued going forward.
+ *  - It's tiny. One row per client-month: ~130 clients x 12 months = ~1.5k rows
+ *    a year, integers only.
+ *
+ * WHY MONTHLY, NOT DAILY: MAU is itself a trailing-30-day measure, so daily rows
+ * would be 30x the storage to express the same signal, each row 97% overlapping
+ * the last. Monthly buckets are what the movement view compares.
+ *
+ * URGENT, AND NOT REVERSIBLE: Metabase's login history only reaches back to
+ * 2025-11-09 — verified 2026-07-16, and older rows are already gone (7,707 users
+ * carry a last_login predating the earliest surviving login row, some from 2022).
+ * Whether that's a rolling retention window or a one-off purge is unconfirmed,
+ * but either way this table is the only durable copy. Every month not backfilled
+ * before it ages out of Metabase is lost permanently.
+ */
+export const clientUsageMonthly = pgTable(
+  "client_usage_monthly",
+  {
+    clientId: text("client_id").notNull(),
+    month: text("month").notNull(), // "YYYY-MM" — the calendar month bucket
+    mau: integer("mau").notNull(),
+    wau: integer("wau"),
+    // Kept so a row stays interpretable if a client is later re-pointed at a
+    // different Metabase environment — the history shouldn't silently re-attribute.
+    environmentId: text("environment_id"),
+    region: text("region"),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.clientId, t.month] }),
+    index("client_usage_monthly_month_idx").on(t.month),
+  ],
+);
 
 /**
  * AI-generated CSM action feed — the revamped Action List. Unlike

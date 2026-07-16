@@ -26,7 +26,7 @@ import type {
   RetentionMetrics,
   TimelineEvent,
 } from "@/lib/types";
-import type { UsageSnapshotRecord } from "@/lib/usage/types";
+import type { UsageMonthRow } from "@/lib/usage/types";
 import {
   SAMPLE_PLAYBOOKS,
   sampleAppendArrEvent,
@@ -61,7 +61,7 @@ import {
   getDealsByClient,
   getEmailsByClient,
   getMeetingsByClient,
-  getAllUsageSnapshotsFromDb,
+  getUsageMonthlyFromDb,
   importClientsDb,
 } from "@/lib/repo/drizzle";
 
@@ -214,7 +214,7 @@ export async function getExecutiveReport(opts: {
   compare?: CompareMode;
 }): Promise<ExecReport & { options: FilterOptions }> {
   const { clients, arrEvents } = await source();
-  const usageSnapshots = await usageSnapshotCache();
+  const usageHistory = await usageHistoryCache();
   const report = buildExecReport({
     clients,
     arrEvents,
@@ -222,7 +222,7 @@ export async function getExecutiveReport(opts: {
     filters: opts.filters ?? {},
     trendLength: opts.trendLength,
     compare: opts.compare,
-    usageSnapshots,
+    usageHistory,
   });
   return { ...report, options: buildFilterOptions(clients) };
 }
@@ -235,14 +235,20 @@ export async function getExecutiveReport(opts: {
  * degrade the usage panel, never take down the ARR report next to it — so it
  * swallows and returns [], which buildUsageRollup reports as "unlinked".
  */
-const usageSnapshotCache = cache(async (): Promise<UsageSnapshotRecord[]> => {
+/**
+ * Per-account monthly usage history (client_usage_monthly). Same isolation as
+ * usageSnapshotCache: request-memoized, kept out of loadSource (only Insights
+ * needs it), and degrading to [] so a usage-history outage costs the movement
+ * panel and nothing else on the page.
+ */
+const usageHistoryCache = cache(async (): Promise<UsageMonthRow[]> => {
   if (!hasDatabase() || !dbHealthy()) return [];
   try {
-    const rows = await withDbTimeout(getAllUsageSnapshotsFromDb());
+    const rows = await withDbTimeout(getUsageMonthlyFromDb());
     markDbHealthy();
     return rows;
   } catch (err) {
-    console.warn("[data] usage snapshot read failed:", err);
+    console.warn("[data] usage history read failed:", err);
     return [];
   }
 });

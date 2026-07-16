@@ -4,7 +4,6 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   CalendarClock,
-  HeartPulse,
   Minus,
   TrendingDown,
   TrendingUp,
@@ -12,12 +11,13 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardEyebrow } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
 import { Donut } from "@/components/ui/charts";
+import { AtRiskPanel } from "@/components/reports/AtRiskPanel";
+import { ConcentrationPanel } from "@/components/reports/ConcentrationPanel";
+import { MovementPanel } from "@/components/reports/MovementPanel";
 import { ReportControls } from "@/components/reports/ReportControls";
 import { RetentionTrend } from "@/components/reports/RetentionTrend";
 import { RevenueWaterfall } from "@/components/reports/RevenueWaterfall";
-import { UsagePanel } from "@/components/reports/UsagePanel";
 import { getExecutiveReport } from "@/lib/data";
 import {
   defaultExecPeriod,
@@ -183,97 +183,65 @@ export default async function ReportsPage({
             </Card>
           </div>
 
-          {/* ---------------- product usage ---------------- */}
-          <UsagePanel usage={r.usage} />
-
-          {/* ---------------- portfolio health ---------------- */}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.4fr]">
-            <Card>
-              <CardEyebrow>Portfolio</CardEyebrow>
-              <h3 className="h5 mb-4">Health distribution</h3>
-              <Donut
-                size={124}
-                centerLabel={String(portfolio.avgHealth)}
-                centerSub="avg score"
-                segments={[
-                  { label: "Healthy", value: r.healthSplit.healthy, color: "var(--color-success)" },
-                  { label: "Watch", value: r.healthSplit.watch, color: "var(--color-warning)" },
-                  { label: "At risk", value: r.healthSplit.atRisk, color: "var(--color-danger)" },
-                ]}
-              />
-            </Card>
-
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-2">
-              <Kpi
-                label="Total ARR"
-                value={formatCurrency(portfolio.totalArr, currency, { compact: true })}
-                icon={Wallet}
-                tone="accent"
-                sub={`${portfolio.totalClients} active accounts`}
-              />
-              <Kpi
-                label="Up for renewal"
-                value={formatCurrency(portfolio.arrUpForRenewal90d, currency, { compact: true })}
-                icon={CalendarClock}
-                tone={portfolio.renewalsNext90d > 0 ? "warn" : "neutral"}
-                sub={`${portfolio.renewalsNext90d} accounts · next 90 days`}
-              />
-              <Kpi
-                label="Average health"
-                value={String(portfolio.avgHealth)}
-                icon={HeartPulse}
-                tone={portfolio.avgHealth >= 75 ? "good" : portfolio.avgHealth >= 55 ? "warn" : "bad"}
-                sub={`${r.healthSplit.healthy} healthy · ${r.healthSplit.watch} watch`}
-              />
-              <Kpi
-                label="Accounts at risk"
-                value={String(r.healthSplit.atRisk)}
-                icon={AlertTriangle}
-                tone={r.healthSplit.atRisk > 0 ? "bad" : "good"}
-                sub={`${portfolio.openTickets} open tickets across book`}
-              />
-            </div>
+          {/* ---------------- what changed / what's coming ----------------
+              The two panels that answer "so what". Movement leads: it's what
+              the CS category converges on (a ranked account list, not an
+              average), and it's the only thing here that names who to call. */}
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.35fr_1fr]">
+            <MovementPanel
+              movements={r.movements}
+              currency={currency}
+              period={period}
+              usageMonth={r.usageMonth}
+            />
+            <AtRiskPanel rows={r.atRisk} currency={currency} />
           </div>
 
-          {/* ---------------- movement detail ---------------- */}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <ListCard
-              eyebrow="Contraction"
-              title="Downgrades"
-              count={r.downgrades.length}
-              tone="stellar"
-              empty="No downgrades — no account's ARR fell this period."
-            >
-              {r.downgrades.map(({ client, delta }) => (
-                <Row key={client.id} href={`/clients/${client.id}`} name={client.name}>
-                  <span className="caption tabular hidden sm:inline">
-                    {formatCurrency(client.previousArr, currency, { compact: true })} →{" "}
-                    {formatCurrency(client.arr, currency, { compact: true })}
-                  </span>
-                  <span className="tabular font-body text-sm font-semibold text-warning-fg">
-                    {formatCurrency(delta, currency, { compact: true })}
-                  </span>
-                </Row>
-              ))}
-            </ListCard>
+          {/* ---------------- portfolio shape ---------------- */}
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.15fr]">
+            <div className="flex flex-col gap-5">
+              <div className="grid grid-cols-2 gap-4">
+                <Kpi
+                  label="Total ARR"
+                  value={formatCurrency(portfolio.totalArr, currency, { compact: true })}
+                  icon={Wallet}
+                  tone="accent"
+                  sub={`${portfolio.totalClients} active accounts`}
+                />
+                <Kpi
+                  label="Up for renewal"
+                  value={formatCurrency(portfolio.arrUpForRenewal90d, currency, { compact: true })}
+                  icon={CalendarClock}
+                  tone={portfolio.renewalsNext90d > 0 ? "warn" : "neutral"}
+                  sub={`${portfolio.renewalsNext90d} accounts · next 90 days`}
+                />
+              </div>
+              <Card>
+                <CardEyebrow>Portfolio</CardEyebrow>
+                <h3 className="h5 mb-4">Health distribution</h3>
+                <Donut
+                  size={124}
+                  centerLabel={String(portfolio.avgHealth)}
+                  centerSub="avg score"
+                  segments={[
+                    { label: "Healthy", value: r.healthSplit.healthy, color: "var(--color-success)" },
+                    { label: "Watch", value: r.healthSplit.watch, color: "var(--color-warning)" },
+                    { label: "At risk", value: r.healthSplit.atRisk, color: "var(--color-danger)" },
+                  ]}
+                />
+                <p className="caption mt-4 border-t border-border-subtle pt-3">
+                  Point-in-time. Health is overwritten on each recompute, so there is no history behind this yet —
+                  unlike usage, it can&apos;t show movement.
+                </p>
+              </Card>
+            </div>
 
-            <ListCard
-              eyebrow="Lost accounts"
-              title="Churn"
-              count={r.churned.length}
-              tone="nova"
-              empty={`No accounts churned in ${periodDisplay(period)}.`}
-            >
-              {r.churned.map(({ client, arrLost, date }) => (
-                <Row key={client.id} href={`/clients/${client.id}`} name={client.name}>
-                  <span className="caption hidden sm:inline">{client.csm?.name ?? "Unassigned"}</span>
-                  <span className="caption tabular">{date}</span>
-                  <span className="tabular font-body text-sm font-semibold text-danger-fg">
-                    −{formatCurrency(arrLost, currency, { compact: true })}
-                  </span>
-                </Row>
-              ))}
-            </ListCard>
+            <ConcentrationPanel
+              rows={r.concentration.rows}
+              topArrShare={r.concentration.topArrShare}
+              topMauShare={r.concentration.topMauShare}
+              currency={currency}
+            />
           </div>
         </>
       )}
@@ -365,51 +333,7 @@ function MiniStat({ label, value, tone }: { label: string; value: string; tone: 
   );
 }
 
-function ListCard({
-  eyebrow,
-  title,
-  count,
-  tone,
-  empty,
-  children,
-}: {
-  eyebrow: string;
-  title: string;
-  count: number;
-  tone: "stellar" | "nova";
-  empty: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <CardEyebrow>{eyebrow}</CardEyebrow>
-          <h3 className="h5">{title}</h3>
-        </div>
-        <Badge tone={count === 0 ? "neutral" : tone}>{count}</Badge>
-      </div>
-      {count === 0 ? (
-        <div className="flex items-center gap-2 rounded-md bg-bg-subtle px-3 py-4">
-          <p className="caption">{empty}</p>
-        </div>
-      ) : (
-        <ul className="flex flex-col">{children}</ul>
-      )}
-    </Card>
-  );
-}
 
-function Row({ href, name, children }: { href: string; name: string; children: React.ReactNode }) {
-  return (
-    <li className="flex items-center justify-between gap-3 border-b border-border-subtle py-2.5 last:border-0">
-      <Link href={href} className="truncate font-body text-sm font-semibold text-fg transition-colors hover:text-sirius">
-        {name}
-      </Link>
-      <div className="flex shrink-0 items-center gap-3">{children}</div>
-    </li>
-  );
-}
 
 function EmptyReport() {
   return (

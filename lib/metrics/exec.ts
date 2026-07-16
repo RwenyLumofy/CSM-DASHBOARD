@@ -22,7 +22,17 @@
    ========================================================================= */
 
 import type { ArrEvent, Client, RetentionMetrics } from "@/lib/types";
-import type { UsageSnapshotRecord, UsageTier } from "@/lib/usage/types";
+import type { UsageMonthRow } from "@/lib/usage/types";
+import {
+  atRisk,
+  concentration,
+  lastCompleteMonth,
+  movements,
+  usageMovementByClient,
+  type ConcentrationRow,
+  type Movement,
+  type RiskRow,
+} from "@/lib/metrics/movement";
 import { arrAsOf, currentQuarter, periodBounds, periodMovement, shiftPeriod } from "@/lib/metrics/arr";
 import { computeRetention } from "@/lib/metrics/retention";
 import { buildPortfolioSummary } from "@/lib/metrics/portfolio";
@@ -180,140 +190,6 @@ export function buildFilterOptions(all: Client[]): FilterOptions {
   };
 }
 
-/* ------------------------------------------------------------ usage rollup */
-
-/**
- * Portfolio-wide product usage.
- *
- * THREE THINGS TO KNOW, because they shape what this can honestly claim:
- *
- * 1. NOT PERIOD-SCOPED. `client_usage_snapshots` is keyed by client_id — one
- *    row, overwritten by the 4-hourly cron. There is no usage history in
- *    Postgres, so this is always "as of the last sync", never "for Q2". It
- *    responds to FILTERS (per-client rows) but deliberately ignores the period
- *    selector, and the UI must say so or a reader will assume otherwise.
- *
- * 2. NOT clients.usage. That JSONB column is a hollow placeholder — verified on
- *    live data: all 55 non-churned accounts carry mau/wau/seats = 0. The sync
- *    can't compute real usage (it lacks the Metabase signals) so it writes an
- *    empty shape, exactly like the health placeholder that commit 399f58f had
- *    to stop clobbering. The Metabase snapshot table is the only real source.
- *
- * 3. SEATS ARE AN ENTITLEMENT, NOT A DENOMINATOR. One account's environment
- *    reports 54,000 seats against 13,689 provisioned users — 85% of the book's
- *    entire seat count from a single licence line. A naive MAU/seats
- *    "activation" reads 6.7% globally and ~23% with that one account removed,
- *    so the raw ratio says more about licence paperwork than adoption. Both
- *    denominators are returned; the caller decides, and `seatsConcentration`
- *    flags when one account dominates.
- */
-export interface UsageRollup {
-  /** Accounts in the filtered book that have a usable snapshot. */
-  covered: number;
-  /** Filtered accounts with no snapshot row at all (no Metabase link). */
-  unlinked: number;
-  /** Snapshots that recorded a sync error — broken, not idle. */
-  errored: number;
-  mau: number;
-  wau: number;
-  /** WAU/MAU — of the people active this month, how many showed up this week. */
-  stickiness: number | null;
-  seats: number;
-  provisionedUsers: number;
-  /** MAU / provisioned users. The defensible activation number. */
-  activationVsUsers: number | null;
-  /** MAU / licensed seats. Entitlement-based — see note 3. */
-  activationVsSeats: number | null;
-  /** Accounts with a snapshot but zero monthly actives. */
-  dormant: number;
-  /** Mean adoption score across covered accounts. */
-  avgAdoption: number | null;
-  /** Typed to the real UsageTier union, not `string`, so a consumer switching
-   *  on it can't silently miss a tier. */
-  adoptionTiers: { tier: UsageTier; count: number }[];
-  /** Largest single account's share of total MAU (0–1), and its name. */
-  mauConcentration: { share: number; name: string } | null;
-  /** Largest single account's share of total seats (0–1) — the 54k flag. */
-  seatsConcentration: { share: number; name: string } | null;
-  /** Oldest/newest snapshot in the set, so the UI can date the panel. */
-  oldestFetch: string | null;
-  newestFetch: string | null;
-  learningEnrollments: number;
-  learningCompletions: number;
-}
-
-export function buildUsageRollup(clients: Client[], snapshots: UsageSnapshotRecord[]): UsageRollup {
-  const byId = new Map(snapshots.map((s) => [s.clientId, s]));
-  // Churned accounts keep a stale snapshot (70 of them do). Their usage is not
-  // part of the live book's story, so they're excluded here — matching the
-  // health rollup's rule in buildPortfolioSummary.
-  const live = clients.filter((c) => c.status !== "churned");
-
-  const rows: { client: Client; snap: UsageSnapshotRecord }[] = [];
-  let unlinked = 0;
-  let errored = 0;
-  for (const c of live) {
-    const s = byId.get(c.id);
-    if (!s) {
-      unlinked += 1;
-      continue;
-    }
-    if (s.syncError) {
-      errored += 1;
-      continue;
-    }
-    rows.push({ client: c, snap: s });
-  }
-
-  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-  const sum = (pick: (s: UsageSnapshotRecord) => number) => rows.reduce((a, r) => a + pick(r.snap), 0);
-
-  const mau = sum((s) => num(s.metrics?.mau));
-  const wau = sum((s) => num(s.metrics?.wau));
-  const seats = sum((s) => num(s.metrics?.seats));
-  const provisionedUsers = sum((s) => num(s.metrics?.total_users));
-  const dormant = rows.filter((r) => num(r.snap.metrics?.mau) === 0).length;
-
-  const scores = rows.map((r) => num(r.snap.score?.score)).filter((n) => Number.isFinite(n));
-  const tierCounts = new Map<UsageTier, number>();
-  for (const r of rows) {
-    const t = r.snap.score?.tier;
-    if (t) tierCounts.set(t, (tierCounts.get(t) ?? 0) + 1);
-  }
-
-  const topBy = (pick: (s: UsageSnapshotRecord) => number, total: number) => {
-    if (!rows.length || total <= 0) return null;
-    const top = [...rows].sort((a, b) => pick(b.snap) - pick(a.snap))[0];
-    return { share: pick(top.snap) / total, name: top.client.name };
-  };
-
-  const fetches = rows.map((r) => r.snap.fetchedAt).sort();
-
-  return {
-    covered: rows.length,
-    unlinked,
-    errored,
-    mau,
-    wau,
-    stickiness: mau > 0 ? wau / mau : null,
-    seats,
-    provisionedUsers,
-    activationVsUsers: provisionedUsers > 0 ? mau / provisionedUsers : null,
-    activationVsSeats: seats > 0 ? mau / seats : null,
-    dormant,
-    avgAdoption: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
-    adoptionTiers: [...tierCounts.entries()]
-      .map(([tier, count]) => ({ tier, count }))
-      .sort((a, b) => b.count - a.count),
-    mauConcentration: topBy((s) => num(s.metrics?.mau), mau),
-    seatsConcentration: topBy((s) => num(s.metrics?.seats), seats),
-    oldestFetch: fetches[0] ?? null,
-    newestFetch: fetches[fetches.length - 1] ?? null,
-    learningEnrollments: sum((s) => num(s.metrics?.learning_enrollments)),
-    learningCompletions: sum((s) => num(s.metrics?.learning_completions)),
-  };
-}
-
 /* ------------------------------------------------------------- comparison */
 
 /** How the selected period is compared against another. */
@@ -373,8 +249,6 @@ export interface ExecReport {
   previous: RetentionMetrics | null;
   /** Which period `previous` covers, and how it was chosen. */
   comparison: { mode: CompareMode; period: string | null; label: string | null };
-  /** Portfolio product usage. NOT period-scoped — see UsageRollup's note 1. */
-  usage: UsageRollup;
   portfolio: ReturnType<typeof buildPortfolioSummary>;
   /** New business landed in-period. Deliberately kept OUT of NRR/GRR (it isn't
    *  retention) but surfaced on its own — a board always asks for it. */
@@ -385,6 +259,14 @@ export interface ExecReport {
   downgrades: { client: Client; delta: number }[];
   churned: ChurnRow[];
   healthSplit: { healthy: number; watch: number; atRisk: number };
+  /** Every account that moved this period, ranked by ARR at stake. */
+  movements: Movement[];
+  /** Renewals ahead, scored by whether the customer actually uses the product. */
+  atRisk: RiskRow[];
+  /** Top accounts by ARR with their usage share alongside. */
+  concentration: { rows: ConcentrationRow[]; topArrShare: number; topMauShare: number };
+  /** The month the usage movement is measured over (last complete month). */
+  usageMonth: string;
   filteredCount: number;
   totalCount: number;
 }
@@ -396,7 +278,7 @@ export interface ExecReportInput {
   filters: ExecFilters;
   trendLength?: number;
   compare?: CompareMode;
-  usageSnapshots?: UsageSnapshotRecord[];
+  usageHistory?: UsageMonthRow[];
 }
 
 export function buildExecReport({
@@ -406,7 +288,7 @@ export function buildExecReport({
   filters,
   trendLength = 6,
   compare = "prev",
-  usageSnapshots = [],
+  usageHistory = [],
 }: ExecReportInput): ExecReport {
   const scoped = applyFilters(clients, filters);
   const ids = new Set(scoped.map((c) => c.id));
@@ -463,6 +345,17 @@ export function buildExecReport({
     .map((c) => ({ client: c, delta: c.arr - c.previousArr }))
     .sort((a, b) => a.delta - b.delta);
 
+  // Usage movement is measured over the last COMPLETE calendar month, which is
+  // independent of the selected ARR period on purpose: usage history is monthly
+  // and a quarter-to-date comparison would be against a part-month. The UI
+  // labels which month it's showing rather than implying it follows the period.
+  const usageMonth = lastCompleteMonth();
+  const historyIds = scoped.length === clients.length ? usageHistory : usageHistory.filter((r) => ids.has(r.clientId));
+  const usageMoves = usageMovementByClient(historyIds, usageMonth);
+  const movementRows = movements(scoped, events, { start: bounds.start, end: bounds.end }, usageMoves);
+  const riskRows = atRisk(scoped, usageMoves);
+  const concentrationRows = concentration(scoped, usageMoves);
+
   return {
     period,
     periodLabel: bounds.label,
@@ -475,7 +368,10 @@ export function buildExecReport({
       period: cmpPeriod,
       label: cmpPeriod ? periodBounds(cmpPeriod).label : null,
     },
-    usage: buildUsageRollup(scoped, usageSnapshots),
+    movements: movementRows,
+    atRisk: riskRows,
+    concentration: concentrationRows,
+    usageMonth,
     portfolio,
     newBusiness: movement.newBusiness,
     closingArr: retention.endingArr + movement.newBusiness,
