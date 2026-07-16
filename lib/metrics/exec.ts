@@ -399,6 +399,60 @@ export function bookArrAsOf(events: ArrEvent[], dateISO: string, clientIds: Set<
   return total;
 }
 
+/* ---------------------------------------------------------------- headline */
+
+/**
+ * The one-sentence summary that opens the page.
+ *
+ * It replaces a static description ("Retention, revenue movement, product usage
+ * and portfolio health across the ARR base…") that restated the title, had gone
+ * stale as the page changed under it, and spent the most valuable space above
+ * the fold saying nothing. Every figure here is already computed — this is
+ * assembly, not new math.
+ *
+ * Returned as DATA, not a formatted string, so the component can emphasise the
+ * numbers and the caller can localise/format currency once. It's also then
+ * trivially the text you'd paste into an email or a board slide.
+ */
+export interface Headline {
+  period: string;
+  inProgress: boolean;
+  closingArr: number;
+  /** Closing vs opening, as a fraction. Null when there's no opening base. */
+  arrChange: number | null;
+  churnArr: number;
+  churnCount: number;
+  contraction: number;
+  expansion: number;
+  newBusiness: number;
+  movedCount: number;
+  renewalsCount: number;
+  renewalsArr: number;
+  atRiskCount: number;
+  atRiskArr: number;
+}
+
+export function buildHeadline(r: ExecReport): Headline {
+  const opening = r.retention.startingArr;
+  const atRiskRows = r.atRisk.filter((x) => x.risk >= 30);
+  return {
+    period: r.period,
+    inProgress: periodInProgress(r.period),
+    closingArr: r.closingArr,
+    arrChange: opening > 0 ? (r.closingArr - opening) / opening : null,
+    churnArr: r.retention.churn,
+    churnCount: r.churned.length,
+    contraction: r.retention.contraction,
+    expansion: r.retention.expansion,
+    newBusiness: r.newBusiness,
+    movedCount: r.movements.length,
+    renewalsCount: r.atRisk.length,
+    renewalsArr: r.atRisk.reduce((a, x) => a + x.arr, 0),
+    atRiskCount: atRiskRows.length,
+    atRiskArr: atRiskRows.reduce((a, x) => a + x.arr, 0),
+  };
+}
+
 /* ------------------------------------------------------------ period helpers */
 
 /** A short, human label for a period key ("2026-Q2" → "Q2 2026"). */

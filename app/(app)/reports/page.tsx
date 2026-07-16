@@ -9,10 +9,10 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react";
-import { PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardEyebrow } from "@/components/ui/Card";
 import { Donut } from "@/components/ui/charts";
 import { AtRiskPanel } from "@/components/reports/AtRiskPanel";
+import { Headline } from "@/components/reports/Headline";
 import { ConcentrationPanel } from "@/components/reports/ConcentrationPanel";
 import { MovementPanel } from "@/components/reports/MovementPanel";
 import { ReportControls } from "@/components/reports/ReportControls";
@@ -20,6 +20,7 @@ import { RetentionTrend } from "@/components/reports/RetentionTrend";
 import { RevenueWaterfall } from "@/components/reports/RevenueWaterfall";
 import { getExecutiveReport } from "@/lib/data";
 import {
+  buildHeadline,
   defaultExecPeriod,
   parseCompare,
   parseFilters,
@@ -67,16 +68,16 @@ export default async function ReportsPage({
       }
     : null;
   const vs = r.comparison.period ? `vs ${periodDisplay(r.comparison.period)}` : undefined;
+  const headline = buildHeadline(r);
 
   const noData = cur.startingArr === 0 && cur.endingArr === 0 && r.filteredCount === 0;
 
   return (
-    <div className="flex flex-col gap-6 p-5 md:p-8">
-      <PageHeader
-        eyebrow={`Portfolio · ${periodDisplay(period)}`}
-        title="Insights"
-        description="Retention, revenue movement, product usage, and portfolio health across the ARR base — filterable, comparable, and shareable as a link."
-      />
+    <div className="flex flex-col gap-5 p-5 md:p-8">
+      {/* Compact: the eyebrow used to read "Portfolio · Q3 2026" six inches from
+          a period navigator saying "Q3 2026", and the description restated the
+          title. Both gone — the headline below carries the actual news. */}
+      <h1 className="h2">Insights</h1>
 
       <ReportControls
         period={period}
@@ -102,7 +103,12 @@ export default async function ReportsPage({
         <EmptyReport />
       ) : (
         <>
-          {/* ---------------- retention headline ---------------- */}
+          {/* The sentence the whole page is evidence for. */}
+          <Headline data={headline} currency={currency} />
+
+          {/* ============ 1. How did the period go? ============ */}
+          <Section title="How the book performed" when={periodDisplay(period)} />
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi
               label="Net revenue retention"
@@ -183,21 +189,25 @@ export default async function ReportsPage({
             </Card>
           </div>
 
-          {/* ---------------- what changed / what's coming ----------------
-              The two panels that answer "so what". Movement leads: it's what
-              the CS category converges on (a ranked account list, not an
-              average), and it's the only thing here that names who to call. */}
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.35fr_1fr]">
-            <MovementPanel
-              movements={r.movements}
-              currency={currency}
-              period={period}
-              usageMonth={r.usageMonth}
-            />
-            <AtRiskPanel rows={r.atRisk} currency={currency} />
-          </div>
+          {/* ============ 2. Who moved? ============
+              The only section with NAMES — which is what makes a reader lean in,
+              and what the CS category leads with (a ranked account list, not an
+              average). */}
+          <Section title="What changed" when={`${periodDisplay(period)} · usage ${monthName(r.usageMonth)}`} />
+          <MovementPanel movements={r.movements} currency={currency} period={period} usageMonth={r.usageMonth} />
 
-          {/* ---------------- portfolio shape ---------------- */}
+          {/* ============ 3. What do we do next? ============
+              The only panel that's forward-looking, and the only one that names
+              an action. Deliberately NOT period-scoped — it looks ahead from
+              today regardless of which quarter is selected above. */}
+          <Section title="What's at risk" when="next 90 days · from today" />
+          <AtRiskPanel rows={r.atRisk} currency={currency} />
+
+          {/* ============ 4. Context ============
+              Questions a board MIGHT ask, not ones it will. Demoted below the
+              answer, and labelled point-in-time — these don't move with the
+              period selector. */}
+          <Section title="The shape of the book" when="point-in-time" />
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.15fr]">
             <div className="flex flex-col gap-5">
               <div className="grid grid-cols-2 gap-4">
@@ -250,6 +260,30 @@ export default async function ReportsPage({
 }
 
 /* ------------------------------------------------------------------ pieces */
+
+/** A page-level section heading carrying its own TIME BASE.
+ *
+ *  The page reads across three different clocks — ARR/retention on the selected
+ *  period, usage movement on the last complete month, health/concentration on
+ *  right-now. Interleaved as identical cards, every number was quietly
+ *  ambiguous, and each card had grown a footnote explaining which clock it was
+ *  on. Stating it once per section is what those footnotes were compensating
+ *  for. */
+function Section({ title, when }: { title: string; when: string }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border pb-2">
+      <h2 className="h5">{title}</h2>
+      <span className="tabular font-body text-[11.5px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
+        {when}
+      </span>
+    </div>
+  );
+}
+
+function monthName(ym: string): string {
+  const names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${names[Number(ym.slice(5, 7))] ?? ym} ${ym.slice(0, 4)}`;
+}
 
 type Tone = "good" | "warn" | "bad" | "accent" | "neutral";
 
