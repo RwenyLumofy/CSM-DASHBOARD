@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Card, CardEyebrow } from "@/components/ui/Card";
 import type { ConcentrationRow } from "@/lib/metrics/movement";
 import { formatCurrency } from "@/lib/format";
@@ -48,7 +49,12 @@ export function ConcentrationPanel({
           return (
             <li key={r.name} className="flex flex-col gap-1.5">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="truncate font-body text-[13px] font-semibold text-fg">{r.name}</span>
+                <Link
+                  href={`/clients/${r.id}`}
+                  className="truncate font-body text-[13px] font-semibold text-fg transition-colors hover:text-sirius"
+                >
+                  {r.name}
+                </Link>
                 <span className="tabular caption shrink-0">{formatCurrency(r.arr, currency, { compact: true })}</span>
               </div>
               <Bar value={r.arrShare} scale={scale} color="var(--color-sirius)" label={pct(r.arrShare)} />

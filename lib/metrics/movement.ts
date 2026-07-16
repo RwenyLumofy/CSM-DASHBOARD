@@ -309,6 +309,9 @@ export function atRisk(
 /* ----------------------------------------------------------- concentration */
 
 export interface ConcentrationRow {
+  /** Carried so the row can link to the account — the name alone was a
+   *  dead end on a card whose whole point is "these five matter". */
+  id: string;
   name: string;
   arr: number;
   arrShare: number;
@@ -335,6 +338,7 @@ export function concentration(
     .map((c) => {
       const mau = usage.get(c.id)?.current ?? 0;
       return {
+        id: c.id,
         name: c.name,
         arr: c.arr,
         arrShare: totalArr ? c.arr / totalArr : 0,

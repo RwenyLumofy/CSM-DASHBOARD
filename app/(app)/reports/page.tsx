@@ -230,7 +230,8 @@ export default async function ReportsPage({
                 value={formatCurrency(portfolio.totalArr, currency, { compact: true })}
                 icon={Wallet}
                 tone="accent"
-                sub={`${portfolio.totalClients} active accounts`}
+                sub={`${portfolio.totalClients} active accounts →`}
+                href="/clients"
               />
               <Kpi
                 label="Up for renewal"
@@ -244,7 +245,8 @@ export default async function ReportsPage({
                 value={String(portfolio.avgHealth)}
                 icon={HeartPulse}
                 tone={portfolio.avgHealth >= 75 ? "good" : portfolio.avgHealth >= 55 ? "warn" : "bad"}
-                sub={`${r.healthSplit.atRisk} at risk · see Health`}
+                sub={`${r.healthSplit.atRisk} at risk · why? →`}
+                href="/reports/health"
               />
               <Kpi
                 label="Open tickets"
@@ -332,6 +334,7 @@ function Kpi({
   tone = "neutral",
   invert = false,
   icon: Icon,
+  href,
 }: {
   label: string;
   value: string;
@@ -344,14 +347,17 @@ function Kpi({
   tone?: Tone;
   invert?: boolean;
   icon?: typeof TrendingUp;
+  /** Where this number lives as a LIST. Omitted when there isn't one — a fake
+   *  link is worse than none. */
+  href?: string;
 }) {
   const d = delta ?? 0;
   const flat = delta == null || Math.abs(d) < 0.05;
   const positive = invert ? d < 0 : d > 0;
   const DeltaIcon = flat ? Minus : positive ? ArrowUpRight : ArrowDownRight;
 
-  return (
-    <Card className="flex flex-col gap-3">
+  const body = (
+    <>
       <div className="flex items-center justify-between gap-2">
         <span className="eyebrow">{label}</span>
         {Icon && (
@@ -376,7 +382,19 @@ function Kpi({
         )}
       </div>
       {sub && <span className="caption">{sub}</span>}
+    </>
+  );
+
+  // A KPI that maps onto a real list becomes a link; one that doesn't stays a
+  // card. Interactive styling only where something actually happens.
+  return href ? (
+    <Card interactive className="flex flex-col gap-3 transition-colors hover:border-sirius-200">
+      <Link href={href} className="flex flex-col gap-3">
+        {body}
+      </Link>
     </Card>
+  ) : (
+    <Card className="flex flex-col gap-3">{body}</Card>
   );
 }
 

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AlertCircle, TrendingDown } from "lucide-react";
 import { Card, CardEyebrow } from "@/components/ui/Card";
 import type { ChurnAnalysis, ChurnSlice } from "@/lib/metrics/churn";
@@ -28,7 +29,35 @@ const TONE_TEXT: Record<string, string> = {
   success: "text-success-fg",
 };
 
-export function ChurnPanel({ churn, currency }: { churn: ChurnAnalysis; currency: string }) {
+/** Build a URL that adds one filter to whatever is already applied — so
+ *  clicking "SMB 84%" narrows the page to SMB and every other panel follows,
+ *  rather than dumping you somewhere with your context lost. Built here on the
+ *  server from the live params; a function prop can't cross into a client
+ *  component, and this panel has no reason to become one. */
+function withFilter(params: Record<string, string | string[] | undefined>, key: string, value: string): string {
+  const next = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    const val = Array.isArray(v) ? v[0] : v;
+    if (val) next.set(k, val);
+  }
+  // Clicking the filter you're already on removes it — the row doubles as the
+  // way back out.
+  if (next.get(key) === value) next.delete(key);
+  else next.set(key, value);
+  const qs = next.toString();
+  return qs ? `/reports/churn?${qs}` : "/reports/churn";
+}
+
+export function ChurnPanel({
+  churn,
+  currency,
+  params,
+}: {
+  churn: ChurnAnalysis;
+  currency: string;
+  /** The live searchParams, for building drill-down links. */
+  params: Record<string, string | string[] | undefined>;
+}) {
   const total = churn.churned + churn.live;
   const overall = total ? churn.churned / total : 0;
   const maxQ = Math.max(...churn.byQuarter.map((q) => q.count), 1);
@@ -55,7 +84,13 @@ export function ChurnPanel({ churn, currency }: { churn: ChurnAnalysis; currency
         <div className="eyebrow mb-2.5">Churn rate by segment</div>
         <ul className="flex flex-col gap-2.5">
           {churn.bySegment.map((s) => (
-            <SliceRow key={s.key} slice={s} money={money} />
+            <SliceRow
+              key={s.key}
+              slice={s}
+              money={money}
+              href={withFilter(params, "segment", s.key)}
+              active={(Array.isArray(params.segment) ? params.segment[0] : params.segment) === s.key}
+            />
           ))}
         </ul>
       </div>
@@ -92,7 +127,14 @@ export function ChurnPanel({ churn, currency }: { churn: ChurnAnalysis; currency
           <div className="eyebrow mb-2.5">Churn rate by industry</div>
           <ul className="flex flex-col gap-2">
             {churn.byIndustry.map((s) => (
-              <SliceRow key={s.key} slice={s} money={money} compact />
+              <SliceRow
+                key={s.key}
+                slice={s}
+                money={money}
+                compact
+                href={withFilter(params, "industry", s.key)}
+                active={(Array.isArray(params.industry) ? params.industry[0] : params.industry) === s.key}
+              />
             ))}
           </ul>
         </div>
@@ -173,14 +215,29 @@ function SliceRow({
   slice,
   money,
   compact,
+  href,
+  active,
 }: {
   slice: ChurnSlice;
   money: (v: number) => string;
   compact?: boolean;
+  href: string;
+  active?: boolean;
 }) {
   const tone = rateTone(slice.rate);
   return (
-    <li className="flex items-center gap-3">
+    <li>
+      {/* The whole row is the target — "SMB churns at 84%" is a fact you want to
+          act on, and the act is "show me those accounts". */}
+      <Link
+        href={href}
+        scroll={false}
+        aria-label={`${active ? "Remove" : "Apply"} ${slice.label} filter`}
+        className={cn(
+          "-mx-2 flex items-center gap-3 rounded-md px-2 py-1 transition-colors duration-[140ms]",
+          active ? "bg-sirius-50 ring-1 ring-sirius-200" : "hover:bg-bg-subtle",
+        )}
+      >
       <span
         className={cn("shrink-0 truncate font-body font-semibold text-fg", compact ? "w-[128px] text-[12px]" : "w-[92px] text-[12.5px]")}
         title={slice.label}
@@ -201,6 +258,7 @@ function SliceRow({
       <span className="caption tabular w-[104px] shrink-0 text-right">
         {slice.churned}/{slice.total} · {money(slice.arrLost)}
       </span>
+      </Link>
     </li>
   );
 }

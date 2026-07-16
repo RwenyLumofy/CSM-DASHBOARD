@@ -55,7 +55,7 @@ export default async function ChurnPage({
           <p className="caption">No churned accounts match these filters.</p>
         </div>
       ) : (
-        <ChurnPanel churn={r.churnAnalysis} currency={r.currency} />
+        <ChurnPanel churn={r.churnAnalysis} currency={r.currency} params={sp} />
       )}
     </div>
   );

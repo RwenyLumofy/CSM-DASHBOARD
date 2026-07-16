@@ -33,9 +33,16 @@ export default async function InsightsLayout({ children }: { children: React.Rea
 
   return (
     <div className="flex flex-col gap-5 p-5 md:p-8">
-      <h1 className="h2">Insights</h1>
-      <InsightsNav />
-      <ReportFilters options={options} />
+      {/* Nav and filters share one row: they're both "what am I looking at",
+          and stacking them cost a third band of chrome before any number. The
+          filter bar wraps beneath on narrow screens rather than squeezing. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <h1 className="h2">Insights</h1>
+          <InsightsNav />
+        </div>
+        <ReportFilters options={options} />
+      </div>
       {children}
     </div>
   );
