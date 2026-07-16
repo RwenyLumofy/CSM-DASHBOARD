@@ -1,7 +1,8 @@
 import { HealthDragPanel } from "@/components/reports/HealthDragPanel";
 import { Donut } from "@/components/ui/charts";
 import { Card, CardEyebrow } from "@/components/ui/Card";
-import { getExecutiveReport } from "@/lib/data";
+import { InsightsControls } from "@/components/reports/InsightsControls";
+import { getExecutiveReport, getFilterOptions } from "@/lib/data";
 import { parseFilters } from "@/lib/metrics/exec";
 
 export const metadata = { title: "Health · Insights · Lumofy Signals" };
@@ -28,13 +29,21 @@ export default async function HealthPage({
   const filters = parseFilters(sp);
   // This page reads healthDrag + the health split only — no retention trend, no
   // comparison window, so don't compute them.
-  const r = await getExecutiveReport({ filters, trendLength: 1, compare: "none" });
+  const [r, options] = await Promise.all([
+    getExecutiveReport({ filters, trendLength: 1, compare: "none" }),
+    getFilterOptions(),
+  ]);
 
   const filtered = r.filteredCount !== r.totalCount;
   const live = r.healthSplit.healthy + r.healthSplit.watch + r.healthSplit.atRisk;
 
   return (
     <div className="flex flex-col gap-5">
+      {/* No date control, and the reason is stated rather than left as an
+          apparent oversight: health is overwritten on each recompute, so there
+          is no history to select a period from. */}
+      <InsightsControls options={options} noPeriodReason="As of today — health has no history to filter by" />
+
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border pb-2">
         <h2 className="h5">Portfolio health</h2>
         <span className="caption tabular">

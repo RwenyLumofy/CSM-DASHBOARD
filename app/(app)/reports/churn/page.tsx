@@ -1,6 +1,6 @@
 import { ChurnPanel } from "@/components/reports/ChurnPanel";
-import { PeriodControls } from "@/components/reports/PeriodControls";
-import { getExecutiveReport } from "@/lib/data";
+import { InsightsControls } from "@/components/reports/InsightsControls";
+import { getExecutiveReport, getFilterOptions } from "@/lib/data";
 import { parseCompare, parseFilters, periodDisplay } from "@/lib/metrics/exec";
 import { ALL_TIME } from "@/lib/metrics/arr";
 
@@ -33,21 +33,23 @@ export default async function ChurnPage({
   const compare = parseCompare(sp.compare);
   // trendLength 1: this page reads only churnAnalysis, so a 6-period retention
   // loop would be computed and thrown away.
-  const r = await getExecutiveReport({ period, filters, trendLength: 1, compare });
+  const [r, options] = await Promise.all([
+    getExecutiveReport({ period, filters, trendLength: 1, compare }),
+    getFilterOptions(),
+  ]);
 
   const filtered = r.filteredCount !== r.totalCount;
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border pb-2.5">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 className="h5">Why we lose accounts</h2>
-          <span className="tabular font-body text-[11.5px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
-            {periodDisplay(period)}
-            {filtered && ` · ${r.filteredCount} of ${r.totalCount} accounts`}
-          </span>
-        </div>
-        <PeriodControls period={period} compare={compare} />
+      <InsightsControls options={options} period={period} compare={compare} />
+
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border pb-2">
+        <h2 className="h5">Why we lose accounts</h2>
+        <span className="tabular font-body text-[11.5px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
+          {periodDisplay(period)}
+          {filtered && ` · ${r.filteredCount} of ${r.totalCount} accounts`}
+        </span>
       </div>
 
       {r.churnAnalysis.churned === 0 ? (

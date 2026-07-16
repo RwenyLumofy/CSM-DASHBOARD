@@ -15,10 +15,10 @@ import { AtRiskPanel } from "@/components/reports/AtRiskPanel";
 import { Headline } from "@/components/reports/Headline";
 import { ConcentrationPanel } from "@/components/reports/ConcentrationPanel";
 import { MovementPanel } from "@/components/reports/MovementPanel";
-import { PeriodControls } from "@/components/reports/PeriodControls";
+import { InsightsControls } from "@/components/reports/InsightsControls";
 import { RetentionTrend } from "@/components/reports/RetentionTrend";
 import { RevenueWaterfall } from "@/components/reports/RevenueWaterfall";
-import { getExecutiveReport } from "@/lib/data";
+import { getExecutiveReport, getFilterOptions } from "@/lib/data";
 import {
   buildHeadline,
   defaultExecPeriod,
@@ -50,7 +50,10 @@ export default async function ReportsPage({
   const inProgress = periodInProgress(period);
   const progress = inProgress ? periodProgress(period) : null;
 
-  const r = await getExecutiveReport({ period, filters, trendLength: 6, compare });
+  const [r, options] = await Promise.all([
+    getExecutiveReport({ period, filters, trendLength: 6, compare }),
+    getFilterOptions(),
+  ]);
   const { retention: cur, previous: prev, portfolio, currency } = r;
 
   // Deltas are only meaningful when a comparison period exists (compare="none"
@@ -74,6 +77,9 @@ export default async function ReportsPage({
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Dates and filters together — scoping the data is one thought. */}
+      <InsightsControls options={options} period={period} compare={compare} />
+
 
       {/* An in-progress period's numbers are still accruing — say so, rather
           than letting a half-empty waterfall read as "a quiet quarter". */}
@@ -109,11 +115,7 @@ export default async function ReportsPage({
               actually govern — not in the page header above eight panels they
               can't touch. That's Stripe's pattern, and it's what makes the
               "compared to" promise honest. */}
-          <SectionWithControls
-            title="How the book performed"
-            when={periodDisplay(period)}
-            controls={<PeriodControls period={period} compare={compare} />}
-          />
+          <Section title="How the book performed" when={periodDisplay(period)} />
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi

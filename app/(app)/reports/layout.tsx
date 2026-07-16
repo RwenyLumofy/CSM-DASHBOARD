@@ -1,47 +1,30 @@
 import { InsightsNav } from "@/components/reports/InsightsNav";
-import { ReportFilters } from "@/components/reports/ReportFilters";
-import { getFilterOptions } from "@/lib/data";
+
 
 /* =========================================================================
    Insights shell — title, subpage nav, and the shared filter bar.
 
-   Filters live HERE because they're the one universal control: "Zainab's
-   enterprise accounts" is a meaningful lens on the quarterly report, on
-   all-time churn, and on any coverage audit added later. The PERIOD control
-   does NOT live here — each subpage owns its clock, and a page that's all-time
-   or as-of-today must not show a selector it would ignore. That was exactly the
-   bug in the page-level "compare" control: it sat above eight panels and
-   governed two.
+   Title and nav only. The controls — dates AND filters — live on each PAGE,
+   together in one bar (see InsightsControls).
 
-   THE CONSTRAINT: a Next.js layout does not receive searchParams. So the layout
-   supplies only what needs the DB — the filter OPTIONS — and ReportFilters (a
-   client component) reads the active values from the URL itself.
+   Filters were here originally, on the reasoning that they're universal while a
+   period is per-page. True on both counts, and still the wrong call: it put the
+   filter bar top-right and the date picker down in a section header, so scoping
+   the data — one thought — meant reaching into two corners of the screen.
 
-   The "N of M accounts" readout deliberately is NOT here. It's page-specific
-   truth: on Overview it means accounts in the filtered book, on Churn it would
-   mean something else entirely. A layout can't compute it without searchParams,
-   and faking it with an unfiltered count would render "131 of 131" while the
-   page below showed 51. Each page states its own.
+   A layout also can't read searchParams, which made everything page-specific
+   awkward here anyway: the "N of M accounts" readout had no way to know what was
+   filtered.
    ========================================================================= */
 
 export const dynamic = "force-dynamic";
 
-export default async function InsightsLayout({ children }: { children: React.ReactNode }) {
-  // Only the OPTIONS need the DB, and source() is request-memoized — this shares
-  // the page's single load of clients+arr_events rather than querying twice.
-  const options = await getFilterOptions();
-
+export default function InsightsLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-5 p-5 md:p-8">
-      {/* Nav and filters share one row: they're both "what am I looking at",
-          and stacking them cost a third band of chrome before any number. The
-          filter bar wraps beneath on narrow screens rather than squeezing. */}
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-        <div className="flex flex-wrap items-center gap-4">
-          <h1 className="h2">Insights</h1>
-          <InsightsNav />
-        </div>
-        <ReportFilters options={options} />
+      <div className="flex flex-wrap items-center gap-4">
+        <h1 className="h2">Insights</h1>
+        <InsightsNav />
       </div>
       {children}
     </div>
