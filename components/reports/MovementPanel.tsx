@@ -35,12 +35,40 @@ const KIND: Record<MovementKind, { label: string; icon: typeof XCircle; tone: st
 const REVENUE_KINDS: MovementKind[] = ["churned", "downgraded", "expanded", "new"];
 const CHIP_ORDER: MovementKind[] = ["churned", "downgraded", "usage_dormant", "usage_declined", "expanded", "new"];
 
+/* The panel speaks TWO taxonomies and only one was in the legend.
+   The chips are KINDS (churned, dormant…); the sections are GROUPS (revenue
+   moved / early warnings). So "Early warnings" existed as a heading with no
+   chip, and "show me all 8 accounts to call" was unaskable — you'd have to
+   select "dormant" and "usage falling" at once, which a single-value filter
+   can't do.
+
+   One `kind` param now accepts either level: a group key selects every kind
+   inside it, a kind key selects just that one. Mutually exclusive by
+   construction, so the two levels can't fight — which is what a second param
+   would have allowed. */
+type GroupKey = "revenue" | "warning";
+
+const GROUPS: { key: GroupKey; label: string; kinds: MovementKind[] }[] = [
+  { key: "revenue", label: "Revenue moved", kinds: REVENUE_KINDS },
+  { key: "warning", label: "Early warnings", kinds: ["usage_dormant", "usage_declined"] },
+];
+
+const isGroupKey = (v: string | undefined): v is GroupKey => v === "revenue" || v === "warning";
+
+/** Which kinds a selection covers — a group expands to its members, a kind is
+ *  itself, nothing means everything. */
+function kindsFor(sel: string | undefined): MovementKind[] | null {
+  if (!sel) return null;
+  if (isGroupKey(sel)) return GROUPS.find((g) => g.key === sel)!.kinds;
+  return [sel as MovementKind];
+}
+
 const DEFAULT_LIMIT = 6;
 
 /** A URL with one `kind` filter toggled — the chips are the obvious way to
  *  narrow this list, so they behave like it. Built server-side from the live
  *  params; re-clicking the active chip clears it. */
-function withKind(params: Record<string, string | string[] | undefined>, kind: MovementKind | null): string {
+function withKind(params: Record<string, string | string[] | undefined>, kind: string | null): string {
   const next = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     const val = Array.isArray(v) ? v[0] : v;
@@ -78,15 +106,18 @@ export function MovementPanel({
   usageMonth: string;
   params: Record<string, string | string[] | undefined>;
 }) {
-  const activeKind = (Array.isArray(params.kind) ? params.kind[0] : params.kind) as MovementKind | undefined;
+  const sel = Array.isArray(params.kind) ? params.kind[0] : params.kind;
   const expanded = (Array.isArray(params.all) ? params.all[0] : params.all) === "1";
 
   // Counts come from the UNFILTERED set so the chips keep offering every route
   // back out — a chip that vanishes when you click its neighbour is a trap.
   const counts = new Map<MovementKind, number>();
   for (const m of movements) counts.set(m.kind, (counts.get(m.kind) ?? 0) + 1);
+  const groupCount = (g: GroupKey) =>
+    GROUPS.find((x) => x.key === g)!.kinds.reduce((a, k) => a + (counts.get(k) ?? 0), 0);
 
-  const shown = activeKind ? movements.filter((m) => m.kind === activeKind) : movements;
+  const selected = kindsFor(sel);
+  const shown = selected ? movements.filter((m) => selected.includes(m.kind)) : movements;
   const revenue = shown.filter((m) => REVENUE_KINDS.includes(m.kind));
   const leading = shown.filter((m) => !REVENUE_KINDS.includes(m.kind));
 
@@ -94,12 +125,37 @@ export function MovementPanel({
     <Card>
       {/* No <h3> here: the section heading above already says "What changed",
           and repeating it four pixels below was pure duplication. */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <span className="eyebrow">Accounts that moved</span>
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* GROUP chips first — they're the two sections below, so the legend
+              and the layout finally name the same things. Neutral-toned on
+              purpose: they're a level up, not another kind. */}
+          {GROUPS.filter((g) => groupCount(g.key) > 0).map((g) => {
+            const on = sel === g.key;
+            return (
+              <Link
+                key={g.key}
+                href={withKind(params, g.key)}
+                scroll={false}
+                aria-pressed={on}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-pill border px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
+                  on
+                    ? "border-fg/25 bg-bg-inverse text-bg ring-2 ring-fg/15"
+                    : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+                )}
+              >
+                {groupCount(g.key)} {g.label.toLowerCase()}
+              </Link>
+            );
+          })}
+
+          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+
           {CHIP_ORDER.filter((k) => counts.get(k)).map((k) => {
             const K = KIND[k];
-            const on = activeKind === k;
+            const on = sel === k;
             return (
               <Link
                 key={k}
@@ -117,7 +173,8 @@ export function MovementPanel({
               </Link>
             );
           })}
-          {activeKind && (
+
+          {sel && (
             <Link
               href={withKind(params, null)}
               scroll={false}
