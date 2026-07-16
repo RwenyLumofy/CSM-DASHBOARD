@@ -258,6 +258,14 @@ export interface ExecReport {
   /** retained + new business = the book's real closing position. */
   closingArr: number;
   trend: TrendPoint[];
+  /** The same-length trend window ending at the COMPARISON period, so the chart
+   *  can lay one arc over the other (Stripe's "compared to previous period"
+   *  ghost). Null when compare="none". Aligned by position, not by date — that
+   *  alignment is what lets two stretches of time share one x-axis. */
+  compareTrend: TrendPoint[] | null;
+  /** The earliest period in `trend` with real retention movement; everything
+   *  before it is a 100% no-data artefact. Null if the whole window is. */
+  firstRealTrendPeriod: string | null;
   downgrades: { client: Client; delta: number }[];
   churned: ChurnRow[];
   healthSplit: { healthy: number; watch: number; atRisk: number };
@@ -309,26 +317,69 @@ export function buildExecReport({
   const previous = cmpPeriod ? computeRetention(scoped, events, cmpPeriod) : null;
   const movement = periodMovement(events, bounds.start, bounds.end);
 
-  // Trend: oldest → newest, ending at the selected period.
-  const trend: TrendPoint[] = [];
-  for (let i = trendLength - 1; i >= 0; i--) {
-    const p = shiftPeriod(period, -i);
-    const r = computeRetention(scoped, events, p);
-    const b = periodBounds(p);
-    const m = periodMovement(events, b.start, b.end);
-    trend.push({
-      period: p,
-      label: b.label,
-      nrr: r.nrr,
-      grr: r.grr,
-      startingArr: r.startingArr,
-      endingArr: r.endingArr,
-      expansion: r.expansion,
-      contraction: r.contraction,
-      churn: r.churn,
-      newBusiness: m.newBusiness,
-    });
-  }
+  // Trend: oldest → newest, ending at `endPeriod`.
+  const buildTrend = (endPeriod: string): TrendPoint[] => {
+    const out: TrendPoint[] = [];
+    for (let i = trendLength - 1; i >= 0; i--) {
+      const p = shiftPeriod(endPeriod, -i);
+      const r = computeRetention(scoped, events, p);
+      const b = periodBounds(p);
+      const m = periodMovement(events, b.start, b.end);
+      out.push({
+        period: p,
+        label: b.label,
+        nrr: r.nrr,
+        grr: r.grr,
+        startingArr: r.startingArr,
+        endingArr: r.endingArr,
+        expansion: r.expansion,
+        contraction: r.contraction,
+        churn: r.churn,
+        newBusiness: m.newBusiness,
+      });
+    }
+    return out;
+  };
+  const trend = buildTrend(period);
+  // The first period in the trend that has any retention movement behind it.
+  // Everything before it plots NRR/GRR 100% — arithmetically right (nothing
+  // churned, nothing expanded) and indistinguishable from "the ledger doesn't
+  // go back this far". On live data the ledger's first churn event is 2025-Q4,
+  // so a 6-quarter trend renders 100/100/100/96.5/85.9/93.1 — which reads as
+  // "retention was perfect and then collapsed" when it actually means "the data
+  // starts here". The UI marks the boundary rather than letting a board draw
+  // that conclusion.
+  const firstRealTrendPeriod =
+    trend.find((t) => t.churn > 0 || t.expansion > 0 || t.contraction > 0)?.period ?? null;
+  // The ghost window. Only meaningful if it has real movement behind it — a
+  // window entirely before the ledger begins computes NRR 100 for every point
+  // (no opening base, nothing churned), which would draw a confident flat line
+  // describing a period that has no data at all. Suppress it rather than
+  // invent it.
+  const compareTrendRaw = cmpPeriod ? buildTrend(cmpPeriod) : null;
+  // The guard is MOVEMENT, not an opening balance.
+  //
+  // computeRetention returns NRR 100 for a period where nothing happened —
+  // arithmetically correct (start + 0 − 0 − 0 = start) and completely
+  // indistinguishable from "we have no data for this window". This ledger's
+  // events effectively begin in Q4 2025, so a year-over-year ghost drew a
+  // confident flat 100% line across all of 2024, silently asserting perfect
+  // retention for quarters the ledger knows nothing about. Every one of those
+  // points passed a `startingArr > 0` check, because accounts DID carry ARR
+  // then — their new_business events are backdated to contract start; it's the
+  // renewals/churn that aren't recorded.
+  //
+  // Requiring at least one real movement means the ghost only appears when
+  // there's something to compare against, and vanishes rather than lying.
+  // RETENTION movement specifically — new_business is excluded, because the
+  // chart plots NRR/GRR and those move only on churn/expansion/contraction (new
+  // business is deliberately kept out of retention). Counting it would let a
+  // window full of new logos and nothing else "pass" and then draw as flat 100%.
+  // This ledger records no churn at all before 2025-Q4, so a year-over-year
+  // ghost across 2024 is exactly that case.
+  const compareHasMovement =
+    compareTrendRaw?.some((t) => t.churn > 0 || t.expansion > 0 || t.contraction > 0) ?? false;
+  const compareTrend = compareHasMovement ? compareTrendRaw : null;
 
   // Period-scoped churn, straight off the ledger (see header note #2).
   const byId = new Map(scoped.map((c) => [c.id, c]));
@@ -383,6 +434,8 @@ export function buildExecReport({
     newBusiness: movement.newBusiness,
     closingArr: retention.endingArr + movement.newBusiness,
     trend,
+    compareTrend,
+    firstRealTrendPeriod,
     downgrades: downgradeRows,
     churned,
     healthSplit: { healthy: portfolio.healthy, watch: portfolio.watch, atRisk: portfolio.atRisk },

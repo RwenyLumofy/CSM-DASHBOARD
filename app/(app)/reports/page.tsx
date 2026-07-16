@@ -181,7 +181,12 @@ export default async function ReportsPage({
               <h3 className="h5 mb-4">Retention over time</h3>
               {/* Plain serializable rows only — the formatter functions live
                   inside RetentionTrend, on the client. */}
-              <RetentionTrend trend={r.trend.map((t) => ({ period: t.period, nrr: t.nrr, grr: t.grr }))} />
+              <RetentionTrend
+                trend={r.trend.map((t) => ({ period: t.period, nrr: t.nrr, grr: t.grr }))}
+                compareTrend={r.compareTrend?.map((t) => ({ period: t.period, nrr: t.nrr, grr: t.grr })) ?? null}
+                comparePeriod={r.comparison.period}
+                firstRealPeriod={r.firstRealTrendPeriod}
+              />
               <div className="mt-4 grid grid-cols-3 gap-3 border-t border-border-subtle pt-4">
                 <MiniStat label="Expansion" value={formatCurrency(cur.expansion, currency, { compact: true })} tone="good" />
                 <MiniStat label="Contraction" value={formatCurrency(cur.contraction, currency, { compact: true })} tone="warn" />
