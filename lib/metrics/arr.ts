@@ -161,12 +161,43 @@ function isoWeekBounds(year: number, week: number): { start: string; end: string
   return { start: iso(start), end: iso(end) };
 }
 
+const addDays = (iso: string, n: number): string => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+const daysBetween = (a: string, b: string): number =>
+  Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+
+/** An explicit range key: "YYYY-MM-DD..YYYY-MM-DD", both ends INCLUSIVE.
+ *
+ *  Inclusive because that's what a person reading a date picker means — "Apr 1
+ *  to Apr 30" includes the 30th. Every other period key here resolves to a
+ *  half-open [start, end) internally, so the end gets bumped a day on the way
+ *  in. ClientsTable's renewalBounds hit this exact trap and documents the same
+ *  fix; getting it wrong silently drops the last day of every custom range.
+ */
+export function rangeKey(startInclusive: string, endInclusive: string): string {
+  return `${startInclusive}..${endInclusive}`;
+}
+
+export function isRangeKey(period: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}\.\.\d{4}-\d{2}-\d{2}$/.test(period);
+}
+
 /**
  * Parse a period string into [start, end) date bounds.
- * Supports "YYYY-Www" (ISO week), "YYYY-Qn" (quarter), "YYYY-MM" (month), and
- * "YYYY" (year). Falls back to the calendar year of an unrecognized string.
+ * Supports "YYYY-MM-DD..YYYY-MM-DD" (explicit inclusive range), "YYYY-Www"
+ * (ISO week), "YYYY-Qn" (quarter), "YYYY-MM" (month), and "YYYY" (year). Falls
+ * back to the calendar year of an unrecognized string.
  */
 export function periodBounds(period: string): PeriodBounds {
+  if (isRangeKey(period)) {
+    const [s, e] = period.split("..");
+    // +1 day: the key's end is inclusive, these bounds are exclusive.
+    return { start: s, end: addDays(e, 1), label: `${s} → ${e}` };
+  }
   const w = period.match(/^(\d{4})-W(\d{1,2})$/i);
   if (w) {
     const y = Number(w[1]);
@@ -216,6 +247,15 @@ export function currentWeek(now: Date = new Date()): string {
  *  shiftPeriod("2026-Q2", 1) -> "2026-Q3", shiftPeriod("2026-W01", -1) ->
  *  "2025-W52". Powers the timeline filter's prev/next navigation. */
 export function shiftPeriod(period: string, delta: number): string {
+  // An explicit range steps by its OWN length, so paging a 30-day window moves
+  // 30 days — not a month, and not a calendar boundary. That keeps "last 30
+  // days" comparable against "the 30 days before it", which is what a
+  // period-over-period comparison of a rolling window has to mean.
+  if (isRangeKey(period)) {
+    const [s, e] = period.split("..");
+    const span = daysBetween(s, e) + 1; // inclusive end -> length in days
+    return rangeKey(addDays(s, delta * span), addDays(e, delta * span));
+  }
   const w = period.match(/^(\d{4})-W(\d{1,2})$/i);
   if (w) {
     const { start } = isoWeekBounds(Number(w[1]), Number(w[2]));

@@ -33,7 +33,7 @@ import {
   type Movement,
   type RiskRow,
 } from "@/lib/metrics/movement";
-import { arrAsOf, currentQuarter, periodBounds, periodMovement, shiftPeriod } from "@/lib/metrics/arr";
+import { arrAsOf, currentQuarter, currentWeek, isRangeKey, periodBounds, periodMovement, rangeKey, shiftPeriod } from "@/lib/metrics/arr";
 import { computeRetention } from "@/lib/metrics/retention";
 import { buildPortfolioSummary } from "@/lib/metrics/portfolio";
 import { buildHealthDrag, type HealthDrag } from "@/lib/metrics/health-drag";
@@ -216,6 +216,14 @@ export function comparisonPeriod(period: string, mode: CompareMode): string | nu
   if (mode === "none") return null;
   if (mode === "prev") return shiftPeriod(period, -1);
   const grain = periodGrain(period);
+  // A rolling range can't "step back a year" in window-lengths — shifting a
+  // 30-day window by 12 lands 360 days back, not a year. Shift its dates
+  // instead so "last 30 days vs the same 30 days last year" means that.
+  if (grain === "range") {
+    const [s, e] = period.split("..");
+    const backAYear = (iso: string) => `${Number(iso.slice(0, 4)) - 1}${iso.slice(4)}`;
+    return rangeKey(backAYear(s), backAYear(e));
+  }
   const back = grain === "quarter" ? 4 : grain === "month" ? 12 : grain === "week" ? 52 : 1;
   return shiftPeriod(period, -back);
 }
@@ -468,63 +476,77 @@ export function bookArrAsOf(events: ArrEvent[], dateISO: string, clientIds: Set<
 /* ------------------------------------------------------------ date presets */
 
 /**
- * Named relative periods, the way a CRM offers them.
+ * Named ranges, in TWO VISIBLY SEPARATE GROUPS — calendar and rolling.
  *
- * The first cut made you step through time with a < > pager plus a
- * Month/Quarter/Year toggle — two controls to answer "last quarter", which is a
- * single thought. Salesforce (LAST_QUARTER, THIS_YEAR…), HubSpot and Vitally all
- * lead with named relative ranges for the same reason: nobody thinks "go back
- * one quarter from the current one", they think "last quarter".
+ * The split is the point, and it's the one thing verified research actually
+ * settled. Salesforce has a documented asymmetry in its own date literals:
+ * LAST_N_DAYS:30 INCLUDES today, while LAST_N_MONTHS:3 EXCLUDES the current
+ * month. Same naming shape, opposite semantics, in a mature product. That's the
+ * strongest evidence there is that rolling and calendar must not be blended
+ * into one "relative ranges" list — which is exactly what the first cut did.
  *
- * These resolve to the SAME period keys periodBounds already parses, so this is
- * a vocabulary over the existing math rather than a second date system.
- * Deliberately no "last 30 days"-style rolling windows: periodBounds is
- * calendar-bucketed, and a rolling range would need real arbitrary bounds
- * everywhere downstream (trend stepping, comparison, labels) for a question
- * this page doesn't ask. The pager stays for stepping to an arbitrary older
- * period, which then shows as "Custom".
+ * Both are the convention, not one: product analytics (Mixpanel defaults to
+ * "Last 30 days") leads with rolling; CRM/finance (Salesforce reports, Stripe
+ * Reports — which defaults to the PRIOR MONTH) leans calendar. This page is
+ * finance-shaped, so the calendar default stands; rolling is offered alongside
+ * rather than argued away, which is what I did the first time.
+ *
+ * Weeks were already fully built (isoWeekBounds/currentWeek, and periodBounds
+ * has always parsed "YYYY-Www") and simply never exposed.
+ *
+ * Rolling presets resolve to explicit "YYYY-MM-DD..YYYY-MM-DD" range keys, so
+ * they flow through periodBounds/shiftPeriod/comparison like any other period
+ * — no second date system.
  */
-export type PresetKey =
-  | "this_quarter"
-  | "last_quarter"
-  | "this_month"
-  | "last_month"
-  | "this_year"
-  | "last_year";
+export type PresetGroup = "calendar" | "rolling";
 
-export const PRESETS: { key: PresetKey; label: string }[] = [
-  { key: "last_quarter", label: "Last quarter" },
-  { key: "this_quarter", label: "This quarter" },
-  { key: "last_month", label: "Last month" },
-  { key: "this_month", label: "This month" },
-  { key: "last_year", label: "Last year" },
-  { key: "this_year", label: "This year" },
-];
-
-const monthKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-
-export function resolvePreset(key: PresetKey, now: Date = new Date()): string {
-  switch (key) {
-    case "this_quarter":
-      return currentQuarter(now);
-    case "last_quarter":
-      return shiftPeriod(currentQuarter(now), -1);
-    case "this_month":
-      return monthKey(now);
-    case "last_month":
-      return shiftPeriod(monthKey(now), -1);
-    case "this_year":
-      return String(now.getUTCFullYear());
-    case "last_year":
-      return String(now.getUTCFullYear() - 1);
-  }
+export interface Preset {
+  key: string;
+  label: string;
+  group: PresetGroup;
+  resolve: (now: Date) => string;
 }
 
-/** Which preset (if any) a period key currently corresponds to — so the picker
- *  shows "Last quarter" rather than a raw key, and shows "Custom" once you've
- *  paged somewhere no preset names. */
-export function matchPreset(period: string, now: Date = new Date()): PresetKey | null {
-  return PRESETS.find((p) => resolvePreset(p.key, now) === period)?.key ?? null;
+const monthKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+const minusDays = (d: Date, n: number) => {
+  const x = new Date(d);
+  x.setUTCDate(x.getUTCDate() - n);
+  return x;
+};
+
+/** A trailing window ENDING YESTERDAY. Deliberately not including today: today
+ *  is a partial day, and a "last 30 days" that silently contains a half-finished
+ *  one is the Salesforce LAST_N_DAYS trap — it makes the most recent point dip
+ *  for no reason. Stated here because the choice is invisible otherwise. */
+const rolling = (days: number) => (now: Date) =>
+  rangeKey(dayKey(minusDays(now, days)), dayKey(minusDays(now, 1)));
+
+export const PRESETS: Preset[] = [
+  // calendar — completed periods first, matching Stripe Reports' prior-month default
+  { key: "last_week", label: "Last week", group: "calendar", resolve: (n) => shiftPeriod(currentWeek(n), -1) },
+  { key: "this_week", label: "This week", group: "calendar", resolve: (n) => currentWeek(n) },
+  { key: "last_month", label: "Last month", group: "calendar", resolve: (n) => shiftPeriod(monthKey(n), -1) },
+  { key: "this_month", label: "This month", group: "calendar", resolve: (n) => monthKey(n) },
+  { key: "last_quarter", label: "Last quarter", group: "calendar", resolve: (n) => shiftPeriod(currentQuarter(n), -1) },
+  { key: "this_quarter", label: "This quarter", group: "calendar", resolve: (n) => currentQuarter(n) },
+  { key: "last_year", label: "Last year", group: "calendar", resolve: (n) => String(n.getUTCFullYear() - 1) },
+  { key: "this_year", label: "This year", group: "calendar", resolve: (n) => String(n.getUTCFullYear()) },
+  // rolling — trailing windows, each ending yesterday
+  { key: "last_7d", label: "Last 7 days", group: "rolling", resolve: rolling(7) },
+  { key: "last_30d", label: "Last 30 days", group: "rolling", resolve: rolling(30) },
+  { key: "last_90d", label: "Last 90 days", group: "rolling", resolve: rolling(90) },
+  { key: "last_365d", label: "Last 12 months", group: "rolling", resolve: rolling(365) },
+];
+
+export function resolvePreset(key: string, now: Date = new Date()): string {
+  return PRESETS.find((p) => p.key === key)?.resolve(now) ?? currentQuarter(now);
+}
+
+/** Which preset a period key corresponds to — so the picker reads "Last
+ *  quarter" rather than a raw key, and "Custom" once you've paged off one. */
+export function matchPreset(period: string, now: Date = new Date()): string | null {
+  return PRESETS.find((p) => p.resolve(now) === period)?.key ?? null;
 }
 
 /* ---------------------------------------------------------------- headline */
@@ -585,6 +607,17 @@ export function buildHeadline(r: ExecReport): Headline {
 
 /** A short, human label for a period key ("2026-Q2" → "Q2 2026"). */
 export function periodDisplay(period: string): string {
+  // An explicit range has no name — show the dates, because "Apr 1 – Apr 30" is
+  // the only honest label for one. A rolling window is meaningless without them.
+  if (isRangeKey(period)) {
+    const [s, e] = period.split("..");
+    const fmt = (iso: string, withYear: boolean) => {
+      const m = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      return `${m[Number(iso.slice(5, 7))]} ${Number(iso.slice(8, 10))}${withYear ? ` ${iso.slice(0, 4)}` : ""}`;
+    };
+    const sameYear = s.slice(0, 4) === e.slice(0, 4);
+    return `${fmt(s, !sameYear)} – ${fmt(e, true)}`;
+  }
   const q = period.match(/^(\d{4})-Q([1-4])$/i);
   if (q) return `Q${q[2]} ${q[1]}`;
   const mo = period.match(/^(\d{4})-(\d{2})$/);
@@ -592,13 +625,28 @@ export function periodDisplay(period: string): string {
     const names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     return `${names[Number(mo[2])]} ${mo[1]}`;
   }
+  // A week number is not a date. "Week 28, 2026" makes a reader count on their
+  // fingers; the span is what they actually want, and showing it is the whole
+  // point of the picker.
   const w = period.match(/^(\d{4})-W(\d{1,2})$/i);
-  if (w) return `Week ${Number(w[2])}, ${w[1]}`;
+  if (w) {
+    const b = periodBounds(period);
+    const end = new Date(`${b.end}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() - 1); // bounds.end is exclusive
+    const m = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const s2 = b.start;
+    const e2 = end.toISOString().slice(0, 10);
+    const sameMonth = s2.slice(0, 7) === e2.slice(0, 7);
+    const left = `${m[Number(s2.slice(5, 7))]} ${Number(s2.slice(8, 10))}`;
+    const right = sameMonth ? `${Number(e2.slice(8, 10))}` : `${m[Number(e2.slice(5, 7))]} ${Number(e2.slice(8, 10))}`;
+    return `${left} – ${right}`;
+  }
   return period;
 }
 
 /** The granularity of a period key — drives the period picker's mode toggle. */
-export function periodGrain(period: string): "week" | "month" | "quarter" | "year" {
+export function periodGrain(period: string): "range" | "week" | "month" | "quarter" | "year" {
+  if (isRangeKey(period)) return "range";
   if (/^\d{4}-W\d{1,2}$/i.test(period)) return "week";
   if (/^\d{4}-\d{2}$/.test(period)) return "month";
   if (/^\d{4}-Q[1-4]$/i.test(period)) return "quarter";
