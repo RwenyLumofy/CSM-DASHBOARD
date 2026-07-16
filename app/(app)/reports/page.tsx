@@ -205,7 +205,7 @@ export default async function ReportsPage({
               The only section with NAMES — which is what makes a reader lean in,
               and what the CS category leads with (a ranked account list, not an
               average). */}
-          <Section title="What changed" when={`${periodDisplay(period)} · usage ${monthName(r.usageMonth)}`} />
+          <Section title="What changed" when={periodDisplay(period)} />
           <MovementPanel
             movements={r.movements}
             currency={currency}

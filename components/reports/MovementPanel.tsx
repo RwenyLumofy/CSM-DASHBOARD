@@ -9,18 +9,24 @@ import { cn } from "@/lib/cn";
 
 /* "What changed" — accounts that moved, in TWO groups.
 
-   The single ranked list mixed realized loss with potential loss: SIAD Holding
-   ACTUALLY churned for −$23.9K, while MEP has not churned and $181.1K is what's
-   exposed if it does. Sorting both by "at stake" put a hypothetical above a
-   fact, and forced one column to mean two things ("−$23.9K ARR" beside "$181.1K
-   at stake") — the same two-scales-in-one-column bug already fixed on the health
-   panel and reintroduced here.
+   WHY TWO GROUPS AT ALL (the rationale, since it keeps getting questioned):
+   not taxonomy for its own sake — the MONEY COLUMN MEANS DIFFERENT THINGS.
+   SIAD Holding actually churned for −$23.9K; MEP has not churned and $181.1K is
+   what's exposed if it does. One list forced that column to carry both
+   ("−$23.9K ARR" beside "$181.1K at stake", disambiguated only by a sublabel)
+   and ranked a hypothetical above a fact. The split is what lets each column
+   have one meaning, keeps the ranking like-for-like, and confines sparklines to
+   the group where usage IS the story (on a churned row a sparkline misleads —
+   history runs past the churn date, so the line climbs while the row says
+   "Churned").
 
-   Splitting by whether revenue has MOVED fixes all three at once: each group's
-   money column has one meaning, the ranking is like-for-like, and sparklines
-   appear only in the group where usage IS the story. On a churned row a
-   sparkline actively misleads — usage history runs past the churn date, so the
-   line rises while the row says "Churned".
+   ONE CONCEPT, ONE PLACE. An audit found the taxonomy stated three times: a
+   chip row naming the groups, section headers naming them again, and a card
+   eyebrow ("Accounts that moved") restating the heading above the card. The
+   chips now live INSIDE the header of the group they belong to — the title is
+   the group filter, its chips are the kind filters within it. Nothing names a
+   group twice, and the clock/column label sit with the rows they govern rather
+   than being hoisted into a heading that spans both.
 */
 
 /* Definitions are transcribed from the rules in lib/metrics/movement.ts, not
@@ -70,7 +76,6 @@ function Tip({ children }: { children: React.ReactNode }) {
 }
 
 const REVENUE_KINDS: MovementKind[] = ["churned", "downgraded", "expanded", "new"];
-const CHIP_ORDER: MovementKind[] = ["churned", "downgraded", "usage_dormant", "usage_declined", "expanded", "new"];
 
 /* The panel speaks TWO taxonomies and only one was in the legend.
    The chips are KINDS (churned, dormant…); the sections are GROUPS (revenue
@@ -166,40 +171,110 @@ export function MovementPanel({
 
   return (
     <Card>
-      {/* No <h3> here: the section heading above already says "What changed",
-          and repeating it four pixels below was pure duplication. */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <span className="eyebrow">Accounts that moved</span>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* GROUP chips first — they're the two sections below, so the legend
-              and the layout finally name the same things. Neutral-toned on
-              purpose: they're a level up, not another kind. */}
-          {GROUPS.filter((g) => groupCount(g.key) > 0).map((g) => {
-            const on = sel === g.key;
+      {shown.length === 0 ? (
+        <div className="rounded-md bg-bg-subtle px-3 py-6 text-center">
+          <p className="caption">
+            Nothing matches that filter in {periodDisplay(period)}.{" "}
+            <Link href={withKind(params, null)} scroll={false} className="font-semibold text-sirius hover:underline">
+              Show all
+            </Link>
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-6">
+          {GROUPS.map((g) => {
+            const rows = shown.filter((m) => g.kinds.includes(m.kind));
+            // A group with no rows AND no selection has nothing to say. But if
+            // it's hidden BY a selection, its header stays as the way back.
+            if (!rows.length && !(sel && !g.kinds.includes(sel as MovementKind))) return null;
+            if (!rows.length) return null;
             return (
-              <Link
+              <Group
                 key={g.key}
-                href={withKind(params, g.key)}
-                scroll={false}
-                aria-pressed={on}
-                className={cn(
-                  "group relative inline-flex items-center gap-1.5 rounded-pill border px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
-                  on
-                    ? "border-fg/25 bg-bg-inverse text-bg ring-2 ring-fg/15"
-                    : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
-                )}
-              >
-                {groupCount(g.key)} {g.label.toLowerCase()}
-                <Tip>
-                  <strong className="font-semibold text-fg">{g.label}</strong> — {g.def}
-                </Tip>
-              </Link>
+                group={g}
+                sub={g.key === "revenue" ? `booked in ${periodDisplay(period)}` : `usage ${monthLabel(usageMonth)} vs the month before · revenue hasn't moved yet`}
+                rows={rows}
+                counts={counts}
+                total={groupCount(g.key)}
+                sel={sel}
+                currency={currency}
+                expanded={expanded}
+                params={params}
+                money={g.key === "revenue" ? "delta" : "stake"}
+              />
             );
           })}
+          {sel && (
+            <Link
+              href={withKind(params, null)}
+              scroll={false}
+              className="font-body text-[12px] font-semibold text-fg-subtle underline-offset-2 hover:text-fg hover:underline"
+            >
+              ← Show everything that moved
+            </Link>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
 
-          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+function Group({
+  group,
+  sub,
+  rows,
+  counts,
+  total,
+  sel,
+  currency,
+  expanded,
+  params,
+  money,
+}: {
+  group: (typeof GROUPS)[number];
+  sub: string;
+  rows: Movement[];
+  counts: Map<MovementKind, number>;
+  total: number;
+  sel: string | undefined;
+  currency: string;
+  expanded: boolean;
+  params: Record<string, string | string[] | undefined>;
+  /** Which number this group's column carries — one meaning per column, never
+   *  both. `delta` is money that HAS moved; `stake` is money exposed. */
+  money: "delta" | "stake";
+}) {
+  const visible = expanded ? rows : rows.slice(0, DEFAULT_LIMIT);
+  const hidden = rows.length - visible.length;
+  const fmt = (v: number) => formatCurrency(Math.abs(v), currency, { compact: true });
+  const groupOn = sel === group.key;
 
-          {CHIP_ORDER.filter((k) => counts.get(k)).map((k) => {
+  return (
+    <div>
+      {/* The header IS the group filter, and carries its own kind chips. One
+          concept, one place: the title names the group once, the clock and the
+          column label sit with the rows they actually govern. */}
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1.5 border-b border-border-subtle pb-2">
+        <Link
+          href={withKind(params, group.key)}
+          scroll={false}
+          aria-pressed={groupOn}
+          className={cn(
+            "group relative rounded-sm font-body text-[13px] font-semibold underline-offset-4 transition-colors duration-[140ms]",
+            groupOn ? "text-sirius underline" : "text-fg hover:text-sirius hover:underline",
+          )}
+        >
+          {group.label}
+          <span className="tabular ml-1.5 font-normal text-fg-subtle">{total}</span>
+          <Tip>
+            <strong className="font-semibold text-fg">{group.label}</strong> — {group.def}
+          </Tip>
+        </Link>
+
+        <span className="caption">{sub}</span>
+
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          {group.kinds.filter((k) => counts.get(k)).map((k) => {
             const K = KIND[k];
             const on = sel === k;
             return (
@@ -209,7 +284,7 @@ export function MovementPanel({
                 scroll={false}
                 aria-pressed={on}
                 className={cn(
-                  "group relative inline-flex items-center gap-1.5 rounded-pill px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
+                  "group relative inline-flex items-center gap-1.5 rounded-pill px-2 py-0.5 font-body text-[11px] font-semibold transition-all duration-[140ms]",
                   K.tone,
                   on ? "ring-2 ring-fg/20" : "opacity-70 hover:opacity-100",
                 )}
@@ -222,85 +297,8 @@ export function MovementPanel({
               </Link>
             );
           })}
-
-          {sel && (
-            <Link
-              href={withKind(params, null)}
-              scroll={false}
-              className="rounded-pill px-2 py-1 font-body text-[11px] font-semibold text-fg-subtle underline-offset-2 hover:text-fg hover:underline"
-            >
-              show all
-            </Link>
-          )}
+          <span className="caption tabular ml-1">{money === "delta" ? "ARR change" : "ARR at stake"}</span>
         </div>
-      </div>
-
-      {shown.length === 0 ? (
-        <div className="rounded-md bg-bg-subtle px-3 py-6 text-center">
-          <p className="caption">Nothing moved in {periodDisplay(period)}.</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-5">
-          {revenue.length > 0 && (
-            <Group
-              title="Revenue moved"
-              sub={`booked in ${periodDisplay(period)}`}
-              rows={revenue}
-              currency={currency}
-              expanded={expanded}
-              params={params}
-              money="delta"
-            />
-          )}
-          {leading.length > 0 && (
-            <Group
-              // "Leading indicators" was CS-literature jargon — it named the
-              // category the metric belongs to rather than what the rows are
-              // for. These are accounts to call before the revenue moves.
-              title="Early warnings"
-              sub={`usage ${monthLabel(usageMonth)} vs the month before · revenue hasn't moved yet`}
-              rows={leading}
-              currency={currency}
-              expanded={expanded}
-              params={params}
-              money="stake"
-            />
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function Group({
-  title,
-  sub,
-  rows,
-  currency,
-  expanded,
-  params,
-  money,
-}: {
-  title: string;
-  sub: string;
-  rows: Movement[];
-  currency: string;
-  expanded: boolean;
-  params: Record<string, string | string[] | undefined>;
-  /** Which number this group's column carries — one meaning per column, never
-   *  both. `delta` is money that HAS moved; `stake` is money exposed. */
-  money: "delta" | "stake";
-}) {
-  const visible = expanded ? rows : rows.slice(0, DEFAULT_LIMIT);
-  const hidden = rows.length - visible.length;
-  const fmt = (v: number) => formatCurrency(Math.abs(v), currency, { compact: true });
-
-  return (
-    <div>
-      <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 border-b border-border-subtle pb-1.5">
-        <span className="font-body text-[12.5px] font-semibold text-fg">{title}</span>
-        <span className="caption">{sub}</span>
-        <span className="caption tabular ml-auto">{money === "delta" ? "ARR change" : "ARR at stake"}</span>
       </div>
 
       <ul className="flex flex-col">
@@ -327,9 +325,6 @@ function Group({
                 </span>
               </div>
 
-              {/* Sparkline ONLY where usage is the story. On a revenue row it
-                  misleads: history runs past the churn date, so the line climbs
-                  while the row says "Churned". */}
               {money === "stake" && m.usage && m.usage.series.length > 1 && (
                 <Sparkline
                   data={m.usage.series.map((s) => s.mau)}
@@ -354,7 +349,7 @@ function Group({
         })}
       </ul>
 
-      {(hidden > 0 || expanded) && (
+      {(hidden > 0 || (expanded && rows.length > DEFAULT_LIMIT)) && (
         <Link
           href={hidden > 0 ? withExpanded(params, true) : withExpanded(params, false)}
           scroll={false}
