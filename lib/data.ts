@@ -208,6 +208,17 @@ export async function getDowngrades(): Promise<{ client: Client; delta: number }
  * `options` is built from the UNFILTERED book so the filter dropdowns keep
  * offering every value even once a filter narrows the data behind them.
  */
+/**
+ * Filter dropdown options alone — for the Insights LAYOUT, which renders the
+ * shared filter bar across every subpage but must not pay for a full report to
+ * do it. `source()` is request-memoized, so the layout and the page inside it
+ * share one load of clients+arr_events rather than querying twice.
+ */
+export async function getFilterOptions(): Promise<FilterOptions> {
+  const { clients } = await source();
+  return buildFilterOptions(clients);
+}
+
 export async function getExecutiveReport(opts: {
   period?: string;
   filters?: ExecFilters;

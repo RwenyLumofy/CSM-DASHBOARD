@@ -14,10 +14,9 @@ import { Donut } from "@/components/ui/charts";
 import { AtRiskPanel } from "@/components/reports/AtRiskPanel";
 import { Headline } from "@/components/reports/Headline";
 import { HealthDragPanel } from "@/components/reports/HealthDragPanel";
-import { ChurnPanel } from "@/components/reports/ChurnPanel";
 import { ConcentrationPanel } from "@/components/reports/ConcentrationPanel";
 import { MovementPanel } from "@/components/reports/MovementPanel";
-import { ReportControls } from "@/components/reports/ReportControls";
+import { PeriodControls } from "@/components/reports/PeriodControls";
 import { RetentionTrend } from "@/components/reports/RetentionTrend";
 import { RevenueWaterfall } from "@/components/reports/RevenueWaterfall";
 import { getExecutiveReport } from "@/lib/data";
@@ -75,19 +74,7 @@ export default async function ReportsPage({
   const noData = cur.startingArr === 0 && cur.endingArr === 0 && r.filteredCount === 0;
 
   return (
-    <div className="flex flex-col gap-5 p-5 md:p-8">
-      {/* Compact: the eyebrow used to read "Portfolio · Q3 2026" six inches from
-          a period navigator saying "Q3 2026", and the description restated the
-          title. Both gone — the headline below carries the actual news. */}
-      <h1 className="h2">Insights</h1>
-
-      <ReportControls
-        period={period}
-        compare={compare}
-        options={r.options}
-        filteredCount={r.filteredCount}
-        totalCount={r.totalCount}
-      />
+    <div className="flex flex-col gap-5">
 
       {/* An in-progress period's numbers are still accruing — say so, rather
           than letting a half-empty waterfall read as "a quiet quarter". */}
@@ -108,8 +95,26 @@ export default async function ReportsPage({
           {/* The sentence the whole page is evidence for. */}
           <Headline data={headline} currency={currency} />
 
-          {/* ============ 1. How did the period go? ============ */}
-          <Section title="How the book performed" when={periodDisplay(period)} />
+          {/* The filter dimension, stated where it applies. The shared bar in
+              the layout can't compute this — layouts don't receive
+              searchParams — and it means something different per subpage. */}
+          {r.filteredCount !== r.totalCount && (
+            <p className="caption tabular -mt-2">
+              Filtered to <span className="font-semibold text-fg">{r.filteredCount}</span> of {r.totalCount} accounts —
+              every figure below is recomputed for that book, not filtered after the fact.
+            </p>
+          )}
+
+          {/* ============ 1. How did the period go? ============
+              The period + compare controls live HERE, in the section they
+              actually govern — not in the page header above eight panels they
+              can't touch. That's Stripe's pattern, and it's what makes the
+              "compared to" promise honest. */}
+          <SectionWithControls
+            title="How the book performed"
+            when={periodDisplay(period)}
+            controls={<PeriodControls period={period} compare={compare} />}
+          />
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi
@@ -214,14 +219,7 @@ export default async function ReportsPage({
               Questions a board MIGHT ask, not ones it will. Demoted below the
               answer, and labelled point-in-time — these don't move with the
               period selector. */}
-          {/* ============ 4. Why do we lose accounts? ============
-              58% of the book is churned and nothing here asked about it. Its own
-              section, all-time on purpose: churn PATTERNS need the whole
-              history, not one quarter. */}
-          <Section title="Why we lose accounts" when="all time" />
-          <ChurnPanel churn={r.churnAnalysis} currency={currency} />
-
-          <Section title="The shape of the book" when="point-in-time" />
+          <Section title="The shape of the book" when="as of today · follows your filters" />
 
           {/* Health, decomposed. The donut says WHAT the split is; this says
               WHY — and separates real customer signal from our own unfilled
@@ -289,6 +287,20 @@ export default async function ReportsPage({
  *  ambiguous, and each card had grown a footnote explaining which clock it was
  *  on. Stating it once per section is what those footnotes were compensating
  *  for. */
+function SectionWithControls({ title, when, controls }: { title: string; when: string; controls: React.ReactNode }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border pb-2.5">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="h5">{title}</h2>
+        <span className="tabular font-body text-[11.5px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
+          {when}
+        </span>
+      </div>
+      {controls}
+    </div>
+  );
+}
+
 function Section({ title, when }: { title: string; when: string }) {
   return (
     <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border pb-2">
