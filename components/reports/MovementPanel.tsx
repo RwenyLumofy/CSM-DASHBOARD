@@ -7,28 +7,31 @@ import { formatCurrency } from "@/lib/format";
 import { periodDisplay } from "@/lib/metrics/exec";
 import { cn } from "@/lib/cn";
 
-/* "What changed" — one ranked list of accounts that moved.
+/* "What changed" — two columns, side by side.
 
-   IT WAS TWO SECTIONS, and the reason was real but the fix was wrong. A single
-   money column can't carry both "−$23.9K lost" and "$181.1K at risk" under one
-   header — those are different quantities, and a column header can only name
-   one. I split the list to give each its own column.
+   The split is real: "−$23.9K lost" and "$181.1K at risk" are different
+   quantities and can't share a column header. What was wrong was STACKING them
+   — read a list, scroll, meet a second header, re-orient. That's what made it
+   feel like homework, and it's a layout problem, not a taxonomy one.
 
-   But the ambiguity lives in the COLUMN, not the list: put the qualifier on the
-   ROW ("−$23.9K lost" / "$181.1K at risk") and one list is unambiguous, because
-   each row says what its own number means. Two sections was a structural answer
-   to a labelling problem, and it cost the reader a second thing to parse before
-   reading any account.
+   Side by side, both are visible at once and each keeps its own money meaning:
 
-   The other argument for splitting — that ranking a hypothetical above a fact
-   would offend a CFO — doesn't survive either. SIAD Holding already churned;
-   there is nothing to do about it. MEP is $181K you can still save. For a
-   worklist, ranking by money involved is right, and "already gone" vs "still
-   savable" is exactly what the row's kind badge says.
+     Revenue moved  · what already happened   │  Early warnings · what might
+     ARR change, signed                       │  ARR at risk, unsigned
+     the record                               │  the worklist
 
-   What the split DID get right is kept: sparklines appear only on usage rows.
-   On a churned row a sparkline misleads — history runs past the churn date, so
-   the line climbs while the row says "Churned".
+   The two columns also read as what they are — a ledger of the past next to a
+   list of calls to make — which stacking actively obscured by implying one
+   ranks above the other.
+
+   Rows carry their own qualifier ("lost" / "at risk" / "added") anyway, so a
+   column is never the only thing disambiguating a number. Sparklines appear
+   only on the warnings side: on a churned row a sparkline misleads, since usage
+   history runs past the churn date and the line climbs while the row says
+   "Churned".
+
+   Collapses to one column below `lg` — at that width, side-by-side would crush
+   both.
 */
 
 /* Definitions are transcribed from the rules in lib/metrics/movement.ts, not
@@ -171,76 +174,77 @@ export function MovementPanel({
   const revenue = shown.filter((m) => REVENUE_KINDS.includes(m.kind));
   const leading = shown.filter((m) => !REVENUE_KINDS.includes(m.kind));
 
+  const cols = GROUPS.map((g) => ({ g, rows: shown.filter((m) => g.kinds.includes(m.kind)) })).filter(
+    // A column with no rows has nothing to say. If a filter emptied it, the
+    // chips above are still the way back — no need for a placeholder column.
+    (c) => c.rows.length > 0,
+  );
+  const alone = cols.length === 1;
+
   return (
     <Card>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {GROUPS.filter((g) => groupCount(g.key) > 0).map((g) => {
-            const on = sel === g.key;
-            return (
-              <Link
-                key={g.key}
-                href={withKind(params, g.key)}
-                scroll={false}
-                aria-pressed={on}
-                className={cn(
-                  "group relative inline-flex items-center gap-1.5 rounded-pill border px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
-                  on
-                    ? "border-fg/25 bg-bg-inverse text-bg ring-2 ring-fg/15"
-                    : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
-                )}
-              >
-                {groupCount(g.key)} {g.label.toLowerCase()}
-                <Tip>
-                  <strong className="font-semibold text-fg">{g.label}</strong> — {g.def}
-                </Tip>
-              </Link>
-            );
-          })}
-
-          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
-
-          {(Object.keys(KIND) as MovementKind[]).filter((k) => counts.get(k)).map((k) => {
-            const K = KIND[k];
-            const on = sel === k;
-            return (
-              <Link
-                key={k}
-                href={withKind(params, k)}
-                scroll={false}
-                aria-pressed={on}
-                className={cn(
-                  "group relative inline-flex items-center gap-1.5 rounded-pill px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
-                  K.tone,
-                  on ? "ring-2 ring-fg/20" : "opacity-70 hover:opacity-100",
-                )}
-              >
-                <span className={cn("size-1.5 rounded-pill", K.dot)} />
-                {counts.get(k)} {K.label.toLowerCase()}
-                <Tip>
-                  <strong className="font-semibold text-fg">{K.label}</strong> — {K.def}
-                </Tip>
-              </Link>
-            );
-          })}
-
-          {sel && (
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        {GROUPS.filter((g) => groupCount(g.key) > 0).map((g) => {
+          const on = sel === g.key;
+          return (
             <Link
-              href={withKind(params, null)}
+              key={g.key}
+              href={withKind(params, g.key)}
               scroll={false}
-              className="rounded-pill px-2 py-1 font-body text-[11px] font-semibold text-fg-subtle underline-offset-2 hover:text-fg hover:underline"
+              aria-pressed={on}
+              className={cn(
+                "group relative inline-flex items-center gap-1.5 rounded-pill border px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
+                on
+                  ? "border-fg/25 bg-bg-inverse text-bg ring-2 ring-fg/15"
+                  : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+              )}
             >
-              show all
+              {groupCount(g.key)} {g.label.toLowerCase()}
+              <Tip>
+                <strong className="font-semibold text-fg">{g.label}</strong> — {g.def}
+              </Tip>
             </Link>
-          )}
-        </div>
+          );
+        })}
 
-        {/* The column has no header: each row names its own quantity, because
-            "lost" and "at risk" can't share one. */}
-        <span className="caption tabular ml-auto">ranked by ARR involved</span>
+        <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+
+        {(Object.keys(KIND) as MovementKind[]).filter((k) => counts.get(k)).map((k) => {
+          const K = KIND[k];
+          const on = sel === k;
+          return (
+            <Link
+              key={k}
+              href={withKind(params, k)}
+              scroll={false}
+              aria-pressed={on}
+              className={cn(
+                "group relative inline-flex items-center gap-1.5 rounded-pill px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
+                K.tone,
+                on ? "ring-2 ring-fg/20" : "opacity-70 hover:opacity-100",
+              )}
+            >
+              <span className={cn("size-1.5 rounded-pill", K.dot)} />
+              {counts.get(k)} {K.label.toLowerCase()}
+              <Tip>
+                <strong className="font-semibold text-fg">{K.label}</strong> — {K.def}
+              </Tip>
+            </Link>
+          );
+        })}
+
+        {sel && (
+          <Link
+            href={withKind(params, null)}
+            scroll={false}
+            className="rounded-pill px-2 py-1 font-body text-[11px] font-semibold text-fg-subtle underline-offset-2 hover:text-fg hover:underline"
+          >
+            show all
+          </Link>
+        )}
       </div>
 
-      {shown.length === 0 ? (
+      {cols.length === 0 ? (
         <div className="rounded-md bg-bg-subtle px-3 py-6 text-center">
           <p className="caption">
             Nothing matches that filter in {periodDisplay(period)}.{" "}
@@ -250,30 +254,67 @@ export function MovementPanel({
           </p>
         </div>
       ) : (
-        <>
-          <ul className="flex flex-col">
-            {(expanded ? shown : shown.slice(0, DEFAULT_LIMIT)).map((m) => (
-              <Row key={`${m.client.id}-${m.kind}`} m={m} currency={currency} />
-            ))}
-          </ul>
-          {shown.length > DEFAULT_LIMIT && (
-            <Link
-              href={withExpanded(params, !expanded)}
-              scroll={false}
-              className="mt-2 inline-block font-body text-[12px] font-semibold text-sirius underline-offset-2 hover:underline"
-            >
-              {expanded ? "Show fewer" : `Show ${shown.length - DEFAULT_LIMIT} more`}
-            </Link>
-          )}
-        </>
+        <div className={cn("grid gap-x-8 gap-y-6", alone ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2")}>
+          {cols.map(({ g, rows }) => (
+            <Column
+              key={g.key}
+              group={g}
+              sub={g.key === "revenue" ? periodDisplay(period) : `usage ${monthLabel(usageMonth)} vs the month before`}
+              rows={rows}
+              expanded={expanded}
+              params={params}
+              currency={currency}
+            />
+          ))}
+        </div>
       )}
-
-      <p className="caption mt-4 border-t border-border-subtle pt-3">
-        Revenue movement is {periodDisplay(period)}, off the ARR ledger — the same source as the waterfall. Usage
-        compares {monthLabel(usageMonth)} against the month before (usage history is monthly, so it can&apos;t follow a
-        part-quarter).
-      </p>
     </Card>
+  );
+}
+
+function Column({
+  group,
+  sub,
+  rows,
+  expanded,
+  params,
+  currency,
+}: {
+  group: (typeof GROUPS)[number];
+  sub: string;
+  rows: Movement[];
+  expanded: boolean;
+  params: Record<string, string | string[] | undefined>;
+  currency: string;
+}) {
+  const visible = expanded ? rows : rows.slice(0, DEFAULT_LIMIT);
+  const hidden = rows.length - visible.length;
+  const revenue = group.key === "revenue";
+
+  return (
+    <section className={cn("flex flex-col", !revenue && "lg:border-l lg:border-border-subtle lg:pl-8")}>
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-border-subtle pb-2">
+        <h4 className="font-body text-[13px] font-semibold text-fg">{group.label}</h4>
+        <span className="tabular caption">{rows.length}</span>
+        <span className="caption ml-auto">{sub}</span>
+      </div>
+
+      <ul className="flex flex-col">
+        {visible.map((m) => (
+          <Row key={`${m.client.id}-${m.kind}`} m={m} currency={currency} />
+        ))}
+      </ul>
+
+      {rows.length > DEFAULT_LIMIT && (
+        <Link
+          href={withExpanded(params, !expanded)}
+          scroll={false}
+          className="mt-2 inline-block font-body text-[12px] font-semibold text-sirius underline-offset-2 hover:underline"
+        >
+          {hidden > 0 ? `Show ${hidden} more` : "Show fewer"}
+        </Link>
+      )}
+    </section>
   );
 }
 
@@ -287,9 +328,9 @@ function Row({ m, currency }: { m: Movement; currency: string }) {
   const realized = m.arrDelta !== 0;
 
   return (
-    <li className="flex items-center gap-3 border-b border-border-subtle py-2.5 last:border-0">
-      <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", K.tone)}>
-        <Icon size={14} strokeWidth={2} />
+    <li className="flex items-center gap-2.5 border-b border-border-subtle py-2 last:border-0">
+      <span className={cn("grid size-6 shrink-0 place-items-center rounded", K.tone)}>
+        <Icon size={13} strokeWidth={2} />
       </span>
 
       <div className="min-w-0 flex-1">
@@ -313,14 +354,14 @@ function Row({ m, currency }: { m: Movement; currency: string }) {
         <Sparkline
           data={m.usage.series.map((s) => s.mau)}
           min={0}
-          width={64}
-          height={22}
+          width={44}
+          height={20}
           color="var(--color-danger)"
-          className="hidden shrink-0 sm:block"
+          className="hidden shrink-0 xl:block"
         />
       )}
 
-      <div className="w-24 shrink-0 text-right">
+      <div className="w-[72px] shrink-0 text-right">
         <span
           className={cn(
             "tabular block font-body text-sm font-semibold",
