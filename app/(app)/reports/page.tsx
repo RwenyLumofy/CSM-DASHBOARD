@@ -1,17 +1,8 @@
 import Link from "next/link";
-import {
-  AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
-  CalendarClock,
-  HeartPulse,
-  Minus,
-  TrendingDown,
-  TrendingUp,
-  Wallet,
-} from "lucide-react";
+import { AlertTriangle, CalendarClock } from "lucide-react";
 import { Card, CardEyebrow } from "@/components/ui/Card";
 import { AtRiskPanel } from "@/components/reports/AtRiskPanel";
+import { SummaryRow } from "@/components/reports/SummaryRow";
 import { Headline } from "@/components/reports/Headline";
 import { ConcentrationPanel } from "@/components/reports/ConcentrationPanel";
 import { MovementPanel } from "@/components/reports/MovementPanel";
@@ -56,22 +47,30 @@ export default async function ReportsPage({
   ]);
   const { retention: cur, previous: prev, portfolio, currency } = r;
 
-  // Deltas are only meaningful when a comparison period exists (compare="none"
-  // → prev is null → every tile renders without a delta chip).
-  const pctOf = (part: number, whole: number) => (whole ? (part / whole) * 100 : 0);
-  const grossChurnPct = pctOf(cur.churn + cur.contraction, cur.startingArr);
+  // Logo retention stays available but SECONDARY — it answers a different
+  // question from revenue retention (how many logos vs how much money), so it
+  // earns a line, not a primary tile.
   const logoRet = cur.logoCount ? ((cur.logoCount - cur.logoChurnCount) / cur.logoCount) * 100 : 0;
-  const d = prev
-    ? {
-        nrr: cur.nrr - prev.nrr,
-        grr: cur.grr - prev.grr,
-        churn: grossChurnPct - pctOf(prev.churn + prev.contraction, prev.startingArr),
-        logo:
-          logoRet - (prev.logoCount ? ((prev.logoCount - prev.logoChurnCount) / prev.logoCount) * 100 : 0),
-      }
-    : null;
-  const vs = r.comparison.period ? `vs ${periodDisplay(r.comparison.period)}` : undefined;
+  const logoRetPrev = prev?.logoCount ? ((prev.logoCount - prev.logoChurnCount) / prev.logoCount) * 100 : null;
   const headline = buildHeadline(r);
+  // Elevated-risk renewals — the same >=30 threshold the at-risk panel bands as
+  // Medium or High. NOT a churn forecast: it's the ARR attached to renewals
+  // carrying risk signals, which is a different claim.
+  const interventionRows = r.atRisk.filter((x) => x.risk >= 30);
+  // Carries period + compare + filters into every drill-down, so a summary tile
+  // never dumps you into an unfiltered view.
+  const qs = new URLSearchParams(
+    Object.entries(sp).flatMap(([k, v]) => {
+      const val = Array.isArray(v) ? v[0] : v;
+      return val ? [[k, val] as [string, string]] : [];
+    }),
+  ).toString();
+  // The period's last DAY (bounds.end is exclusive), for "as of 30 Jun 2026".
+  const periodEndLabel = (() => {
+    const d = new Date(`${r.bounds.end}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  })();
 
   const noData = cur.startingArr === 0 && cur.endingArr === 0 && r.filteredCount === 0;
 
@@ -109,93 +108,36 @@ export default async function ReportsPage({
         <EmptyReport />
       ) : (
         <>
-          {/* ============ 0. The book, as of today ============
-              Moved up from "the shape of the book" at the bottom. Total ARR is
-              the anchor every other figure is a fraction of; it was in section
-              four, under three period-scoped sections that assume you already
-              know how big the book is. NOT period-scoped — these describe now,
-              which is why they sit ABOVE the period controls' territory rather
-              than inside it. */}
-          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-            <Kpi
-              label="Total ARR"
-              value={formatCurrency(portfolio.totalArr, currency, { compact: true })}
-              icon={Wallet}
-              tone="accent"
-              sub={`${portfolio.totalClients} active accounts · as of today →`}
-              href="/clients"
-            />
-            <Kpi
-              label="Up for renewal"
-              value={formatCurrency(portfolio.arrUpForRenewal90d, currency, { compact: true })}
-              icon={CalendarClock}
-              tone={portfolio.renewalsNext90d > 0 ? "warn" : "neutral"}
-              sub={`${portfolio.renewalsNext90d} accounts · next 90 days`}
-            />
-            <Kpi
-              label="Average health"
-              value={String(portfolio.avgHealth)}
-              icon={HeartPulse}
-              tone={portfolio.avgHealth >= 75 ? "good" : portfolio.avgHealth >= 55 ? "warn" : "bad"}
-              sub={`${r.healthSplit.atRisk} scoring under 55 · why? →`}
-              href="/reports/health"
-            />
-            <Kpi
-              label="Open tickets"
-              value={String(portfolio.openTickets)}
-              icon={AlertTriangle}
-              tone={portfolio.openTickets > 20 ? "warn" : "neutral"}
-              sub="across the filtered book"
-            />
-          </div>
+          {/* ============ 1. The first ten seconds ============
+              Four summary areas, not eight equal tiles. Eight equal tiles is
+              another way of saying no hierarchy: average health and open
+              tickets competed with the portfolio's value for the same
+              attention. Demoted, with reasons, in SummaryRow. */}
+          <SummaryRow
+            d={{
+              closingArr: r.closingArr,
+              openingArr: cur.startingArr,
+              activeAccounts: portfolio.totalClients,
+              isCurrent: inProgress,
+              periodEndLabel: periodEndLabel,
+              comparisonLabel: r.comparison.period ? periodDisplay(r.comparison.period) : null,
+              grr: cur.grr,
+              nrr: cur.nrr,
+              grrPrev: prev?.grr ?? null,
+              nrrPrev: prev?.nrr ?? null,
+              grossArrLost: cur.churn + cur.contraction,
+              renewalArr: portfolio.arrUpForRenewal90d,
+              renewalCount: portfolio.renewalsNext90d,
+              interventionArr: interventionRows.reduce((a, x) => a + x.arr, 0),
+              interventionCount: interventionRows.length,
+              topRisk: interventionRows[0] ?? null,
+              arr: r.arr,
+              qs: qs,
+            }}
+          />
 
-          {/* ============ 1. How did the period go? ============
-              The period + compare controls live HERE, in the section they
-              actually govern — not in the page header above eight panels they
-              can't touch. That's Stripe's pattern, and it's what makes the
-              "compared to" promise honest. */}
-          <Section title="How the book performed" when={periodDisplay(period)} />
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi
-              label="Net revenue retention"
-              value={`${cur.nrr}%`}
-              delta={d?.nrr}
-              vs={vs}
-              unit="pp"
-              tone={cur.nrr >= 100 ? "good" : "bad"}
-              icon={cur.nrr >= 100 ? TrendingUp : TrendingDown}
-              sub="incl. expansion, excl. new business"
-            />
-            <Kpi
-              label="Gross revenue retention"
-              value={`${cur.grr}%`}
-              delta={d?.grr}
-              vs={vs}
-              unit="pp"
-              tone={cur.grr >= 90 ? "good" : "warn"}
-              sub="excl. expansion"
-            />
-            <Kpi
-              label="Gross ARR churn"
-              value={`${grossChurnPct.toFixed(1)}%`}
-              delta={d?.churn}
-              vs={vs}
-              unit="pp"
-              invert
-              tone={grossChurnPct > 5 ? "bad" : "good"}
-              sub={`${formatCurrency(cur.churn + cur.contraction, currency, { compact: true })} lost`}
-            />
-            <Kpi
-              label="Logo retention"
-              value={`${logoRet.toFixed(1)}%`}
-              delta={d?.logo}
-              vs={vs}
-              unit="pp"
-              tone={logoRet >= 90 ? "good" : "warn"}
-              sub={`${cur.logoChurnCount} of ${cur.logoCount} churned`}
-            />
-          </div>
+          {/* ============ 2. Why ARR changed ============ */}
+          <Section title="Why ARR changed" when={periodDisplay(period)} />
 
           {/* ---------------- waterfall + trend ----------------
               items-start: CSS grid defaults to align-items:stretch, so the
@@ -237,6 +179,21 @@ export default async function ReportsPage({
               </div>
             </Card>
           </div>
+
+          {/* Logo retention, secondary: revenue retention and logo retention
+              answer different questions, so it stays — as a line, not a tile.
+              Points, not relative %, for the same reason GRR uses points. */}
+          <p className="caption tabular -mt-1">
+            <span className="font-semibold text-fg">Logo retention {logoRet.toFixed(1)}%</span> — {cur.logoChurnCount} of{" "}
+            {cur.logoCount} accounts open at the start of {periodDisplay(period)} churned
+            {logoRetPrev != null && (
+              <>
+                {" · "}
+                {logoRet - logoRetPrev >= 0 ? "+" : "−"}
+                {Math.abs(logoRet - logoRetPrev).toFixed(1)} pts vs {periodDisplay(r.comparison.period!)}
+              </>
+            )}
+          </p>
 
           {/* ============ 2. Who moved? ============
               The only section with NAMES — which is what makes a reader lean in,
@@ -344,94 +301,8 @@ function monthName(ym: string): string {
   return `${names[Number(ym.slice(5, 7))] ?? ym} ${ym.slice(0, 4)}`;
 }
 
-type Tone = "good" | "warn" | "bad" | "accent" | "neutral";
 
-const TONE_CHIP: Record<Tone, string> = {
-  good: "bg-success-bg text-success-fg",
-  warn: "bg-warning-bg text-warning-fg",
-  bad: "bg-danger-bg text-danger-fg",
-  accent: "bg-sirius-50 text-sirius-600",
-  neutral: "bg-bg-muted text-fg-muted",
-};
-
-/** A KPI tile with a period-over-period delta.
- *  `invert` flips the good/bad colouring for metrics where DOWN is good
- *  (churn): a −2pp move in churn is a win, not a loss. */
-function Kpi({
-  label,
-  value,
-  sub,
-  delta,
-  vs,
-  unit = "",
-  tone = "neutral",
-  invert = false,
-  icon: Icon,
-  href,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  /** Undefined = no comparison selected; the delta chip is omitted entirely. */
-  delta?: number;
-  /** Spelled-out comparison target for the chip's tooltip, e.g. "vs Q1 2026". */
-  vs?: string;
-  unit?: string;
-  tone?: Tone;
-  invert?: boolean;
-  icon?: typeof TrendingUp;
-  /** Where this number lives as a LIST. Omitted when there isn't one — a fake
-   *  link is worse than none. */
-  href?: string;
-}) {
-  const d = delta ?? 0;
-  const flat = delta == null || Math.abs(d) < 0.05;
-  const positive = invert ? d < 0 : d > 0;
-  const DeltaIcon = flat ? Minus : positive ? ArrowUpRight : ArrowDownRight;
-
-  const body = (
-    <>
-      <div className="flex items-center justify-between gap-2">
-        <span className="eyebrow">{label}</span>
-        {Icon && (
-          <span className={cn("grid size-8 shrink-0 place-items-center rounded-md", TONE_CHIP[tone])}>
-            <Icon size={16} strokeWidth={1.75} />
-          </span>
-        )}
-      </div>
-      <div className="flex items-end gap-2">
-        <span className="tabular font-display text-[30px] font-bold leading-none tracking-tight text-fg">{value}</span>
-        {delta != null && (
-          <span
-            className={cn(
-              "tabular mb-1 inline-flex items-center gap-0.5 rounded-pill px-1.5 py-0.5 text-[11px] font-semibold",
-              flat ? "bg-bg-muted text-fg-subtle" : positive ? "bg-success-bg text-success-fg" : "bg-danger-bg text-danger-fg",
-            )}
-            title={vs ?? "vs comparison period"}
-          >
-            <DeltaIcon size={11} strokeWidth={2.5} aria-hidden />
-            {flat ? "flat" : `${Math.abs(d).toFixed(1)}${unit}`}
-          </span>
-        )}
-      </div>
-      {sub && <span className="caption">{sub}</span>}
-    </>
-  );
-
-  // A KPI that maps onto a real list becomes a link; one that doesn't stays a
-  // card. Interactive styling only where something actually happens.
-  return href ? (
-    <Card interactive className="flex flex-col gap-3 transition-colors hover:border-sirius-200">
-      <Link href={href} className="flex flex-col gap-3">
-        {body}
-      </Link>
-    </Card>
-  ) : (
-    <Card className="flex flex-col gap-3">{body}</Card>
-  );
-}
-
-function MiniStat({ label, value, tone }: { label: string; value: string; tone: Tone }) {
+function MiniStat({ label, value, tone }: { label: string; value: string; tone: "good" | "warn" | "bad" | "accent" }) {
   const color =
     tone === "good" ? "text-success-fg" : tone === "warn" ? "text-warning-fg" : tone === "bad" ? "text-danger-fg" : "text-sirius";
   return (

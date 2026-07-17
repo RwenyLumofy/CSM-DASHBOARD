@@ -193,6 +193,76 @@ export function buildFilterOptions(all: Client[]): FilterOptions {
   };
 }
 
+/* ------------------------------------------------------- ARR reconciliation */
+
+/**
+ * clients.arr vs the ARR ledger — two sources for one number, and they disagree.
+ *
+ * Verified on live data: 20 of 55 live accounts differ, netting $369,277, and
+ * they differ in BOTH directions. Most carry ledger balances the column never
+ * picked up (Ministry of Environment: column $13,714, ledger $143,116 from two
+ * new_business events); one carries a column value with no ledger events at all
+ * (BBK Kuwait: column $19,670, ledger $0). Separately, 20 churned accounts still
+ * hold $39,979 in the ledger, because their churn import wrote a baseline event
+ * and no churn event to net it off.
+ *
+ * The consequence: the page can render "$1.270M" and "$1.679M" for the same book
+ * and both are defensible readings of different sources. WHICH ONE IS
+ * AUTHORITATIVE IS A DATA-PIPELINE QUESTION, NOT A UI ONE — so this measures the
+ * drift and lets the UI say a drift exists, rather than silently picking a side
+ * and rendering a confident wrong number.
+ */
+export interface ArrReconciliation {
+  /** Σ clients.arr over the live book — what the Total ARR tile reads. */
+  columnTotal: number;
+  /** Ledger balance over the live book — arguably the truth. */
+  ledgerLive: number;
+  /** Ledger balance over ALL clients, including churned accounts the ledger
+   *  still pays. This is what the waterfall's closing is built from. */
+  ledgerAll: number;
+  /** ledgerLive − columnTotal. */
+  drift: number;
+  /** Live accounts whose column and ledger disagree by more than $1. */
+  driftAccounts: number;
+  /** Churned accounts the ledger still carries a balance for. */
+  ghostAccounts: number;
+  ghostArr: number;
+  /** True when nothing above is materially out. */
+  reconciled: boolean;
+}
+
+export function buildArrReconciliation(clients: Client[], events: ArrEvent[]): ArrReconciliation {
+  const byClient = new Map<string, ArrEvent[]>();
+  for (const e of events) {
+    const l = byClient.get(e.clientId) ?? [];
+    l.push(e);
+    byClient.set(e.clientId, l);
+  }
+  // Far-future cut-off = "every event that exists" — the balance today.
+  const balance = (id: string) => arrAsOf(byClient.get(id) ?? [], "2099-01-01");
+  const live = clients.filter((c) => c.status !== "churned");
+  const churned = clients.filter((c) => c.status === "churned");
+
+  const columnTotal = live.reduce((a, c) => a + c.arr, 0);
+  const ledgerLive = live.reduce((a, c) => a + balance(c.id), 0);
+  const ledgerAll = clients.reduce((a, c) => a + balance(c.id), 0);
+  const driftAccounts = live.filter((c) => Math.abs(balance(c.id) - c.arr) > 1).length;
+  const ghosts = churned.filter((c) => balance(c.id) > 0);
+  const drift = ledgerLive - columnTotal;
+
+  return {
+    columnTotal,
+    ledgerLive,
+    ledgerAll,
+    drift,
+    driftAccounts,
+    ghostAccounts: ghosts.length,
+    ghostArr: ghosts.reduce((a, c) => a + balance(c.id), 0),
+    // A dollar of float is rounding; more than that is drift worth surfacing.
+    reconciled: Math.abs(drift) <= 1 && ghosts.length === 0,
+  };
+}
+
 /* ------------------------------------------------------------- comparison */
 
 /** How the selected period is compared against another. */
@@ -288,6 +358,9 @@ export interface ExecReport {
   concentration: { rows: ConcentrationRow[]; topArrShare: number; topMauShare: number };
   /** The month the usage movement is measured over (last complete month). */
   usageMonth: string;
+  /** Does clients.arr agree with the ARR ledger? They are two independent
+   *  sources and they have drifted — see buildArrReconciliation. */
+  arr: ArrReconciliation;
   /** Why the average health score is what it is — per-metric point cost. */
   healthDrag: HealthDrag;
   /** Who churns, when, how much. All-time, NOT period-scoped — see churn.ts. */
@@ -442,6 +515,7 @@ export function buildExecReport({
     atRisk: riskRows,
     concentration: concentrationRows,
     usageMonth,
+    arr: buildArrReconciliation(scoped, events),
     healthDrag: buildHealthDrag(scoped, healthConfig),
     // Follows the selected period like everything else. The churn page defaults
     // that period to ALL_TIME (patterns usually want the whole history), but
