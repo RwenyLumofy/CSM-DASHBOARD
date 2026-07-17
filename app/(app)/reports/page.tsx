@@ -157,8 +157,12 @@ export default async function ReportsPage({
             />
           </div>
 
-          {/* ---------------- waterfall + trend ---------------- */}
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr_1fr]">
+          {/* ---------------- waterfall + trend ----------------
+              items-start: CSS grid defaults to align-items:stretch, so the
+              trend card was being pulled to the waterfall's height and padding
+              the difference with dead space. They're independent cards with
+              independent content — each should end where its content does. */}
+          <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[1.5fr_1fr]">
             <Card>
               {/* Header is now the component's own: a derived insight replaces
                   "ARR waterfall · Q2 2026", and the opening→closing pair

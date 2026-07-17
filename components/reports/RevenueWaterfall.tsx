@@ -128,9 +128,10 @@ export function RevenueWaterfall({
   const closing = startingArr + expansion - contraction - churn + newBusiness;
   const net = closing - startingArr;
   const growth = startingArr > 0 ? net / startingArr : null;
-  // What share of churned ARR new business put back. Undefined without churn —
-  // "replaced 0" is not a rate.
-  const replacement = churn > 0 ? newBusiness / churn : null;
+  // No "churn replacement rate" metric: it was newBusiness/churn = 5.6%, which
+  // is the headline's "17.9×" inverted (1 / 17.9 = 5.6%). The same fact stated
+  // twice in two notations, one of them wearing a metric's clothes. The ratio
+  // reads better in the sentence, so the sentence keeps it.
 
   const all: Step[] = [
     { label: "Opening", value: startingArr, kind: "total", isTotal: true },
@@ -190,7 +191,7 @@ export function RevenueWaterfall({
       </div>
 
       {/* ---------- summary metrics ---------- */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3">
         <Metric label="Net ARR movement" value={moneyK(net)} tone={net < 0 ? "bad" : net > 0 ? "good" : "flat"} />
         <Metric
           label={`${periodLabel} ARR growth`}
@@ -205,12 +206,6 @@ export function RevenueWaterfall({
                 : `${growth > 0 ? "+" : "−"}${Math.abs(growth * 100).toFixed(1)}%`
           }
           tone={growth == null || Math.abs(growth * 100) < 0.05 ? "flat" : growth < 0 ? "bad" : "good"}
-        />
-        <Metric
-          label="Churn replacement rate"
-          value={replacement == null ? "—" : `${(replacement * 100).toFixed(1)}%`}
-          sub={replacement == null ? "no churn to replace" : "of churned ARR won back"}
-          tone={replacement == null ? "flat" : replacement >= 1 ? "good" : "bad"}
         />
       </div>
 
@@ -399,7 +394,7 @@ function Diverging({ moves, max }: { moves: Step[]; max: number }) {
   );
 }
 
-function Metric({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone: "good" | "bad" | "flat" }) {
+function Metric({ label, value, tone }: { label: string; value: string; tone: "good" | "bad" | "flat" }) {
   return (
     <div className="rounded-md border border-border-subtle bg-bg-subtle px-3 py-2">
       <div className="caption truncate">{label}</div>
@@ -411,7 +406,6 @@ function Metric({ label, value, sub, tone }: { label: string; value: string; sub
       >
         {value}
       </div>
-      {sub && <div className="caption mt-1 truncate text-[10.5px]">{sub}</div>}
     </div>
   );
 }
