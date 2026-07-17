@@ -213,24 +213,53 @@ export function buildFilterOptions(all: Client[]): FilterOptions {
  * and rendering a confident wrong number.
  */
 export interface ArrReconciliation {
-  /** Σ clients.arr over the live book — what the Total ARR tile reads. */
+  /** Σ clients.arr over the live book. */
   columnTotal: number;
-  /** Ledger balance over the live book — arguably the truth. */
+  /** Ledger balance over the live book. */
   ledgerLive: number;
-  /** Ledger balance over ALL clients, including churned accounts the ledger
-   *  still pays. This is what the waterfall's closing is built from. */
+  /** Ledger balance over ALL clients — what the waterfall's closing is built
+   *  from, and therefore what the Closing ARR tile shows. */
   ledgerAll: number;
-  /** ledgerLive − columnTotal. */
-  drift: number;
-  /** Live accounts whose column and ledger disagree by more than $1. */
-  driftAccounts: number;
-  /** Churned accounts the ledger still carries a balance for. */
-  ghostAccounts: number;
+  /** ledgerLive − columnTotal. The SIGNED sum: accounts drift both ways and
+   *  partially cancel, so this understates how much data is actually wrong. */
+  netVariance: number;
+  /** Σ|ledger − column|. Bigger than net, and the honest measure of how much
+   *  disagreement exists. */
+  grossVariance: number;
+  /** Ledger ARR carried by the accounts that disagree — not the size of the
+   *  disagreement, but how much revenue sits on records we can't trust. */
+  affectedArr: number;
+  affectedAccounts: number;
+  /** ledgerAll − ledgerLive: churned accounts the ledger still pays. This is
+   *  the gap between the Closing tile and the live-book ledger — a DIFFERENT
+   *  number from netVariance, and conflating them is what made the first
+   *  warning nonsense. */
   ghostArr: number;
-  /** True when nothing above is materially out. */
+  ghostAccounts: number;
   reconciled: boolean;
 }
 
+/**
+ * clients.arr vs the ARR ledger — two sources for one number, drifted apart.
+ *
+ * THREE DISTINCT QUANTITIES, previously conflated into one wrong sentence
+ * ("Closing $1.68M … ledger says $1.64M — $369.3K apart", which compared three
+ * numbers and labelled the gap with a fourth):
+ *
+ *   ghostArr      $39,979   Closing ($1.679M) − live ledger ($1.639M). Churned
+ *                           accounts the ledger still carries. THIS is the
+ *                           $1.68M vs $1.64M gap.
+ *   netVariance   $369,277  live ledger ($1.639M) − clients.arr ($1.270M). A
+ *                           different pair entirely.
+ *   grossVariance $460,815  Σ|per-account difference|. Larger than net because
+ *                           accounts drift in both directions and cancel —
+ *                           net flatters the problem.
+ *   affectedArr   $887,513  ledger ARR on the 20 accounts that disagree. Not
+ *                           the size of the error; the revenue standing on
+ *                           records that don't agree with themselves.
+ *
+ * Which source is authoritative is a data-pipeline question, not a UI one.
+ */
 export function buildArrReconciliation(clients: Client[], events: ArrEvent[]): ArrReconciliation {
   const byClient = new Map<string, ArrEvent[]>();
   for (const e of events) {
@@ -238,7 +267,6 @@ export function buildArrReconciliation(clients: Client[], events: ArrEvent[]): A
     l.push(e);
     byClient.set(e.clientId, l);
   }
-  // Far-future cut-off = "every event that exists" — the balance today.
   const balance = (id: string) => arrAsOf(byClient.get(id) ?? [], "2099-01-01");
   const live = clients.filter((c) => c.status !== "churned");
   const churned = clients.filter((c) => c.status === "churned");
@@ -246,20 +274,20 @@ export function buildArrReconciliation(clients: Client[], events: ArrEvent[]): A
   const columnTotal = live.reduce((a, c) => a + c.arr, 0);
   const ledgerLive = live.reduce((a, c) => a + balance(c.id), 0);
   const ledgerAll = clients.reduce((a, c) => a + balance(c.id), 0);
-  const driftAccounts = live.filter((c) => Math.abs(balance(c.id) - c.arr) > 1).length;
+  const drifted = live.filter((c) => Math.abs(balance(c.id) - c.arr) > 1);
   const ghosts = churned.filter((c) => balance(c.id) > 0);
-  const drift = ledgerLive - columnTotal;
 
   return {
     columnTotal,
     ledgerLive,
     ledgerAll,
-    drift,
-    driftAccounts,
-    ghostAccounts: ghosts.length,
+    netVariance: ledgerLive - columnTotal,
+    grossVariance: drifted.reduce((a, c) => a + Math.abs(balance(c.id) - c.arr), 0),
+    affectedArr: drifted.reduce((a, c) => a + balance(c.id), 0),
+    affectedAccounts: drifted.length,
     ghostArr: ghosts.reduce((a, c) => a + balance(c.id), 0),
-    // A dollar of float is rounding; more than that is drift worth surfacing.
-    reconciled: Math.abs(drift) <= 1 && ghosts.length === 0,
+    ghostAccounts: ghosts.length,
+    reconciled: drifted.length === 0 && ghosts.length === 0,
   };
 }
 
@@ -339,14 +367,14 @@ export interface ExecReport {
   /** retained + new business = the book's real closing position. */
   closingArr: number;
   trend: TrendPoint[];
-  /** The same-length trend window ending at the COMPARISON period, so the chart
-   *  can lay one arc over the other (Stripe's "compared to previous period"
-   *  ghost). Null when compare="none". Aligned by position, not by date — that
-   *  alignment is what lets two stretches of time share one x-axis. */
-  compareTrend: TrendPoint[] | null;
   /** The earliest period in `trend` with real retention movement; everything
    *  before it is a 100% no-data artefact. Null if the whole window is. */
   firstRealTrendPeriod: string | null;
+  /** `trend` with the no-data head removed — what the chart should actually
+   *  plot. Never draw a period the ledger has no movement for. */
+  trendPlotted: TrendPoint[];
+  /** How many leading periods were dropped, so the chart can say so. */
+  trendOmitted: number;
   downgrades: { client: Client; delta: number }[];
   churned: ChurnRow[];
   healthSplit: { healthy: number; watch: number; atRisk: number };
@@ -437,35 +465,16 @@ export function buildExecReport({
   // that conclusion.
   const firstRealTrendPeriod =
     trend.find((t) => t.churn > 0 || t.expansion > 0 || t.contraction > 0)?.period ?? null;
-  // The ghost window. Only meaningful if it has real movement behind it — a
-  // window entirely before the ledger begins computes NRR 100 for every point
-  // (no opening base, nothing churned), which would draw a confident flat line
-  // describing a period that has no data at all. Suppress it rather than
-  // invent it.
-  const compareTrendRaw = cmpPeriod ? buildTrend(cmpPeriod) : null;
-  // The guard is MOVEMENT, not an opening balance.
-  //
-  // computeRetention returns NRR 100 for a period where nothing happened —
-  // arithmetically correct (start + 0 − 0 − 0 = start) and completely
-  // indistinguishable from "we have no data for this window". This ledger's
-  // events effectively begin in Q4 2025, so a year-over-year ghost drew a
-  // confident flat 100% line across all of 2024, silently asserting perfect
-  // retention for quarters the ledger knows nothing about. Every one of those
-  // points passed a `startingArr > 0` check, because accounts DID carry ARR
-  // then — their new_business events are backdated to contract start; it's the
-  // renewals/churn that aren't recorded.
-  //
-  // Requiring at least one real movement means the ghost only appears when
-  // there's something to compare against, and vanishes rather than lying.
-  // RETENTION movement specifically — new_business is excluded, because the
-  // chart plots NRR/GRR and those move only on churn/expansion/contraction (new
-  // business is deliberately kept out of retention). Counting it would let a
-  // window full of new logos and nothing else "pass" and then draw as flat 100%.
-  // This ledger records no churn at all before 2025-Q4, so a year-over-year
-  // ghost across 2024 is exactly that case.
-  const compareHasMovement =
-    compareTrendRaw?.some((t) => t.churn > 0 || t.expansion > 0 || t.contraction > 0) ?? false;
-  const compareTrend = compareHasMovement ? compareTrendRaw : null;
+  // Periods BEFORE the ledger has any retention movement are not 100% — they're
+  // unknown. computeRetention returns 100 for "nothing happened", which is
+  // indistinguishable from "we have no data", and this ledger records no churn
+  // before 2025-Q4. Marking the boundary in a caption wasn't enough: the line
+  // was still drawn, and a drawn line is a claim. They're dropped from the
+  // series entirely and reported as a gap instead.
+  const trendPlotted = firstRealTrendPeriod
+    ? trend.slice(trend.findIndex((t) => t.period === firstRealTrendPeriod))
+    : [];
+  const trendOmitted = trend.length - trendPlotted.length;
 
   // Period-scoped churn, straight off the ledger (see header note #2).
   const byId = new Map(scoped.map((c) => [c.id, c]));
@@ -536,7 +545,8 @@ export function buildExecReport({
     newBusiness: movement.newBusiness,
     closingArr: retention.endingArr + movement.newBusiness,
     trend,
-    compareTrend,
+    trendPlotted,
+    trendOmitted,
     firstRealTrendPeriod,
     downgrades: downgradeRows,
     churned,

@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarClock } from "lucide-react";
 import { Card, CardEyebrow } from "@/components/ui/Card";
 import { AtRiskPanel } from "@/components/reports/AtRiskPanel";
 import { SummaryRow } from "@/components/reports/SummaryRow";
+import { DataQualityBanner } from "@/components/reports/DataQualityBanner";
 import { Headline } from "@/components/reports/Headline";
 import { ConcentrationPanel } from "@/components/reports/ConcentrationPanel";
 import { MovementPanel } from "@/components/reports/MovementPanel";
@@ -47,16 +48,13 @@ export default async function ReportsPage({
   ]);
   const { retention: cur, previous: prev, portfolio, currency } = r;
 
-  // Logo retention stays available but SECONDARY — it answers a different
-  // question from revenue retention (how many logos vs how much money), so it
-  // earns a line, not a primary tile.
-  const logoRet = cur.logoCount ? ((cur.logoCount - cur.logoChurnCount) / cur.logoCount) * 100 : 0;
-  const logoRetPrev = prev?.logoCount ? ((prev.logoCount - prev.logoChurnCount) / prev.logoCount) * 100 : null;
+  // Logo retention moved to the churn detail page — a bare line under the
+  // waterfall was an uncontained footer belonging to nothing.
   const headline = buildHeadline(r);
-  // Elevated-risk renewals — the same >=30 threshold the at-risk panel bands as
-  // Medium or High. NOT a churn forecast: it's the ARR attached to renewals
-  // carrying risk signals, which is a different claim.
-  const interventionRows = r.atRisk.filter((x) => x.risk >= 30);
+  // Renewals carrying risk signals — the same >=30 threshold the at-risk panel
+  // bands as Medium or High. NOT a churn forecast: it's ARR attached to
+  // renewals with warning signs, which is a different claim.
+  const attentionRows = r.atRisk.filter((x) => x.risk >= 30);
   // Carries period + compare + filters into every drill-down, so a summary tile
   // never dumps you into an unfiltered view.
   const qs = new URLSearchParams(
@@ -104,6 +102,10 @@ export default async function ReportsPage({
         </div>
       )}
 
+      {/* Page-level: the ARR drift affects every figure below, so it warns once
+          here rather than inside the ARR card competing with its own number. */}
+      {!noData && <DataQualityBanner arr={r.arr} qs={qs} />}
+
       {noData ? (
         <EmptyReport />
       ) : (
@@ -125,13 +127,11 @@ export default async function ReportsPage({
               nrr: cur.nrr,
               grrPrev: prev?.grr ?? null,
               nrrPrev: prev?.nrr ?? null,
-              grossArrLost: cur.churn + cur.contraction,
               renewalArr: portfolio.arrUpForRenewal90d,
               renewalCount: portfolio.renewalsNext90d,
-              interventionArr: interventionRows.reduce((a, x) => a + x.arr, 0),
-              interventionCount: interventionRows.length,
-              topRisk: interventionRows[0] ?? null,
-              arr: r.arr,
+              attentionArr: attentionRows.reduce((a, x) => a + x.arr, 0),
+              attentionCount: attentionRows.length,
+              topRisk: attentionRows[0] ?? null,
               qs: qs,
             }}
           />
@@ -167,9 +167,8 @@ export default async function ReportsPage({
               {/* Plain serializable rows only — the formatter functions live
                   inside RetentionTrend, on the client. */}
               <RetentionTrend
-                trend={r.trend.map((t) => ({ period: t.period, nrr: t.nrr, grr: t.grr }))}
-                compareTrend={r.compareTrend?.map((t) => ({ period: t.period, nrr: t.nrr, grr: t.grr })) ?? null}
-                comparePeriod={r.comparison.period}
+                trend={r.trendPlotted.map((t) => ({ period: t.period, nrr: t.nrr, grr: t.grr }))}
+                omitted={r.trendOmitted}
                 firstRealPeriod={r.firstRealTrendPeriod}
               />
               <div className="mt-4 grid grid-cols-3 gap-3 border-t border-border-subtle pt-4">
@@ -179,21 +178,6 @@ export default async function ReportsPage({
               </div>
             </Card>
           </div>
-
-          {/* Logo retention, secondary: revenue retention and logo retention
-              answer different questions, so it stays — as a line, not a tile.
-              Points, not relative %, for the same reason GRR uses points. */}
-          <p className="caption tabular -mt-1">
-            <span className="font-semibold text-fg">Logo retention {logoRet.toFixed(1)}%</span> — {cur.logoChurnCount} of{" "}
-            {cur.logoCount} accounts open at the start of {periodDisplay(period)} churned
-            {logoRetPrev != null && (
-              <>
-                {" · "}
-                {logoRet - logoRetPrev >= 0 ? "+" : "−"}
-                {Math.abs(logoRet - logoRetPrev).toFixed(1)} pts vs {periodDisplay(r.comparison.period!)}
-              </>
-            )}
-          </p>
 
           {/* ============ 2. Who moved? ============
               The only section with NAMES — which is what makes a reader lean in,

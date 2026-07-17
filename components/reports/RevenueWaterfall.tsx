@@ -151,7 +151,6 @@ export function RevenueWaterfall({
     { label: "Closing", value: closing, kind: "total", isTotal: true },
   ];
   const steps = all.filter((s) => s.isTotal || s.value !== 0);
-  const moves = steps.filter((s) => !s.isTotal);
   const noExpOrContra = expansion === 0 && contraction === 0;
 
   let run = 0;
@@ -185,7 +184,6 @@ export function RevenueWaterfall({
   // Comparison scale: SYMMETRIC around zero and SHARED. Normalizing each bar to
   // itself would make a $7K gain and a $124.7K loss the same length, which is
   // the opposite of the point.
-  const cmpMax = niceMax(Math.max(...moves.map((m) => Math.abs(m.value)), 1));
 
   return (
     <div className="flex flex-col gap-4">
@@ -306,71 +304,51 @@ export function RevenueWaterfall({
         </div>
       </div>
 
-      {/* ---------- zero-baseline movement comparison ---------- */}
-      {moves.length > 0 && (
-        <div className="border-t border-border-subtle pt-4">
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <span className="eyebrow">Movements compared</span>
-            <span className="caption">same scale, from zero — lengths are directly comparable</span>
-          </div>
-          <Diverging moves={moves} max={cmpMax} />
-        </div>
-      )}
+      {/* Three compact metrics instead of the "Movements compared" strip. The
+          strip re-drew churn and new business, which the waterfall already
+          shows — and these three are the figures the waterfall CAN'T show: it
+          draws the ends but never the distance between them, nor the ratio. */}
+      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-border-subtle bg-border-subtle">
+        <Stat label="Net ARR movement" value={moneyK(net)} tone={net < 0 ? "bad" : net > 0 ? "good" : "flat"} />
+        <Stat
+          label="ARR growth"
+          value={
+            growth == null
+              ? "—"
+              : Math.abs(growth * 100) < 0.05
+                ? "0.0%"
+                : `${growth > 0 ? "+" : "−"}${Math.abs(growth * 100).toFixed(1)}%`
+          }
+          tone={growth == null || Math.abs(growth * 100) < 0.05 ? "flat" : growth < 0 ? "bad" : "good"}
+        />
+        <Stat
+          label="Churn replacement"
+          // newBusiness/churn — undefined without churn, since "replaced 0" is
+          // not a rate.
+          value={churn > 0 ? `${((newBusiness / churn) * 100).toFixed(1)}%` : "—"}
+          tone={churn > 0 && newBusiness / churn >= 1 ? "good" : churn > 0 ? "bad" : "flat"}
+        />
+      </div>
 
-      {/* The equation line is gone: the chart IS the equation, and restating it
-          in prose underneath was an admission that the chart hadn't landed. */}
       {noExpOrContra && <p className="caption">No expansion or contraction recorded in {periodLabel}.</p>}
     </div>
   );
 }
 
-/** Diverging bars about a shared zero line: negatives left, positives right, one
- *  scale. Per-bar normalization would draw $7K and $124.7K the same length. */
-function Diverging({ moves, max }: { moves: Step[]; max: number }) {
+
+
+function Stat({ label, value, tone }: { label: string; value: string; tone: "good" | "bad" | "flat" }) {
   return (
-    <div className="flex flex-col gap-2">
-      {moves.map((m) => {
-        const down = m.value < 0;
-        const pct = (Math.abs(m.value) / max) * 50; // 50% = half-width = one side
-        return (
-          <div key={m.label} className="flex items-center gap-3">
-            <span className="w-[92px] shrink-0 truncate font-body text-[12px] font-semibold text-fg sm:w-[104px]">
-              {m.label}
-            </span>
-
-            <div className="relative h-4 flex-1">
-              {/* the zero line */}
-              <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-border-strong" aria-hidden />
-              <span
-                className={cn("absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[2px] transition-all duration-[220ms]", down ? "rounded-l-pill" : "rounded-r-pill")}
-                style={{
-                  width: `${Math.max(0.4, pct)}%`,
-                  background: down ? "var(--color-danger)" : "var(--color-success)",
-                  ...(down ? { right: "50%" } : { left: "50%" }),
-                }}
-              />
-            </div>
-
-            <span
-              className={cn(
-                "tabular w-[76px] shrink-0 text-right font-body text-[12px] font-semibold",
-                down ? "text-danger-fg" : "text-success-fg",
-              )}
-            >
-              {down ? "−" : "+"}
-              {moneyK(Math.abs(m.value))}
-            </span>
-          </div>
-        );
-      })}
-      <div className="flex items-center gap-3">
-        <span className="w-[92px] shrink-0 sm:w-[104px]" />
-        <div className="relative flex-1">
-          <span className="caption absolute left-1/2 -translate-x-1/2 text-[10px]">0</span>
-        </div>
-        <span className="w-[76px] shrink-0" />
+    <div className="bg-surface px-3 py-2">
+      <div className="caption truncate">{label}</div>
+      <div
+        className={cn(
+          "tabular mt-0.5 font-display text-base font-bold leading-none",
+          tone === "bad" ? "text-danger-fg" : tone === "good" ? "text-success-fg" : "text-fg",
+        )}
+      >
+        {value}
       </div>
     </div>
   );
 }
-

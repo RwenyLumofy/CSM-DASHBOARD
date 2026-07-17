@@ -1,33 +1,27 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowDownRight, ArrowUpRight, CalendarClock, Minus, Wallet } from "lucide-react";
-import { Card } from "@/components/ui/Card";
-import type { ArrReconciliation } from "@/lib/metrics/exec";
 import type { RiskRow } from "@/lib/metrics/movement";
 import { cn } from "@/lib/cn";
 
 /* =========================================================================
-   Four primary summary areas — the page's first ten seconds.
+   Four summary areas — scannable in five seconds.
 
-   It was eight equally-weighted tiles, which is another way of saying no
-   hierarchy: average health, open tickets, gross ARR churn and logo retention
-   competed for attention with the portfolio's value. Four areas now, and they
-   are NOT four identical cards — retention is deliberately wider because it
-   carries two related metrics and the relationship between them.
+   The first cut followed the brief too literally and turned each card into an
+   essay: metric definitions, a GRR → expansion → NRR diagram, "gross ARR lost",
+   a sentence explaining why NRR equalled GRR, and a reconciliation warning
+   competing with the number it warned about. All of it true, none of it
+   scannable — a summary card that needs reading isn't a summary.
 
-   What was demoted and why:
-     - Gross ARR churn -> supporting context under GRR. It's the GRR numerator's
-       missing half; a separate tile made a subtraction look like a finding.
-     - Logo retention  -> secondary. It answers a different question from revenue
-       retention (how many logos vs how much money) and deserves to stay, but not
-       at the same weight.
-     - Average health / open tickets -> their own pages. Neither is a commercial
-       number, and "open tickets" as a raw count isn't even operationally
-       actionable (see the intervention section).
+   The rule now, per card: one label, one value, one comparison, one context
+   line. Everything else moved:
+     - definitions      -> tooltips
+     - gross ARR lost   -> the waterfall, which is literally a picture of it
+     - the GRR/NRR relationship -> the retention trend's shaded lift band
+     - the ARR drift    -> one page-level banner (it affects every figure here,
+                           not just the ARR tile)
 
-   GRR AND NRR STAY SEPARATE even though they're identical this period. They're
-   different calculations that happen to coincide when expansion is zero, and
-   collapsing them would hide exactly the thing worth noticing: there was no
-   expansion at all.
+   Chrome reduced too: no icon chips, no card shadows, one hairline border.
+   Four bordered, shadowed, icon-topped boxes is a lot of furniture around
+   twelve numbers.
    ========================================================================= */
 
 const money = (v: number) => {
@@ -39,28 +33,21 @@ const money = (v: number) => {
 };
 
 export interface SummaryData {
-  /** Snapshot at the END of the selected period. */
   closingArr: number;
   openingArr: number;
   activeAccounts: number;
-  /** True when the selected period contains today — drives "Current" vs
-   *  "Closing", per the rule that "current" is only honest if it is. */
   isCurrent: boolean;
-  /** Human end-date of the period, for the historical label. */
   periodEndLabel: string;
   comparisonLabel: string | null;
   grr: number;
   nrr: number;
   grrPrev: number | null;
   nrrPrev: number | null;
-  grossArrLost: number;
   renewalArr: number;
   renewalCount: number;
-  interventionArr: number;
-  interventionCount: number;
+  attentionArr: number;
+  attentionCount: number;
   topRisk: RiskRow | null;
-  arr: ArrReconciliation;
-  /** Carries period + filters into every drill-down. */
   qs: string;
 }
 
@@ -68,207 +55,167 @@ const GRR_TARGET = 95;
 const NRR_TARGET = 100;
 
 export function SummaryRow({ d }: { d: SummaryData }) {
-  const link = (path: string) => (d.qs ? `${path}?${d.qs}` : path);
+  const link = (p: string) => (d.qs ? `${p}?${d.qs}` : p);
   const arrDelta = d.closingArr - d.openingArr;
-  // Percentage POINTS for rates, never relative % — "GRR fell 4%" is ambiguous
-  // between 4 points and 4% of 93.1.
   const grrPts = d.grrPrev == null ? null : d.grr - d.grrPrev;
   const nrrPts = d.nrrPrev == null ? null : d.nrr - d.nrrPrev;
   const lift = d.nrr - d.grr;
+  // Share of the renewal book that needs attention — more useful than the count
+  // alone, and it's the context line rather than a fifth number.
+  const attentionShare = d.renewalArr > 0 ? (d.attentionArr / d.renewalArr) * 100 : null;
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-[1fr_1.7fr_1fr_1fr]">
-      {/* ---- 1. ARR ---- */}
-      <Card interactive className="flex flex-col gap-2.5">
-        <Link href={link("/clients")} className="flex flex-col gap-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="eyebrow">{d.isCurrent ? "Current ARR" : "Closing ARR"}</span>
-            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-info-bg text-info-fg">
-              <Wallet size={14} strokeWidth={1.75} />
-            </span>
-          </div>
-          <span className="tabular font-display text-[28px] font-bold leading-none tracking-tight text-fg">
-            {money(d.closingArr)}
-          </span>
-          <Delta value={arrDelta} unit="money" vs={d.comparisonLabel} />
-          <span className="caption">
-            {d.activeAccounts} active accounts · {d.isCurrent ? "as of today" : `as of ${d.periodEndLabel}`}
-          </span>
-        </Link>
+    <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 xl:grid-cols-[1fr_1.4fr_1fr_1fr]">
+      <Cell
+        href={link("/clients")}
+        label={d.isCurrent ? "Current ARR" : "Closing ARR"}
+        tip="Ledger balance at the end of the selected period, across the filtered book."
+      >
+        <Value>{money(d.closingArr)}</Value>
+        <Delta value={arrDelta} unit="money" vs={d.comparisonLabel} />
+        <Ctx>
+          {d.activeAccounts} accounts · {d.isCurrent ? "as of today" : d.periodEndLabel}
+        </Ctx>
+      </Cell>
 
-        {/* The drift is stated where the number is, not in a footnote. Two
-            sources disagree by $369K and neither tile can be trusted until
-            someone decides which is authoritative. */}
-        {!d.arr.reconciled && (
-          <Link
-            href={link("/reports")}
-            className="mt-0.5 flex items-start gap-1.5 rounded-md border border-warning-bg bg-warning-bg/50 px-2 py-1.5"
-          >
-            <AlertTriangle size={11} strokeWidth={2} className="mt-[2px] shrink-0 text-warning-fg" aria-hidden />
-            <span className="font-body text-[10.5px] leading-snug text-warning-fg">
-              Ledger says {money(d.arr.ledgerLive)} — {money(Math.abs(d.arr.drift))} apart across {d.arr.driftAccounts}{" "}
-              accounts. Unreconciled.
-            </span>
-          </Link>
-        )}
-      </Card>
-
-      {/* ---- 2. Retention — wider: two metrics and the relationship ---- */}
-      <Card className="flex flex-col gap-3 lg:col-span-2 xl:col-span-1">
-        <span className="eyebrow">Retention</span>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Rate
-            href={link("/reports/churn")}
-            label="GRR"
-            sub="Revenue protected before expansion"
-            value={d.grr}
-            pts={grrPts}
-            vs={d.comparisonLabel}
-            target={GRR_TARGET}
-            support={`${money(d.grossArrLost)} gross ARR lost`}
-          />
-          <Rate
-            href={link("/reports")}
-            label="NRR"
-            sub="Revenue retained after expansion"
-            value={d.nrr}
-            pts={nrrPts}
-            vs={d.comparisonLabel}
-            target={NRR_TARGET}
-            support={`${lift.toFixed(1)}-point expansion lift`}
-          />
+      {/* Wider: two metrics, but only two LINES — the relationship between them
+          is the trend's shaded band, not a diagram in a summary tile. */}
+      <Cell label="Retention" tip="GRR is revenue protected before expansion. NRR adds expansion back. New business is excluded from both.">
+        <div className="flex flex-col gap-1.5">
+          <Rate href={link("/reports/churn")} label="GRR" value={d.grr} pts={grrPts} vs={d.comparisonLabel} target={GRR_TARGET} />
+          <Rate href={link("/reports")} label="NRR" value={d.nrr} pts={nrrPts} vs={d.comparisonLabel} target={NRR_TARGET} />
         </div>
+        <Ctx>{Math.abs(lift) < 0.05 ? "No expansion lift" : `${lift.toFixed(1)}-pt expansion lift`}</Ctx>
+      </Cell>
 
-        {/* The relationship, stated once. GRR + lift = NRR is the whole reason
-            these two live in one block. */}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border-subtle pt-2.5">
-          <span className="tabular font-body text-[11.5px] font-semibold text-fg">GRR {d.grr}%</span>
-          <span className="caption">→</span>
-          <span className="tabular font-body text-[11.5px] font-semibold text-fg-muted">
-            Expansion lift {lift.toFixed(1)} pts
-          </span>
-          <span className="caption">→</span>
-          <span className="tabular font-body text-[11.5px] font-semibold text-fg">NRR {d.nrr}%</span>
-        </div>
-        {Math.abs(lift) < 0.05 && (
-          <p className="caption -mt-1">NRR equals GRR this period because no expansion was recorded.</p>
-        )}
-      </Card>
+      <Cell
+        href={link("/clients")}
+        label="Upcoming renewals"
+        tip="ARR on accounts whose renewal date falls in the 90 days after the selected period ends."
+      >
+        <Value>{money(d.renewalArr)}</Value>
+        <Ctx>{d.renewalCount} accounts</Ctx>
+        <Ctx>Next 90 days{d.isCurrent ? "" : ` from ${d.periodEndLabel}`}</Ctx>
+      </Cell>
 
-      {/* ---- 3. Upcoming renewals ---- */}
-      <Card interactive className="flex flex-col gap-2.5">
-        <Link href={link("/clients")} className="flex flex-col gap-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="eyebrow">Upcoming renewals</span>
-            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-warning-bg text-warning-fg">
-              <CalendarClock size={14} strokeWidth={1.75} />
-            </span>
-          </div>
-          <span className="tabular font-display text-[28px] font-bold leading-none tracking-tight text-fg">
-            {money(d.renewalArr)}
-          </span>
-          <span className="caption">
-            {d.renewalCount} accounts · next 90 days
-            {!d.isCurrent && <> from {d.periodEndLabel}</>}
-          </span>
-        </Link>
-      </Card>
-
-      {/* ---- 4. Intervention exposure ---- */}
-      <Card interactive className="flex flex-col gap-2.5">
-        <Link href={link("/reports")} className="flex flex-col gap-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="eyebrow">Intervention exposure</span>
-            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-danger-bg text-danger-fg">
-              <AlertTriangle size={14} strokeWidth={1.75} />
-            </span>
-          </div>
-          <span className="tabular font-display text-[28px] font-bold leading-none tracking-tight text-fg">
-            {money(d.interventionArr)}
-          </span>
-          {/* Deliberately NOT "predicted churn" or "expected loss" — nothing
-              here forecasts anything. It's the ARR attached to renewals that
-              carry risk signals. */}
-          <span className="caption">ARR attached to elevated-risk renewals</span>
-          {d.topRisk && (
-            <span className="caption text-danger-fg">
-              {money(d.topRisk.arr)} concentrated in {shortName(d.topRisk.client.name)}
-            </span>
-          )}
-        </Link>
-      </Card>
+      <Cell
+        href={link("/reports")}
+        label="Renewal ARR requiring attention"
+        tip="ARR on upcoming renewals carrying risk signals — declining usage, low health, SLA breaches. Not a churn forecast."
+      >
+        <Value>{money(d.attentionArr)}</Value>
+        <Ctx>
+          {d.attentionCount} renewal{d.attentionCount === 1 ? "" : "s"}
+        </Ctx>
+        <Ctx>{attentionShare == null ? "—" : `${attentionShare.toFixed(1)}% of upcoming ARR`}</Ctx>
+      </Cell>
     </div>
   );
 }
 
+/** One cell. `gap-px` on a bordered parent draws the dividers, so no cell needs
+ *  its own border or shadow — four shadowed boxes was furniture around twelve
+ *  numbers. */
+function Cell({
+  href,
+  label,
+  tip,
+  children,
+}: {
+  href?: string;
+  label: string;
+  tip: string;
+  children: React.ReactNode;
+}) {
+  const body = (
+    <>
+      <span className="group/tip relative w-fit">
+        <span className="eyebrow cursor-help border-b border-dotted border-border-strong">{label}</span>
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute left-0 top-[calc(100%+6px)] z-50 w-[min(80vw,240px)] rounded-lg border border-border bg-surface p-2.5 font-body text-[11.5px] font-normal normal-case leading-relaxed tracking-normal text-fg-muted opacity-0 shadow-lg transition-opacity duration-[140ms] group-hover/tip:opacity-100"
+        >
+          {tip}
+        </span>
+      </span>
+      {children}
+    </>
+  );
+  const cls = "flex flex-col gap-1.5 bg-surface p-4 transition-colors";
+  return href ? (
+    <Link href={href} className={cn(cls, "hover:bg-bg-subtle")}>
+      {body}
+    </Link>
+  ) : (
+    <div className={cls}>{body}</div>
+  );
+}
+
+function Value({ children }: { children: React.ReactNode }) {
+  return <span className="tabular font-display text-2xl font-bold leading-none tracking-tight text-fg">{children}</span>;
+}
+
+function Ctx({ children }: { children: React.ReactNode }) {
+  return <span className="caption leading-snug">{children}</span>;
+}
+
+/** One line: label, value, delta, target. No sub-label, no supporting value —
+ *  those were the essay. */
 function Rate({
   href,
   label,
-  sub,
   value,
   pts,
   vs,
   target,
-  support,
 }: {
   href: string;
   label: string;
-  sub: string;
   value: number;
   pts: number | null;
   vs: string | null;
   target: number;
-  support: string;
 }) {
   const hit = value >= target;
   return (
-    <Link href={href} className="group flex flex-col gap-1 rounded-md transition-colors">
-      <div className="flex items-baseline gap-1.5">
-        <span className="font-body text-[11px] font-bold uppercase tracking-[0.06em] text-fg-subtle">{label}</span>
+    <Link href={href} className="group flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <span className="font-body text-[10.5px] font-bold uppercase tracking-[0.06em] text-fg-subtle">{label}</span>
+      <span
+        className={cn(
+          "tabular font-display text-xl font-bold leading-none tracking-tight transition-colors group-hover:text-sirius",
+          hit ? "text-success-fg" : "text-fg",
+        )}
+      >
+        {value}%
+      </span>
+      {pts != null && vs && (
         <span
           className={cn(
-            "tabular font-display text-2xl font-bold leading-none tracking-tight transition-colors group-hover:text-sirius",
-            hit ? "text-success-fg" : "text-fg",
+            "tabular text-[11px] font-semibold",
+            Math.abs(pts) < 0.05 ? "text-fg-subtle" : pts > 0 ? "text-success-fg" : "text-danger-fg",
           )}
         >
-          {value}%
+          {Math.abs(pts) < 0.05 ? "flat" : `${pts > 0 ? "+" : "−"}${Math.abs(pts).toFixed(1)} pts`} vs {vs}
         </span>
-      </div>
-      <span className="caption leading-snug">{sub}</span>
-      <Delta value={pts} unit="pts" vs={vs} />
-      <span className="caption tabular">{support}</span>
-      <span className={cn("caption tabular", hit ? "text-success-fg" : "text-fg-subtle")}>
-        Target ≥{target}%{hit ? " · met" : ` · ${(target - value).toFixed(1)} pts short`}
-      </span>
+      )}
+      <span className={cn("caption tabular ml-auto", hit ? "text-success-fg" : "")}>Target ≥{target}%</span>
     </Link>
   );
 }
 
-/** Percentage POINTS for rates, absolute money for money. Never a relative %
- *  on a rate — "GRR fell 4%" can't distinguish 4 points from 4% of 93.1. */
-function Delta({ value, unit, vs }: { value: number | null; unit: "money" | "pts"; vs: string | null }) {
-  if (value == null || !vs) return null;
-  const flat = unit === "pts" ? Math.abs(value) < 0.05 : Math.abs(value) < 1;
-  const up = value > 0;
-  const Icon = flat ? Minus : up ? ArrowUpRight : ArrowDownRight;
+/** Money deltas absolute; rate deltas in points (handled in Rate). Never a
+ *  relative % on a rate. */
+function Delta({ value, unit, vs }: { value: number; unit: "money"; vs: string | null }) {
+  if (!vs) return null;
+  const flat = Math.abs(value) < 1;
   return (
     <span
       className={cn(
-        "tabular inline-flex w-fit items-center gap-0.5 rounded-pill px-1.5 py-0.5 text-[10.5px] font-semibold",
-        flat ? "bg-bg-muted text-fg-subtle" : up ? "bg-success-bg text-success-fg" : "bg-danger-bg text-danger-fg",
+        "tabular text-[11px] font-semibold",
+        flat ? "text-fg-subtle" : value > 0 ? "text-success-fg" : "text-danger-fg",
       )}
     >
-      <Icon size={10} strokeWidth={2.5} aria-hidden />
-      {flat ? "flat" : unit === "money" ? money(value) : `${up ? "+" : "−"}${Math.abs(value).toFixed(1)} pts`}
-      <span className="font-normal opacity-70"> vs {vs}</span>
+      {flat ? "flat" : money(value)} vs {vs}
     </span>
   );
-}
-
-/** Long Arabic-English account names blow out a summary tile. Trim to the
- *  first clause; the drill-down shows the full name. */
-function shortName(n: string): string {
-  const cut = n.split(/[|·—-]/)[0].trim();
-  return cut.length > 24 ? `${cut.slice(0, 24)}…` : cut;
 }
