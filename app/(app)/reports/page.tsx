@@ -109,6 +109,46 @@ export default async function ReportsPage({
         <EmptyReport />
       ) : (
         <>
+          {/* ============ 0. The book, as of today ============
+              Moved up from "the shape of the book" at the bottom. Total ARR is
+              the anchor every other figure is a fraction of; it was in section
+              four, under three period-scoped sections that assume you already
+              know how big the book is. NOT period-scoped — these describe now,
+              which is why they sit ABOVE the period controls' territory rather
+              than inside it. */}
+          <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+            <Kpi
+              label="Total ARR"
+              value={formatCurrency(portfolio.totalArr, currency, { compact: true })}
+              icon={Wallet}
+              tone="accent"
+              sub={`${portfolio.totalClients} active accounts · as of today →`}
+              href="/clients"
+            />
+            <Kpi
+              label="Up for renewal"
+              value={formatCurrency(portfolio.arrUpForRenewal90d, currency, { compact: true })}
+              icon={CalendarClock}
+              tone={portfolio.renewalsNext90d > 0 ? "warn" : "neutral"}
+              sub={`${portfolio.renewalsNext90d} accounts · next 90 days`}
+            />
+            <Kpi
+              label="Average health"
+              value={String(portfolio.avgHealth)}
+              icon={HeartPulse}
+              tone={portfolio.avgHealth >= 75 ? "good" : portfolio.avgHealth >= 55 ? "warn" : "bad"}
+              sub={`${r.healthSplit.atRisk} scoring under 55 · why? →`}
+              href="/reports/health"
+            />
+            <Kpi
+              label="Open tickets"
+              value={String(portfolio.openTickets)}
+              icon={AlertTriangle}
+              tone={portfolio.openTickets > 20 ? "warn" : "neutral"}
+              sub="across the filtered book"
+            />
+          </div>
+
           {/* ============ 1. How did the period go? ============
               The period + compare controls live HERE, in the section they
               actually govern — not in the page header above eight panels they
@@ -226,41 +266,8 @@ export default async function ReportsPage({
               Health lives on its own subpage now — a board asks whether health
               is MOVING, not why it's 67, and the decomposition is a one-time
               diagnostic about the scoring config, not a permanent fixture. */}
-          <Section title="The shape of the book" when="as of today · follows your filters" />
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.15fr]">
-            <div className="grid h-fit grid-cols-2 gap-4">
-              <Kpi
-                label="Total ARR"
-                value={formatCurrency(portfolio.totalArr, currency, { compact: true })}
-                icon={Wallet}
-                tone="accent"
-                sub={`${portfolio.totalClients} active accounts →`}
-                href="/clients"
-              />
-              <Kpi
-                label="Up for renewal"
-                value={formatCurrency(portfolio.arrUpForRenewal90d, currency, { compact: true })}
-                icon={CalendarClock}
-                tone={portfolio.renewalsNext90d > 0 ? "warn" : "neutral"}
-                sub={`${portfolio.renewalsNext90d} accounts · next 90 days`}
-              />
-              <Kpi
-                label="Average health"
-                value={String(portfolio.avgHealth)}
-                icon={HeartPulse}
-                tone={portfolio.avgHealth >= 75 ? "good" : portfolio.avgHealth >= 55 ? "warn" : "bad"}
-                sub={`${r.healthSplit.atRisk} at risk · why? →`}
-                href="/reports/health"
-              />
-              <Kpi
-                label="Open tickets"
-                value={String(portfolio.openTickets)}
-                icon={AlertTriangle}
-                tone={portfolio.openTickets > 20 ? "warn" : "neutral"}
-                sub="across the filtered book"
-              />
-            </div>
-
+          <Section title="Concentration" when="as of today · follows your filters" />
+          <div className="grid grid-cols-1 gap-5">
             <ConcentrationPanel
               rows={r.concentration.rows}
               topArrShare={r.concentration.topArrShare}
