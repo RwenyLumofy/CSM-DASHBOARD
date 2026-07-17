@@ -30,6 +30,18 @@ import { cn } from "@/lib/cn";
    history runs past the churn date and the line climbs while the row says
    "Churned".
 
+   THE LEGEND LIVES IN ITS OWN COLUMN, and the group chips are gone. Once both
+   groups are side by side, a "show me all 8 early warnings" chip is redundant —
+   that's the right-hand column, already on screen. The columns ARE the groups,
+   so naming them again in a chip row above was the same duplication as before,
+   wearing a different hat.
+
+   Kinds don't overlap groups (churned only exists in revenue, dormant only in
+   warnings), so one `kind` param filters WITHIN the column that owns it and
+   leaves the other untouched — click "churned" and the ledger narrows while the
+   worklist stays whole, which is what you'd want when the two answer different
+   questions.
+
    Collapses to one column below `lg` — at that width, side-by-side would crush
    both.
 */
@@ -106,16 +118,6 @@ const GROUPS: { key: GroupKey; label: string; kinds: MovementKind[]; def: string
   },
 ];
 
-const isGroupKey = (v: string | undefined): v is GroupKey => v === "revenue" || v === "warning";
-
-/** Which kinds a selection covers — a group expands to its members, a kind is
- *  itself, nothing means everything. */
-function kindsFor(sel: string | undefined): MovementKind[] | null {
-  if (!sel) return null;
-  if (isGroupKey(sel)) return GROUPS.find((g) => g.key === sel)!.kinds;
-  return [sel as MovementKind];
-}
-
 const DEFAULT_LIMIT = 6;
 
 /** A URL with one `kind` filter toggled — the chips are the obvious way to
@@ -166,108 +168,38 @@ export function MovementPanel({
   // back out — a chip that vanishes when you click its neighbour is a trap.
   const counts = new Map<MovementKind, number>();
   for (const m of movements) counts.set(m.kind, (counts.get(m.kind) ?? 0) + 1);
-  const groupCount = (g: GroupKey) =>
-    GROUPS.find((x) => x.key === g)!.kinds.reduce((a, k) => a + (counts.get(k) ?? 0), 0);
-
-  const selected = kindsFor(sel);
-  const shown = selected ? movements.filter((m) => selected.includes(m.kind)) : movements;
-  const revenue = shown.filter((m) => REVENUE_KINDS.includes(m.kind));
-  const leading = shown.filter((m) => !REVENUE_KINDS.includes(m.kind));
-
-  const cols = GROUPS.map((g) => ({ g, rows: shown.filter((m) => g.kinds.includes(m.kind)) })).filter(
-    // A column with no rows has nothing to say. If a filter emptied it, the
-    // chips above are still the way back — no need for a placeholder column.
-    (c) => c.rows.length > 0,
-  );
-  const alone = cols.length === 1;
-
   return (
     <Card>
-      <div className="mb-4 flex flex-wrap items-center gap-1.5">
-        {GROUPS.filter((g) => groupCount(g.key) > 0).map((g) => {
-          const on = sel === g.key;
+      <div className={cn("grid gap-x-8 gap-y-6", "grid-cols-1 lg:grid-cols-2")}>
+        {GROUPS.map((g) => {
+          const mine = movements.filter((m) => g.kinds.includes(m.kind));
+          if (!mine.length) return null;
+          // A kind belongs to exactly one group, so a selection only ever
+          // narrows the column that owns it — the other column is untouched.
+          const owned = sel && g.kinds.includes(sel as MovementKind);
+          const rows = owned ? mine.filter((m) => m.kind === sel) : mine;
           return (
-            <Link
-              key={g.key}
-              href={withKind(params, g.key)}
-              scroll={false}
-              aria-pressed={on}
-              className={cn(
-                "group relative inline-flex items-center gap-1.5 rounded-pill border px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
-                on
-                  ? "border-fg/25 bg-bg-inverse text-bg ring-2 ring-fg/15"
-                  : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
-              )}
-            >
-              {groupCount(g.key)} {g.label.toLowerCase()}
-              <Tip>
-                <strong className="font-semibold text-fg">{g.label}</strong> — {g.def}
-              </Tip>
-            </Link>
-          );
-        })}
-
-        <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
-
-        {(Object.keys(KIND) as MovementKind[]).filter((k) => counts.get(k)).map((k) => {
-          const K = KIND[k];
-          const on = sel === k;
-          return (
-            <Link
-              key={k}
-              href={withKind(params, k)}
-              scroll={false}
-              aria-pressed={on}
-              className={cn(
-                "group relative inline-flex items-center gap-1.5 rounded-pill px-2 py-1 font-body text-[11px] font-semibold transition-all duration-[140ms]",
-                K.tone,
-                on ? "ring-2 ring-fg/20" : "opacity-70 hover:opacity-100",
-              )}
-            >
-              <span className={cn("size-1.5 rounded-pill", K.dot)} />
-              {counts.get(k)} {K.label.toLowerCase()}
-              <Tip>
-                <strong className="font-semibold text-fg">{K.label}</strong> — {K.def}
-              </Tip>
-            </Link>
-          );
-        })}
-
-        {sel && (
-          <Link
-            href={withKind(params, null)}
-            scroll={false}
-            className="rounded-pill px-2 py-1 font-body text-[11px] font-semibold text-fg-subtle underline-offset-2 hover:text-fg hover:underline"
-          >
-            show all
-          </Link>
-        )}
-      </div>
-
-      {cols.length === 0 ? (
-        <div className="rounded-md bg-bg-subtle px-3 py-6 text-center">
-          <p className="caption">
-            Nothing matches that filter in {periodDisplay(period)}.{" "}
-            <Link href={withKind(params, null)} scroll={false} className="font-semibold text-sirius hover:underline">
-              Show all
-            </Link>
-          </p>
-        </div>
-      ) : (
-        <div className={cn("grid gap-x-8 gap-y-6", alone ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2")}>
-          {cols.map(({ g, rows }) => (
             <Column
               key={g.key}
               group={g}
               sub={g.key === "revenue" ? periodDisplay(period) : `usage ${monthLabel(usageMonth)} vs the month before`}
               rows={rows}
+              total={mine.length}
+              counts={counts}
+              sel={sel}
               expanded={expanded}
               params={params}
               currency={currency}
             />
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
+
+      <p className="caption mt-5 border-t border-border-subtle pt-3">
+        Revenue movement is {periodDisplay(period)}, off the ARR ledger — the same source as the waterfall. Usage
+        compares {monthLabel(usageMonth)} against the month before (usage history is monthly, so it can&apos;t follow a
+        part-quarter).
+      </p>
     </Card>
   );
 }
@@ -276,6 +208,9 @@ function Column({
   group,
   sub,
   rows,
+  total,
+  counts,
+  sel,
   expanded,
   params,
   currency,
@@ -283,6 +218,11 @@ function Column({
   group: (typeof GROUPS)[number];
   sub: string;
   rows: Movement[];
+  /** Unfiltered size — the chips count against this, so they never shrink to
+   *  match a selection and strand you. */
+  total: number;
+  counts: Map<MovementKind, number>;
+  sel: string | undefined;
   expanded: boolean;
   params: Record<string, string | string[] | undefined>;
   currency: string;
@@ -290,13 +230,58 @@ function Column({
   const visible = expanded ? rows : rows.slice(0, DEFAULT_LIMIT);
   const hidden = rows.length - visible.length;
   const revenue = group.key === "revenue";
+  const filtered = rows.length !== total;
 
   return (
     <section className={cn("flex flex-col", !revenue && "lg:border-l lg:border-border-subtle lg:pl-8")}>
-      <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-border-subtle pb-2">
-        <h4 className="font-body text-[13px] font-semibold text-fg">{group.label}</h4>
-        <span className="tabular caption">{rows.length}</span>
-        <span className="caption ml-auto">{sub}</span>
+      <div className="mb-2 flex flex-col gap-2 border-b border-border-subtle pb-2">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <h4 className="group relative font-body text-[13px] font-semibold text-fg">
+            {group.label}
+            <Tip>
+              <strong className="font-semibold text-fg">{group.label}</strong> — {group.def}
+            </Tip>
+          </h4>
+          <span className="tabular caption">{filtered ? `${rows.length} of ${total}` : total}</span>
+          <span className="caption ml-auto">{sub}</span>
+        </div>
+
+        {/* This column's legend, in this column. The columns ARE the groups, so
+            a shared chip row above named them a second time. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {group.kinds.filter((k) => counts.get(k)).map((k) => {
+            const K = KIND[k];
+            const on = sel === k;
+            return (
+              <Link
+                key={k}
+                href={withKind(params, k)}
+                scroll={false}
+                aria-pressed={on}
+                className={cn(
+                  "group relative inline-flex items-center gap-1.5 rounded-pill px-2 py-0.5 font-body text-[11px] font-semibold transition-all duration-[140ms]",
+                  K.tone,
+                  on ? "ring-2 ring-fg/20" : "opacity-75 hover:opacity-100",
+                )}
+              >
+                <span className={cn("size-1.5 rounded-pill", K.dot)} />
+                {counts.get(k)} {K.label.toLowerCase()}
+                <Tip>
+                  <strong className="font-semibold text-fg">{K.label}</strong> — {K.def}
+                </Tip>
+              </Link>
+            );
+          })}
+          {filtered && (
+            <Link
+              href={withKind(params, null)}
+              scroll={false}
+              className="font-body text-[11px] font-semibold text-fg-subtle underline-offset-2 hover:text-fg hover:underline"
+            >
+              clear
+            </Link>
+          )}
+        </div>
       </div>
 
       <ul className="flex flex-col">
