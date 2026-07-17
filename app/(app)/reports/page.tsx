@@ -160,25 +160,18 @@ export default async function ReportsPage({
           {/* ---------------- waterfall + trend ---------------- */}
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr_1fr]">
             <Card>
-              <div className="mb-1 flex items-start justify-between gap-4">
-                <div>
-                  <CardEyebrow>Revenue movement</CardEyebrow>
-                  <h3 className="h5">ARR waterfall · {periodDisplay(period)}</h3>
-                </div>
-                <div className="text-right">
-                  <div className="tabular font-display text-xl font-bold leading-none text-fg">
-                    {formatCurrency(r.closingArr, currency, { compact: true })}
-                  </div>
-                  <div className="caption mt-1">closing ARR</div>
-                </div>
-              </div>
+              {/* Header is now the component's own: a derived insight replaces
+                  "ARR waterfall · Q2 2026", and the opening→closing pair
+                  replaces a lone compact total that rounded $1.679M to "$1.7M"
+                  — hiding the very decline the card is about. */}
+              <CardEyebrow>Revenue movement · {periodDisplay(period)}</CardEyebrow>
               <RevenueWaterfall
                 startingArr={cur.startingArr}
                 expansion={cur.expansion}
                 contraction={cur.contraction}
                 churn={cur.churn}
                 newBusiness={r.newBusiness}
-                currency={currency}
+                periodLabel={periodDisplay(period)}
               />
             </Card>
 
