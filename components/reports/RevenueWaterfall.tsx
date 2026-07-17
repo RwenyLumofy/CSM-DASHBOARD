@@ -30,6 +30,17 @@
 
    Every figure is derived from the values passed in, so this holds for any
    period the filter produces — no hardcoded quarter, no assumed sign.
+
+   WHAT WAS CUT, AND WHY (the card had five representations of three numbers):
+     - "Net ARR movement −$122.0K" — the heading already says "reducing ARR by
+       $122.0K". Same number, twice, one wearing a metric's clothes.
+     - "$1.801M → $1.679M" in the corner — the waterfall's first and last
+       columns ARE that pair, labelled.
+     - The equation line underneath — the chart IS the equation; writing it out
+       again admits the chart didn't land.
+     - ARR growth survives as the only figure nothing else carried, folded into
+       the heading where it costs a clause instead of a card.
+   Each was added for a real reason and none of them removed what it superseded.
    ========================================================================= */
 
 import { useId, useState } from "react";
@@ -86,22 +97,31 @@ function niceMax(v: number): number {
  * winning, or a period where nothing happened. Each gets its own reading rather
  * than a template with a hole in it.
  */
-function buildInsight(churn: number, newBusiness: number, net: number, periodLabel: string): string {
+function buildInsight(
+  churn: number,
+  newBusiness: number,
+  net: number,
+  growth: number | null,
+  periodLabel: string,
+): string {
   const gone = churn > 0;
   const won = newBusiness > 0;
+  // The growth % rides in the sentence rather than occupying its own tile — it
+  // was the one metric the heading didn't already contain.
+  const pct = growth == null || Math.abs(growth * 100) < 0.05 ? "" : ` (${growth > 0 ? "+" : "−"}${Math.abs(growth * 100).toFixed(1)}%)`;
 
   if (!gone && !won) return `No revenue movement recorded in ${periodLabel}`;
-  if (!gone) return `${moneyK(newBusiness)} of new business and no churn — ARR grew ${moneyK(net)} in ${periodLabel}`;
-  if (!won) return `${moneyK(churn)} churned with no new business to offset it, reducing ARR by ${moneyK(Math.abs(net))} in ${periodLabel}`;
+  if (!gone) return `${moneyK(newBusiness)} of new business and no churn — ARR grew ${moneyK(net)}${pct} in ${periodLabel}`;
+  if (!won) return `${moneyK(churn)} churned with no new business to offset it, reducing ARR by ${moneyK(Math.abs(net))}${pct} in ${periodLabel}`;
 
   const ratio = churn / newBusiness;
   if (ratio >= 1.05) {
-    return `Churn exceeded new business by ${ratio.toFixed(1)}×, reducing ARR by ${moneyK(Math.abs(net))} in ${periodLabel}`;
+    return `Churn exceeded new business by ${ratio.toFixed(1)}×, reducing ARR by ${moneyK(Math.abs(net))}${pct} in ${periodLabel}`;
   }
   if (ratio <= 0.95) {
-    return `New business exceeded churn by ${(1 / ratio).toFixed(1)}×, growing ARR by ${moneyK(net)} in ${periodLabel}`;
+    return `New business exceeded churn by ${(1 / ratio).toFixed(1)}×, growing ARR by ${moneyK(net)}${pct} in ${periodLabel}`;
   }
-  return `New business almost exactly replaced churn in ${periodLabel} — ARR moved ${moneyK(net)}`;
+  return `New business almost exactly replaced churn in ${periodLabel} — ARR moved ${moneyK(net)}${pct}`;
 }
 
 export function RevenueWaterfall({
@@ -111,7 +131,7 @@ export function RevenueWaterfall({
   churn,
   newBusiness,
   periodLabel,
-  height = 230,
+  height = 190,
 }: {
   startingArr: number;
   expansion: number;
@@ -179,35 +199,10 @@ export function RevenueWaterfall({
   const cmpMax = niceMax(Math.max(...moves.map((m) => Math.abs(m.value)), 1));
 
   return (
-    <div className="flex flex-col gap-5">
-      {/* The finding, not a chart title. */}
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <h3 className="h5 max-w-[46ch] text-balance">{buildInsight(churn, newBusiness, net, periodLabel)}</h3>
-        <div className="flex shrink-0 items-baseline gap-1.5 font-display">
-          <span className="tabular text-base font-bold text-fg-subtle">{preciseTotal(startingArr)}</span>
-          <span className="text-xs text-fg-subtle">→</span>
-          <span className="tabular text-2xl font-bold text-fg">{preciseTotal(closing)}</span>
-        </div>
-      </div>
-
-      {/* ---------- summary metrics ---------- */}
-      <div className="grid grid-cols-2 gap-3">
-        <Metric label="Net ARR movement" value={moneyK(net)} tone={net < 0 ? "bad" : net > 0 ? "good" : "flat"} />
-        <Metric
-          label={`${periodLabel} ARR growth`}
-          // No sign on zero: "+0.0%" puts a direction on something that didn't
-          // move. Keyed on the rounded DISPLAY value, not the raw one, or a
-          // −0.04% move renders as a signed "0.0%".
-          value={
-            growth == null
-              ? "—"
-              : Math.abs(growth * 100) < 0.05
-                ? "0.0%"
-                : `${growth > 0 ? "+" : "−"}${Math.abs(growth * 100).toFixed(1)}%`
-          }
-          tone={growth == null || Math.abs(growth * 100) < 0.05 ? "flat" : growth < 0 ? "bad" : "good"}
-        />
-      </div>
+    <div className="flex flex-col gap-4">
+      {/* The finding. No corner total pair beside it: the waterfall's first and
+          last columns are that pair, labelled. */}
+      <h3 className="h5 max-w-[62ch] text-balance">{buildInsight(churn, newBusiness, net, growth, periodLabel)}</h3>
 
       {/* ---------- the waterfall ----------
           Scrolls horizontally below ~620px rather than shrinking. A viewBox
@@ -332,14 +327,9 @@ export function RevenueWaterfall({
         </div>
       )}
 
+      {/* The equation line is gone: the chart IS the equation, and restating it
+          in prose underneath was an admission that the chart hadn't landed. */}
       {noExpOrContra && <p className="caption">No expansion or contraction recorded in {periodLabel}.</p>}
-
-      <p className="caption tabular border-t border-border-subtle pt-3">
-        {preciseTotal(startingArr)} opening
-        {moves.map((m) => ` ${m.value < 0 ? "−" : "+"} ${moneyK(Math.abs(m.value))} ${m.label.toLowerCase()}`).join("")}
-        {" = "}
-        <span className="font-semibold text-fg">{preciseTotal(closing)} closing</span>
-      </p>
     </div>
   );
 }
@@ -394,18 +384,3 @@ function Diverging({ moves, max }: { moves: Step[]; max: number }) {
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone: "good" | "bad" | "flat" }) {
-  return (
-    <div className="rounded-md border border-border-subtle bg-bg-subtle px-3 py-2">
-      <div className="caption truncate">{label}</div>
-      <div
-        className={cn(
-          "tabular mt-0.5 font-display text-lg font-bold leading-none",
-          tone === "bad" ? "text-danger-fg" : tone === "good" ? "text-success-fg" : "text-fg",
-        )}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
