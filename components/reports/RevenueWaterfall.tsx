@@ -89,39 +89,28 @@ function niceMax(v: number): number {
 }
 
 /**
- * The headline, derived — never asserted.
+ * The headline: the NET, and nothing else.
  *
- * The obvious sentence ("churn exceeded new business by N×") is only true in
- * one of five cases, and the others are all reachable by filtering: no churn at
- * all, churn with nothing to offset it (a division by zero), new business
- * winning, or a period where nothing happened. Each gets its own reading rather
- * than a template with a hole in it.
+ * It used to read "Churn exceeded new business by 46.7×, reducing ARR by
+ * $122.0K (−6.8%) in Jun 2026" — four facts, three of which are already on the
+ * card. The 46.7× IS the movements strip; that's the entire reason the strip
+ * exists, showing the ratio as LENGTH rather than asserting it as a number. The
+ * period is the card's eyebrow. So the sentence was narrating the chart to
+ * someone already looking at it, which is noise dressed as insight.
+ *
+ * The net is the one figure nothing else carries — the chart draws opening,
+ * churn, new business and closing, but never the difference between the ends.
+ * So that's what the heading says, and only that.
+ *
+ * Still derived per period: growth is undefined without an opening balance, and
+ * "fell"/"grew"/"didn't move" are three different sentences, all reachable by
+ * filtering.
  */
-function buildInsight(
-  churn: number,
-  newBusiness: number,
-  net: number,
-  growth: number | null,
-  periodLabel: string,
-): string {
-  const gone = churn > 0;
-  const won = newBusiness > 0;
-  // The growth % rides in the sentence rather than occupying its own tile — it
-  // was the one metric the heading didn't already contain.
+function buildInsight(net: number, growth: number | null): string {
+  const flat = Math.abs(net) < 1;
+  if (flat) return "ARR didn't move";
   const pct = growth == null || Math.abs(growth * 100) < 0.05 ? "" : ` (${growth > 0 ? "+" : "−"}${Math.abs(growth * 100).toFixed(1)}%)`;
-
-  if (!gone && !won) return `No revenue movement recorded in ${periodLabel}`;
-  if (!gone) return `${moneyK(newBusiness)} of new business and no churn — ARR grew ${moneyK(net)}${pct} in ${periodLabel}`;
-  if (!won) return `${moneyK(churn)} churned with no new business to offset it, reducing ARR by ${moneyK(Math.abs(net))}${pct} in ${periodLabel}`;
-
-  const ratio = churn / newBusiness;
-  if (ratio >= 1.05) {
-    return `Churn exceeded new business by ${ratio.toFixed(1)}×, reducing ARR by ${moneyK(Math.abs(net))}${pct} in ${periodLabel}`;
-  }
-  if (ratio <= 0.95) {
-    return `New business exceeded churn by ${(1 / ratio).toFixed(1)}×, growing ARR by ${moneyK(net)}${pct} in ${periodLabel}`;
-  }
-  return `New business almost exactly replaced churn in ${periodLabel} — ARR moved ${moneyK(net)}${pct}`;
+  return `ARR ${net < 0 ? "fell" : "grew"} ${moneyK(Math.abs(net))}${pct}`;
 }
 
 export function RevenueWaterfall({
@@ -200,9 +189,10 @@ export function RevenueWaterfall({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* The finding. No corner total pair beside it: the waterfall's first and
-          last columns are that pair, labelled. */}
-      <h3 className="h5 max-w-[62ch] text-balance">{buildInsight(churn, newBusiness, net, growth, periodLabel)}</h3>
+      {/* The net — the one figure the chart below can't show, since it draws
+          the ends but not the distance between them. The ratio is the strip;
+          the period is the eyebrow. */}
+      <h3 className="h5">{buildInsight(net, growth)}</h3>
 
       {/* ---------- the waterfall ----------
           Scrolls horizontally below ~620px rather than shrinking. A viewBox
