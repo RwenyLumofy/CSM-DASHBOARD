@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, MoonStar, Sparkles, TrendingDown, XCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Sparkline } from "@/components/ui/Sparkline";
+import { DateTag } from "@/components/reports/DateTag";
 import type { Movement, MovementKind } from "@/lib/metrics/movement";
 import { formatCurrency } from "@/lib/format";
 import { periodDisplay } from "@/lib/metrics/exec";
@@ -107,13 +108,13 @@ const REVENUE_KINDS: MovementKind[] = ["churned", "downgraded", "expanded", "new
    would have allowed. */
 type GroupKey = "revenue" | "warning";
 
-const GROUPS: { key: GroupKey; label: string; kinds: MovementKind[]; def: string }[] = [
+const GROUPS: { key: GroupKey; label: string; kinds: MovementKind[]; def: string; head: string }[] = [
   {
-    key: "revenue", label: "Revenue moved", kinds: REVENUE_KINDS,
+    key: "revenue", label: "Revenue moved", kinds: REVENUE_KINDS, head: "text-danger-fg",
     def: "Money that has actually moved this period, straight off the ARR ledger — the same source as the waterfall, so the two always agree.",
   },
   {
-    key: "warning", label: "Early warnings", kinds: ["usage_dormant", "usage_declined"],
+    key: "warning", label: "Early warnings", kinds: ["usage_dormant", "usage_declined"], head: "text-warning-fg",
     def: "Usage has moved; revenue hasn't — yet. These are the accounts still worth a call.",
   },
 ];
@@ -236,14 +237,14 @@ function Column({
     <section className={cn("flex flex-col", !revenue && "lg:border-l lg:border-border-subtle lg:pl-8")}>
       <div className="mb-2 flex flex-col gap-2 border-b border-border-subtle pb-2">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <h4 className="group relative font-body text-[13px] font-semibold text-fg">
+          <h4 className={cn("group relative font-body text-[13px] font-bold", group.head)}>
             {group.label}
             <Tip>
               <strong className="font-semibold text-fg">{group.label}</strong> — {group.def}
             </Tip>
           </h4>
           <span className="tabular caption">{filtered ? `${rows.length} of ${total}` : total}</span>
-          <span className="caption ml-auto">{sub}</span>
+          <DateTag className="ml-auto">{sub}</DateTag>
         </div>
 
         {/* This column's legend, in this column. The columns ARE the groups, so

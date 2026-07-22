@@ -1,6 +1,6 @@
 "use server";
 
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdminOrSuper } from "@/lib/auth";
 import { hasDatabase } from "@/lib/config";
 
 export interface RoleLabelActionResult {
@@ -11,8 +11,8 @@ export interface RoleLabelActionResult {
 export async function setRoleLabelsAction(
   labels: Record<string, string>,
 ): Promise<RoleLabelActionResult> {
-  if (!(await isSuperAdmin())) {
-    return { ok: false, error: "Super-admin access required." };
+  if (!(await isAdminOrSuper())) {
+    return { ok: false, error: "Admin access required." };
   }
   if (!hasDatabase()) {
     return { ok: false, error: "No database configured." };

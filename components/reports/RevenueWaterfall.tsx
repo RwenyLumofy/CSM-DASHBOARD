@@ -20,27 +20,25 @@
       cannot survive 1-significant-figure rounding. Movements stay in $K, where
       that precision is meaningless.
 
-   3. TWO CHARTS, TWO SCALES, BOTH ZERO-BASED. The waterfall is zero-based, so
-      column heights are honest — which is exactly why a $124.7K step against a
-      $1.797M balance is a 6% sliver. The comparison beneath is the same
-      movements on a SHARED, SYMMETRIC scale around zero: churn extends left,
-      new business right, neither normalized to itself. That asymmetry — new
-      business reaching 5.6% of churn's length — is the finding, and it only
-      exists because both bars share one scale.
+   3. THE WATERFALL IS THE PICTURE; THE TILES ARE THE NUMBERS. The bridge is
+      zero-based, so heights are honest — which is why a $124.7K step against a
+      $1.797M balance is a 6% sliver, and why $7.0K of new business is a line,
+      not a bar. That legibility ceiling is real and unfixable: a scale fair to
+      $1.8M cannot also show $7K. So the exact per-movement figures live in the
+      TILE STRIP beneath — one tile per category, each carrying its ARR and its
+      account count, with zero movements shown ($0), not hidden. Chart for
+      shape, tiles for precision + counts + drill-down: the pairing Vitally
+      offers as a graph and a table of the same movements. The tiles carry the
+      three things the bars can't — exact dollars, how many accounts, and the
+      categories that didn't fire.
 
    Every figure is derived from the values passed in, so this holds for any
    period the filter produces — no hardcoded quarter, no assumed sign.
 
-   WHAT WAS CUT, AND WHY (the card had five representations of three numbers):
-     - "Net ARR movement −$122.0K" — the heading already says "reducing ARR by
-       $122.0K". Same number, twice, one wearing a metric's clothes.
-     - "$1.801M → $1.679M" in the corner — the waterfall's first and last
-       columns ARE that pair, labelled.
-     - The equation line underneath — the chart IS the equation; writing it out
-       again admits the chart didn't land.
-     - ARR growth survives as the only figure nothing else carried, folded into
-       the heading where it costs a clause instead of a card.
-   Each was added for a real reason and none of them removed what it superseded.
+   WHAT THE STRIP IS NOT. It is no longer net movement / growth / a ratio —
+   those restated the heading (net, growth) or the bars (the ratio), the card's
+   old habit of showing three numbers five ways. The heading owns the net; the
+   tiles own the decomposition. Nothing appears in both.
    ========================================================================= */
 
 import { useId, useState } from "react";
@@ -88,59 +86,44 @@ function niceMax(v: number): number {
   return step * pow;
 }
 
-/**
- * The headline: the NET, and nothing else.
- *
- * It used to read "Churn exceeded new business by 46.7×, reducing ARR by
- * $122.0K (−6.8%) in Jun 2026" — four facts, three of which are already on the
- * card. The 46.7× IS the movements strip; that's the entire reason the strip
- * exists, showing the ratio as LENGTH rather than asserting it as a number. The
- * period is the card's eyebrow. So the sentence was narrating the chart to
- * someone already looking at it, which is noise dressed as insight.
- *
- * The net is the one figure nothing else carries — the chart draws opening,
- * churn, new business and closing, but never the difference between the ends.
- * So that's what the heading says, and only that.
- *
- * Still derived per period: growth is undefined without an opening balance, and
- * "fell"/"grew"/"didn't move" are three different sentences, all reachable by
- * filtering.
- */
-function buildInsight(net: number, growth: number | null): string {
-  const flat = Math.abs(net) < 1;
-  if (flat) return "ARR didn't move";
-  const pct = growth == null || Math.abs(growth * 100) < 0.05 ? "" : ` (${growth > 0 ? "+" : "−"}${Math.abs(growth * 100).toFixed(1)}%)`;
-  return `ARR ${net < 0 ? "fell" : "grew"} ${moneyK(Math.abs(net))}${pct}`;
-}
-
 export function RevenueWaterfall({
   startingArr,
   expansion,
+  expansionCount,
   contraction,
+  contractionCount,
   churn,
+  churnCount,
   newBusiness,
-  periodLabel,
+  newBusinessCount,
   height = 190,
 }: {
   startingArr: number;
   expansion: number;
+  /** Distinct accounts that expanded in-period. */
+  expansionCount: number;
   contraction: number;
+  /** Distinct accounts that contracted in-period. */
+  contractionCount: number;
   churn: number;
+  /** Accounts behind the churn bar. Period-scoped, one row per churn event. */
+  churnCount: number;
   newBusiness: number;
-  /** e.g. "Q2 2026" — the insight reads for whatever period is filtered. */
-  periodLabel: string;
+  /** Distinct accounts that landed as new business in-period. */
+  newBusinessCount: number;
   height?: number;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const gid = useId().replace(/[^a-zA-Z0-9]/g, "");
 
   const closing = startingArr + expansion - contraction - churn + newBusiness;
-  const net = closing - startingArr;
-  const growth = startingArr > 0 ? net / startingArr : null;
-  // No "churn replacement rate" metric: it was newBusiness/churn = 5.6%, which
-  // is the headline's "17.9×" inverted (1 / 17.9 = 5.6%). The same fact stated
-  // twice in two notations, one of them wearing a metric's clothes. The ratio
-  // reads better in the sentence, so the sentence keeps it.
+  // Counts ride on the movement tiles below (Vitally's "Churn 3", "Base 89").
+  // They're subordinate to the ARR — value is the hero, the count annotates —
+  // and together they carry concentration for free: 9 accounts at −$124.7K
+  // reads differently from 1 account at −$124.7K, which no single number shows.
+  // Opening and Closing carry NO count: they're balances (stocks), and their
+  // ledger counts (80/74) reopen the ghost-account gap the page banner already
+  // owns. Counts belong on the flows, not the stocks.
 
   const all: Step[] = [
     { label: "Opening", value: startingArr, kind: "total", isTotal: true },
@@ -151,7 +134,22 @@ export function RevenueWaterfall({
     { label: "Closing", value: closing, kind: "total", isTotal: true },
   ];
   const steps = all.filter((s) => s.isTotal || s.value !== 0);
-  const noExpOrContra = expansion === 0 && contraction === 0;
+
+  // The tile strip: every category, in waterfall order, movements first. Unlike
+  // the bars (which hide zero-height steps), the tiles SHOW zeros — "Expansion
+  // 0 · $0" is a fact worth stating, and it retires the old "No expansion or
+  // contraction recorded" caption by making the same point in the grid itself.
+  const tiles: TileData[] = [
+    { label: "Opening", value: preciseTotal(startingArr), tone: "total" },
+    { label: "Churn", count: churnCount, value: churn > 0 ? `−${moneyK(churn)}` : "$0", tone: churn > 0 ? "loss" : "zero" },
+    { label: "Contraction", count: contractionCount, value: contraction > 0 ? `−${moneyK(contraction)}` : "$0", tone: contraction > 0 ? "loss" : "zero" },
+    { label: "Expansion", count: expansionCount, value: expansion > 0 ? `+${moneyK(expansion)}` : "$0", tone: expansion > 0 ? "gain" : "zero" },
+    // "New biz", not "New business": the only label that overflows a 6-col
+    // tile. Vitally shortens it the same way; the waterfall bar keeps the full
+    // word, where it has room.
+    { label: "New biz", count: newBusinessCount, value: newBusiness > 0 ? `+${moneyK(newBusiness)}` : "$0", tone: newBusiness > 0 ? "gain" : "zero" },
+    { label: "Closing", value: preciseTotal(closing), tone: "total" },
+  ];
 
   let run = 0;
   const bars = steps.map((s) => {
@@ -187,10 +185,9 @@ export function RevenueWaterfall({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* The net — the one figure the chart below can't show, since it draws
-          the ends but not the distance between them. The ratio is the strip;
-          the period is the eyebrow. */}
-      <h3 className="h5">{buildInsight(net, growth)}</h3>
+      {/* No header here: the card's eyebrow is the title, and the generated
+          takeaway lives behind the "i" on that title line (see TakeawayInfo in
+          the page). This component is the chart + tiles only. */}
 
       {/* ---------- the waterfall ----------
           Scrolls horizontally below ~620px rather than shrinking. A viewBox
@@ -304,47 +301,40 @@ export function RevenueWaterfall({
         </div>
       </div>
 
-      {/* Three compact metrics instead of the "Movements compared" strip. The
-          strip re-drew churn and new business, which the waterfall already
-          shows — and these three are the figures the waterfall CAN'T show: it
-          draws the ends but never the distance between them, nor the ratio. */}
-      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-border-subtle bg-border-subtle">
-        <Stat label="Net ARR movement" value={moneyK(net)} tone={net < 0 ? "bad" : net > 0 ? "good" : "flat"} />
-        <Stat
-          label="ARR growth"
-          value={
-            growth == null
-              ? "—"
-              : Math.abs(growth * 100) < 0.05
-                ? "0.0%"
-                : `${growth > 0 ? "+" : "−"}${Math.abs(growth * 100).toFixed(1)}%`
-          }
-          tone={growth == null || Math.abs(growth * 100) < 0.05 ? "flat" : growth < 0 ? "bad" : "good"}
-        />
-        <Stat
-          label="Churn replacement"
-          // newBusiness/churn — undefined without churn, since "replaced 0" is
-          // not a rate.
-          value={churn > 0 ? `${((newBusiness / churn) * 100).toFixed(1)}%` : "—"}
-          tone={churn > 0 && newBusiness / churn >= 1 ? "good" : churn > 0 ? "bad" : "flat"}
-        />
+      {/* The decomposition, as tiles: one per movement category, each with its
+          ARR and — for the flows — its account count. This is what the bridge
+          can't render: exact dollars, how many accounts, and the categories
+          that didn't fire. Value is the hero, the count annotates. */}
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border-subtle bg-border-subtle sm:grid-cols-3 lg:grid-cols-6">
+        {tiles.map((t) => (
+          <Tile key={t.label} {...t} />
+        ))}
       </div>
-
-      {noExpOrContra && <p className="caption">No expansion or contraction recorded in {periodLabel}.</p>}
     </div>
   );
 }
 
+interface TileData {
+  label: string;
+  /** Omitted on Opening/Closing — those are balances, not flows. */
+  count?: number;
+  value: string;
+  tone: "total" | "loss" | "gain" | "zero";
+}
 
-
-function Stat({ label, value, tone }: { label: string; value: string; tone: "good" | "bad" | "flat" }) {
+/** One movement tile. The count sits small beside the label (Vitally's "Base
+ *  89"); the ARR is the number the eye lands on. */
+function Tile({ label, count, value, tone }: TileData) {
   return (
-    <div className="bg-surface px-3 py-2">
-      <div className="caption truncate">{label}</div>
+    <div className="bg-surface px-3 py-2.5">
+      <div className="caption flex items-baseline gap-1.5">
+        <span className="truncate">{label}</span>
+        {count != null && <span className="tabular text-fg-subtle">{count}</span>}
+      </div>
       <div
         className={cn(
-          "tabular mt-0.5 font-display text-base font-bold leading-none",
-          tone === "bad" ? "text-danger-fg" : tone === "good" ? "text-success-fg" : "text-fg",
+          "tabular mt-1 font-display text-[15px] font-bold leading-none",
+          tone === "loss" ? "text-danger-fg" : tone === "gain" ? "text-success-fg" : tone === "zero" ? "text-fg-subtle" : "text-fg",
         )}
       >
         {value}

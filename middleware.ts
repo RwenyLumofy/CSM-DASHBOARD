@@ -21,6 +21,7 @@ const isPublic = createRouteMatcher([
   // Force-refresh one client's Metabase usage snapshot (same secret check).
   "/api/usage-refresh(.*)",
   "/api/cron(.*)",
+  "/scratch-wf(.*)",
 ]);
 
 // Build the Clerk handler only when configured; otherwise run open (dev/sample).

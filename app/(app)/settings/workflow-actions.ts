@@ -4,7 +4,7 @@
    Save the assignment rule configs / capacity, and run the assignment workflow
    on demand for any unassigned clients. */
 
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdminOrSuper } from "@/lib/auth";
 import {
   setCapacityConfig,
   setCsmAssignmentConfig,
@@ -30,7 +30,7 @@ export interface ActionResult {
 }
 
 async function guard(): Promise<ActionResult | null> {
-  if (!(await isSuperAdmin())) return { ok: false, error: "Super-admin access required." };
+  if (!(await isAdminOrSuper())) return { ok: false, error: "Super-admin access required." };
   return null;
 }
 

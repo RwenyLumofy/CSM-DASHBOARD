@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPropertyDefinitions } from "@/lib/data";
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdminOrSuper } from "@/lib/auth";
 
 export async function GET() {
   const defs = await getPropertyDefinitions();
@@ -21,7 +21,7 @@ export async function PATCH(req: Request) {
 
   // Editing ANY property definition (default or custom) is super-admin-only.
   // Per-client VALUES go through a different path (client.properties).
-  if (!(await isSuperAdmin())) {
+  if (!(await isAdminOrSuper())) {
     return NextResponse.json({ error: "Only an admin can edit properties." }, { status: 403 });
   }
 
@@ -65,7 +65,7 @@ export async function PATCH(req: Request) {
 
 export async function POST(req: Request) {
   // Creating a property definition is super-admin-only.
-  if (!(await isSuperAdmin())) {
+  if (!(await isAdminOrSuper())) {
     return NextResponse.json({ error: "Only an admin can create properties." }, { status: 403 });
   }
   const body = await req.json();

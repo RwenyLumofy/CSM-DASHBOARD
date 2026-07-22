@@ -36,8 +36,8 @@ export interface InsightsTab {
 
 export const INSIGHTS_TABS: InsightsTab[] = [
   { href: "/reports", label: "Overview", icon: Activity },
-  { href: "/reports/churn", label: "Churn", icon: TrendingDown },
   { href: "/reports/health", label: "Health", icon: HeartPulse },
+  { href: "/reports/churn", label: "Churn", icon: TrendingDown },
 ];
 
 export function InsightsNav() {

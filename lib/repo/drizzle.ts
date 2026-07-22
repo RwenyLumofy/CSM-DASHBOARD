@@ -1327,6 +1327,9 @@ export interface AppUserRow {
   email: string;
   name: string | null;
   role: string;
+  title: string | null;
+  department: string | null;
+  scope: string | null;
   addedByEmail: string | null;
   createdAt: string;
 }
@@ -1336,6 +1339,9 @@ function appUserRowToObj(r: typeof schema.appUsers.$inferSelect): AppUserRow {
     email: r.email,
     name: r.name,
     role: r.role,
+    title: r.title,
+    department: r.department,
+    scope: r.scope ?? null,
     addedByEmail: r.addedByEmail,
     createdAt: (r.createdAt instanceof Date ? r.createdAt : new Date(r.createdAt)).toISOString(),
   };
@@ -1363,12 +1369,36 @@ export async function getAppUserRoleFromDb(email: string): Promise<string | null
   return rows[0]?.role ?? null;
 }
 
-export async function upsertAppUserDb(u: { email: string; name?: string | null; role: string; addedByEmail?: string | null }): Promise<void> {
+export async function upsertAppUserDb(u: {
+  email: string;
+  name?: string | null;
+  role: string;
+  title?: string | null;
+  department?: string | null;
+  addedByEmail?: string | null;
+}): Promise<void> {
   const db = getDb();
   await db
     .insert(schema.appUsers)
-    .values({ email: u.email, name: u.name ?? null, role: u.role, addedByEmail: u.addedByEmail ?? null })
-    .onConflictDoUpdate({ target: schema.appUsers.email, set: { name: u.name ?? null, role: u.role } });
+    .values({
+      email: u.email,
+      name: u.name ?? null,
+      role: u.role,
+      title: u.title ?? null,
+      department: u.department ?? null,
+      addedByEmail: u.addedByEmail ?? null,
+    })
+    // Only overwrite title/department when the caller provides them, so a
+    // role-only update never wipes an existing profile.
+    .onConflictDoUpdate({
+      target: schema.appUsers.email,
+      set: {
+        name: u.name ?? null,
+        role: u.role,
+        ...(u.title !== undefined ? { title: u.title } : {}),
+        ...(u.department !== undefined ? { department: u.department } : {}),
+      },
+    });
 }
 
 /** Upsert only the role — creates the row if the user isn't in app_users yet
@@ -1384,6 +1414,139 @@ export async function setAppUserRoleDb(email: string, role: string, name?: strin
 export async function deleteAppUserDb(email: string): Promise<void> {
   const db = getDb();
   await db.delete(schema.appUsers).where(eq(schema.appUsers.email, email));
+  // Grants are the member's alone — clean them up so a re-added email starts clean.
+  try { await db.delete(schema.userAccountGrants).where(eq(schema.userAccountGrants.userEmail, email)); } catch { /* table may not exist yet */ }
+}
+
+/* -------- Per-user account scope (Pass 2) --------------------------------
+   All reads are RESILIENT (return the pre-migration default) so auth never
+   breaks if the scope column / grants table aren't present yet. */
+
+/** Hot-path scope override for one user, or null (= role default). Resilient. */
+export async function getUserScopeFromDb(email: string): Promise<string | null> {
+  try {
+    const sql = getRawSql();
+    const rows = await withCancellableDbTimeout(sql`select "scope" from "app_users" where "email" = ${email} limit 1`);
+    return (rows[0]?.scope as string | null) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Client ids a 'selected'-scope member may access. Resilient → []. */
+export async function getGrantsForUserDb(email: string): Promise<string[]> {
+  try {
+    const db = getDb();
+    const rows = await db
+      .select({ clientId: schema.userAccountGrants.clientId })
+      .from(schema.userAccountGrants)
+      .where(eq(schema.userAccountGrants.userEmail, email));
+    return rows.map((r) => r.clientId);
+  } catch {
+    return [];
+  }
+}
+
+/** All members' scope + granted ids, for the settings list. Resilient → {}. */
+export async function getAllUserScopesFromDb(): Promise<Record<string, { scope: string | null; clientIds: string[] }>> {
+  const out: Record<string, { scope: string | null; clientIds: string[] }> = {};
+  try {
+    const db = getDb();
+    const rows = await db.select().from(schema.userAccountGrants);
+    for (const r of rows) (out[r.userEmail] ??= { scope: "selected", clientIds: [] }).clientIds.push(r.clientId);
+  } catch {
+    /* grants table not present yet */
+  }
+  return out;
+}
+
+/** Set a member's scope override and (for 'selected') replace their grants. */
+export async function setUserScopeDb(email: string, scope: string | null, clientIds: string[]): Promise<void> {
+  const db = getDb();
+  await db.update(schema.appUsers).set({ scope }).where(eq(schema.appUsers.email, email));
+  await db.delete(schema.userAccountGrants).where(eq(schema.userAccountGrants.userEmail, email));
+  if (scope === "selected" && clientIds.length > 0) {
+    await db.insert(schema.userAccountGrants).values(clientIds.map((clientId) => ({ userEmail: email, clientId })));
+  }
+}
+
+/* -------- Today board tasks --------------------------------------------
+   User-authored tasks on the Today board. Reads are RESILIENT (return [] if
+   the table isn't migrated yet) so Today never breaks pre-migration. */
+
+export interface TodayTaskRow {
+  id: string; ownerEmail: string; category: string; title: string;
+  accountId: string | null; projectId: string | null; dueDate: string | null;
+  priority: string; notes: string | null; sourceType: string | null; sourceId: string | null;
+  createdByEmail: string | null; status: string; createdAt: string;
+}
+function todayTaskRowTo(r: typeof schema.todayTasks.$inferSelect): TodayTaskRow {
+  const iso = (d: Date | string | null) => (d == null ? null : (d instanceof Date ? d : new Date(d)).toISOString());
+  return {
+    id: r.id, ownerEmail: r.ownerEmail, category: r.category, title: r.title,
+    accountId: r.accountId, projectId: r.projectId, dueDate: iso(r.dueDate),
+    priority: r.priority ?? "normal", notes: r.notes ?? null, sourceType: r.sourceType ?? null, sourceId: r.sourceId ?? null,
+    createdByEmail: r.createdByEmail ?? null, status: r.status, createdAt: iso(r.createdAt) ?? "",
+  };
+}
+
+export async function getTodayTasksForUserDb(email: string): Promise<TodayTaskRow[]> {
+  try {
+    const db = getDb();
+    const rows = await withDbTimeout(db.select().from(schema.todayTasks).where(eq(schema.todayTasks.ownerEmail, email.toLowerCase())).orderBy(desc(schema.todayTasks.createdAt)));
+    return rows.map(todayTaskRowTo);
+  } catch {
+    return [];
+  }
+}
+
+/** Tasks visible on a viewer's board: their own (as assignee) plus any task
+ *  attached to an account they can see (delegated or created by others). */
+export async function getTodayTasksVisibleDb(email: string, accountIds: string[]): Promise<TodayTaskRow[]> {
+  try {
+    const db = getDb();
+    const owned = eq(schema.todayTasks.ownerEmail, email.toLowerCase());
+    const where = accountIds.length > 0
+      ? sql`(${owned} OR ${inArray(schema.todayTasks.accountId, accountIds)})`
+      : owned;
+    const rows = await withDbTimeout(db.select().from(schema.todayTasks).where(where).orderBy(desc(schema.todayTasks.createdAt)));
+    return rows.map(todayTaskRowTo);
+  } catch {
+    return [];
+  }
+}
+
+export async function createTodayTaskDb(input: {
+  ownerEmail: string; category: string; title: string; accountId?: string | null; projectId?: string | null; dueDate?: string | null;
+  priority?: string; notes?: string | null; sourceType?: string | null; sourceId?: string | null; createdByEmail?: string | null;
+}): Promise<TodayTaskRow> {
+  const db = getDb();
+  const id = `tdt-${globalThis.crypto.randomUUID()}`;
+  const owner = input.ownerEmail.toLowerCase();
+  const priority = input.priority ?? "normal";
+  const values = {
+    id, ownerEmail: owner, category: input.category, title: input.title,
+    accountId: input.accountId ?? null, projectId: input.projectId ?? null, dueDate: input.dueDate ? new Date(input.dueDate) : null,
+    priority, notes: input.notes ?? null, sourceType: input.sourceType ?? null, sourceId: input.sourceId ?? null,
+    createdByEmail: (input.createdByEmail ?? input.ownerEmail).toLowerCase(),
+  };
+  await db.insert(schema.todayTasks).values(values);
+  return {
+    id, ownerEmail: owner, category: input.category, title: input.title,
+    accountId: input.accountId ?? null, projectId: input.projectId ?? null, dueDate: input.dueDate ?? null,
+    priority, notes: input.notes ?? null, sourceType: input.sourceType ?? null, sourceId: input.sourceId ?? null,
+    createdByEmail: values.createdByEmail, status: "open", createdAt: new Date().toISOString(),
+  };
+}
+
+export async function setTodayTaskStatusDb(id: string, ownerEmail: string, status: "open" | "done"): Promise<void> {
+  const db = getDb();
+  await db.update(schema.todayTasks).set({ status, updatedAt: new Date() }).where(and(eq(schema.todayTasks.id, id), eq(schema.todayTasks.ownerEmail, ownerEmail.toLowerCase())));
+}
+
+export async function deleteTodayTaskDb(id: string, ownerEmail: string): Promise<void> {
+  const db = getDb();
+  await db.delete(schema.todayTasks).where(and(eq(schema.todayTasks.id, id), eq(schema.todayTasks.ownerEmail, ownerEmail.toLowerCase())));
 }
 
 /* ----------------------------------------------------------------- */

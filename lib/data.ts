@@ -48,7 +48,7 @@ import {
 import { env, hasDatabase } from "@/lib/config";
 import { canSeeClient, getCurrentUserEmail, getCurrentUserRole, scopeClientsToUser } from "@/lib/auth";
 import { getClientHealthConfig } from "@/lib/assignment/config";
-import { DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, teamForRole, type Role, type Team } from "@/lib/roles";
+import { DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, permissionTier, teamForRole, type Role, type Team } from "@/lib/roles";
 import { dbHealthy, markDbHealthy, markDbUnhealthy } from "@/lib/db/health";
 import { withDbTimeout } from "@/lib/db/client";
 import { FIELD_OVERRIDES_KEY, RECOMPUTED_PROPERTY_FIELDS } from "@/lib/client-overrides";
@@ -112,6 +112,24 @@ export async function getActiveClients(): Promise<Client[]> {
   return clients.filter((c) => c.status !== "churned");
 }
 
+/**
+ * How many accounts each person owns (either owner slot), keyed by lower-cased
+ * login email. Powers the "reassign this work before removing access" safeguard
+ * so removing a member can never silently orphan accounts. Counted once per
+ * client even if the person holds both slots.
+ */
+export async function getOwnedAccountCounts(): Promise<Record<string, number>> {
+  const { clients } = await source();
+  const out: Record<string, number> = {};
+  for (const c of clients) {
+    const owners = new Set<string>();
+    if (c.csm?.email) owners.add(c.csm.email.toLowerCase());
+    if (c.implementationOwner?.email) owners.add(c.implementationOwner.email.toLowerCase());
+    for (const e of owners) out[e] = (out[e] ?? 0) + 1;
+  }
+  return out;
+}
+
 // Cached per request: generateMetadata() and the page both call this with the
 // same id — without the cache that's two full lookups per profile view.
 export const getClientById = cache(async (id: string): Promise<Client | null> => {
@@ -172,17 +190,12 @@ export async function getClientForProfile(id: string): Promise<Client | null> {
   if (!row) return null; // genuinely gone → real 404
 
   const role = await getCurrentUserRole();
-  // Full visibility, or an unresolved user (transient — but authenticated):
-  // show the account rather than 404 it.
-  if (role === null || role === "super_admin" || role === "csm_officer") return row;
-
-  // A scoped CSM: only their own account. A RESOLVED non-owner is a genuine
-  // denial (null → 404, hiding existence); an unresolved email is transient.
-  const email = await getCurrentUserEmail();
-  if (!email) return row;
-  const team = teamForRole(role);
-  const ownerEmail = (team === "implementation" ? row.implementationOwner?.email : row.csm?.email) ?? "";
-  return ownerEmail.toLowerCase() === email ? row : null;
+  // An unresolved user (transient — but authenticated): show rather than 404.
+  if (role === null) return row;
+  // Otherwise defer to the single visibility gate, which honours access scope
+  // (all / assigned / selected). A RESOLVED denial → null → real 404 (hides
+  // existence). canSeeClient is cached per request, so this is cheap.
+  return (await canSeeClient(row)) ? row : null;
 }
 
 export async function getPortfolioSummary(): Promise<PortfolioSummary> {
@@ -623,6 +636,10 @@ export interface AppUser {
   email: string;
   name: string | null;
   role: Role;
+  title: string | null;
+  department: string | null;
+  /** Access scope override, or null = role default. 'all' | 'assigned' | 'selected'. */
+  scope: string | null;
   bootstrap: boolean;
 }
 
@@ -651,7 +668,7 @@ export async function getRoleLabels(): Promise<Record<string, string>> {
 export const getAppUsers = cache(async (): Promise<AppUser[]> => {
   const byEmail = new Map<string, AppUser>();
   for (const e of env.superAdminEmails) {
-    byEmail.set(e, { email: e, name: null, role: "super_admin", bootstrap: true });
+    byEmail.set(e, { email: e, name: null, role: "super_admin", title: null, department: null, scope: null, bootstrap: true });
   }
   // app_users and csm_users are independent reads (the csm_users merge below
   // doesn't need anything from app_users) — fire them concurrently instead of
@@ -673,7 +690,15 @@ export const getAppUsers = cache(async (): Promise<AppUser[]> => {
 
   for (const r of await appUsersPromise) {
     if (byEmail.get(r.email)?.bootstrap) continue; // permanent super-admin wins
-    byEmail.set(r.email, { email: r.email, name: r.name, role: isRole(r.role) ? r.role : DEFAULT_ROLE, bootstrap: false });
+    byEmail.set(r.email, {
+      email: r.email,
+      name: r.name,
+      role: isRole(r.role) ? r.role : DEFAULT_ROLE,
+      title: r.title,
+      department: r.department,
+      scope: r.scope,
+      bootstrap: false,
+    });
   }
   // Merge in CSMs from csm_users (synced from HubSpot) who have an email but
   // aren't already in app_users. They appear with their default role so the
@@ -682,7 +707,7 @@ export const getAppUsers = cache(async (): Promise<AppUser[]> => {
     if (!csm.email) continue;
     const key = csm.email.toLowerCase();
     if (!byEmail.has(key)) {
-      byEmail.set(key, { email: csm.email, name: csm.name, role: DEFAULT_ROLE, bootstrap: false });
+      byEmail.set(key, { email: csm.email, name: csm.name, role: DEFAULT_ROLE, title: null, department: null, scope: null, bootstrap: false });
     }
   }
   return [...byEmail.values()].sort(
@@ -867,9 +892,12 @@ export async function getTeamMembers(team?: Team): Promise<TeamMember[]> {
   const users = await getAppUsers();
   const out: TeamMember[] = [];
   for (const u of users) {
-    const t = teamForRole(u.role);
-    if (!t) continue; // skip super_admin
-    if (team && t !== team) continue;
+    if (permissionTier(u.role) !== "operator") continue; // only operators are assignable owners
+    // Legacy granular roles keep their fixed team; a flat operator has no team,
+    // so they're eligible for whichever slot is being filled (defaults to csm).
+    const fixed = teamForRole(u.role);
+    if (team && fixed && fixed !== team) continue;
+    const t: Team = fixed ?? team ?? "csm";
     const name = u.name ?? u.email;
     out.push({
       email: u.email,

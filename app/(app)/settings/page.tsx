@@ -1,23 +1,23 @@
 import Link from "next/link";
-import { FolderKanban, Settings2, Workflow as WorkflowIcon } from "lucide-react";
+import { FolderKanban, Plug, Settings2, Users, Workflow as WorkflowIcon, type LucideIcon } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PropertiesManager } from "@/components/settings/PropertiesManager";
-import { RoleLabelsManager } from "@/components/settings/RoleLabelsManager";
 import { SyncManager } from "@/components/settings/SyncManager";
-import { UsersManager } from "@/components/settings/UsersManager";
+import { MembersArea } from "@/components/settings/MembersArea";
 import { WorkflowManager } from "@/components/settings/WorkflowManager";
-import { LumofyStaffManager } from "@/components/settings/LumofyStaffManager";
 import { StakeholderTypesManager } from "@/components/settings/StakeholderTypesManager";
 import { AttachmentCategoriesManager } from "@/components/settings/AttachmentCategoriesManager";
 import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManager";
 import { ProjectTemplatesManager } from "@/components/settings/ProjectTemplatesManager";
-import { getAppUsers, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
+import { getAppUsers, getClients, getOwnedAccountCounts, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
 import { getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
-import { getCurrentUserEmail, isSuperAdmin } from "@/lib/auth";
+import { getCurrentUserEmail, isAdminOrSuper, isSuperAdmin } from "@/lib/auth";
 import { hasDatabase, integrations } from "@/lib/config";
 import { withDbTimeout } from "@/lib/db/client";
+import { permissionRole } from "@/lib/roles";
 import { cn } from "@/lib/cn";
 import type { LumofyStaffMember } from "@/components/settings/LumofyStaffManager";
+import type { Member } from "@/components/settings/MembersManager";
 
 export const metadata = { title: "Settings · Lumofy Signals" };
 export const dynamic = "force-dynamic";
@@ -27,45 +27,51 @@ export const dynamic = "force-dynamic";
 // applies to that save. Matches the client-health cron's maxDuration.
 export const maxDuration = 300;
 
+/* =========================================================================
+   Settings, grouped by concern — one job per tab.
+
+   Was a single "Workspace" tab holding seven unrelated sections (people, data
+   fields, vocabularies, and a HubSpot sync) in one long scroll, so finding a
+   setting meant hunting. Now:
+
+     Members       — who's in and what they can do (users, roles, Lumofy team)
+     Properties    — the data model (client fields, vocabularies)
+     Projects      — project options and templates
+     Automations   — routing + client-health scoring (was "Workflows")
+     Integrations  — HubSpot data sync
+
+   Visibility is unchanged: non-admins see only Properties (read-only) and
+   Projects; Members, Automations and the config sections stay super-admin.
+   Each tab is an async component, so only the active tab's data is fetched.
+   ========================================================================= */
+
+type TabKey = "members" | "properties" | "projects" | "automations" | "integrations";
+
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams;
-  const [defs, superAdmin, currentUserEmail, roleLabels] = await Promise.all([
-    getPropertyDefinitions(),
+  // canManage = admin OR super-admin (workspace management). superAdmin alone
+  // gates the crown (integration secrets / full re-sync).
+  const [superAdmin, canManage, currentUserEmail, roleLabels] = await Promise.all([
     isSuperAdmin(),
+    isAdminOrSuper(),
     getCurrentUserEmail(),
     getRoleLabels(),
   ]);
-  let lumofyStaff: LumofyStaffMember[] = [];
-  let stakeholderTypes: string[] = [];
-  let attachmentCategories: string[] = [];
-  if (hasDatabase() && superAdmin) {
-    try {
-      const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
-      [lumofyStaff, stakeholderTypes, attachmentCategories] = await withDbTimeout(
-        Promise.all([
-          getWorkspaceConfigFromDb("lumofy_staff").then((v) => (v as LumofyStaffMember[]) ?? []),
-          getWorkspaceConfigFromDb("stakeholder_types").then((v) => (v as string[]) ?? []),
-          getWorkspaceConfigFromDb("attachment_categories").then((v) => (v as string[]) ?? []),
-        ]),
-      );
-    } catch (err) {
-      console.warn("[settings] workspace config read failed:", err);
-    }
-  }
 
-  const activeTab =
-    tab === "workflows" && superAdmin ? "workflows" : tab === "projects" ? "projects" : "workspace";
-
-  // Projects is available to everyone (templates); Workflows stays admin-only.
-  const tabs = [
-    ["workspace", "Workspace", Settings2],
+  const tabs: [TabKey, string, LucideIcon][] = [
+    ...(canManage ? ([["members", "Members", Users]] as [TabKey, string, LucideIcon][]) : []),
+    ["properties", "Properties", Settings2],
     ["projects", "Projects", FolderKanban],
-    ...(superAdmin ? [["workflows", "Workflows", WorkflowIcon] as const] : []),
-  ] as const;
+    ...(canManage ? ([["automations", "Automations", WorkflowIcon]] as [TabKey, string, LucideIcon][]) : []),
+    ["integrations", "Integrations", Plug],
+  ];
+
+  const allowed = new Set(tabs.map(([k]) => k));
+  const activeTab: TabKey = tab && allowed.has(tab as TabKey) ? (tab as TabKey) : tabs[0][0];
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <PageHeader title="Settings" description="Manage properties, team roles, automations, and workspace configuration." />
+      <PageHeader title="Settings" description="Manage members, properties, projects, automations, and integrations." />
 
       <div className="flex gap-1 border-b border-border">
         {tabs.map(([key, label, Icon]) => (
@@ -82,166 +88,213 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         ))}
       </div>
 
-      {activeTab === "workflows" ? (
-        <WorkflowsTab roleLabels={roleLabels} />
+      {activeTab === "members" && canManage ? (
+        <MembersTab currentUserEmail={currentUserEmail} roleLabels={roleLabels} />
       ) : activeTab === "projects" ? (
-        <ProjectsSettingsTab superAdmin={superAdmin} currentUserEmail={currentUserEmail} />
+        <ProjectsTab superAdmin={canManage} currentUserEmail={currentUserEmail} />
+      ) : activeTab === "automations" && canManage ? (
+        <AutomationsTab roleLabels={roleLabels} />
+      ) : activeTab === "integrations" ? (
+        <IntegrationsTab superAdmin={superAdmin} />
       ) : (
-        <WorkspaceTab superAdmin={superAdmin} defs={defs} appUsers={superAdmin ? await getAppUsers() : []} currentUserEmail={currentUserEmail} roleLabels={roleLabels} lumofyStaff={lumofyStaff} stakeholderTypes={stakeholderTypes} attachmentCategories={attachmentCategories} />
+        <PropertiesTab superAdmin={canManage} />
       )}
     </div>
   );
 }
 
-async function ProjectsSettingsTab({ superAdmin, currentUserEmail }: { superAdmin: boolean; currentUserEmail: string | null }) {
-  const [config, templates] = await Promise.all([getProjectConfig(), listProjectTemplates()]);
+/** One titled settings section — heading, description, then its manager. */
+function SettingsSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex flex-col gap-8">
-      <section className="max-w-3xl">
-        <div className="mb-5">
-          <h2 className="font-display text-base font-semibold text-fg">Project options</h2>
-          <p className="mt-1 font-body text-sm text-fg-muted">
-            {superAdmin
-              ? "Configure the Status and Type vocabularies used on every account's Project Management tab. Statuses double as the kanban columns."
-              : "Project statuses and types are managed by your admin and are read-only for your role."}
-          </p>
-        </div>
-        <ProjectOptionsManager initialConfig={config} isSuperAdmin={superAdmin} />
-      </section>
-
-      <section className="max-w-3xl">
-        <div className="mb-5">
-          <h2 className="font-display text-base font-semibold text-fg">Project templates</h2>
-          <p className="mt-1 font-body text-sm text-fg-muted">
-            Reusable milestone/task blueprints any CSM can apply to a new project. Everyone sees every template; you can edit or delete the ones you created (super-admins can manage all).
-          </p>
-        </div>
-        <ProjectTemplatesManager initialTemplates={templates} config={config} currentUserEmail={currentUserEmail} isSuperAdmin={superAdmin} />
-      </section>
-    </div>
+    <section className="max-w-3xl">
+      <div className="mb-5">
+        <h2 className="font-display text-base font-semibold text-fg">{title}</h2>
+        <p className="mt-1 font-body text-sm text-fg-muted">{description}</p>
+      </div>
+      {children}
+    </section>
   );
 }
 
-async function WorkspaceTab({
-  superAdmin,
-  defs,
-  appUsers,
+/* ---------------------------------------------------------------- Members */
+
+async function MembersTab({
   currentUserEmail,
   roleLabels,
-  lumofyStaff,
-  stakeholderTypes,
-  attachmentCategories,
 }: {
-  superAdmin: boolean;
-  defs: Awaited<ReturnType<typeof getPropertyDefinitions>>;
-  appUsers: Awaited<ReturnType<typeof getAppUsers>>;
   currentUserEmail: string | null;
   roleLabels: Record<string, string>;
-  lumofyStaff: LumofyStaffMember[];
-  stakeholderTypes: string[];
-  attachmentCategories: string[];
 }) {
-  let lastSyncedAt: string | null = null;
+  const [appUsers, ownedCounts, superAdmin, clients] = await Promise.all([
+    getAppUsers(),
+    getOwnedAccountCounts(),
+    isSuperAdmin(),
+    getClients(),
+  ]);
+
+  // Per-member scope grants (resilient — empty if the grants table isn't
+  // migrated yet). Keyed by lower-cased email.
+  let grantsByEmail: Record<string, { scope: string | null; clientIds: string[] }> = {};
   if (hasDatabase()) {
-    const { getSyncCheckpoint } = await import("@/lib/repo/drizzle");
-    lastSyncedAt = await withDbTimeout(getSyncCheckpoint("last_synced_at")).catch(() => null);
+    try {
+      const { getAllUserScopesFromDb } = await import("@/lib/repo/drizzle");
+      grantsByEmail = await withDbTimeout(getAllUserScopesFromDb());
+    } catch { /* pre-migration → no grants */ }
+  }
+
+  const accounts = clients.map((c) => ({ id: c.id, name: c.name })).sort((a, b) => a.name.localeCompare(b.name));
+
+  let lumofyStaff: LumofyStaffMember[] = [];
+  if (hasDatabase()) {
+    try {
+      const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
+      lumofyStaff = ((await withDbTimeout(getWorkspaceConfigFromDb("lumofy_staff"))) as LumofyStaffMember[]) ?? [];
+    } catch (err) {
+      console.warn("[settings] lumofy_staff read failed:", err);
+    }
+  }
+
+  // Map app_users → the Member shape the redesign renders. Status is structural
+  // for now (no status column yet) — everyone resolves to Active.
+  const members: Member[] = appUsers.map((u) => ({
+    email: u.email,
+    name: u.name,
+    role: u.role,
+    title: u.title,
+    department: u.department,
+    bootstrap: u.bootstrap,
+    ownedAccounts: ownedCounts[u.email.toLowerCase()] ?? 0,
+    scope: u.scope,
+    grantedClientIds: grantsByEmail[u.email.toLowerCase()]?.clientIds ?? [],
+  }));
+
+  // Member counts per permission key (for Roles & permissions), the directory's
+  // inline permission map, and the locked (permanent super-admin) set.
+  const memberCounts: Record<string, number> = {};
+  const directoryPermissions: Record<string, string> = {};
+  const lockedEmails: string[] = [];
+  for (const u of appUsers) {
+    const key = permissionRole(u.role);
+    memberCounts[key] = (memberCounts[key] ?? 0) + 1;
+    directoryPermissions[u.email.toLowerCase()] = u.role;
+    if (u.bootstrap) lockedEmails.push(u.email.toLowerCase());
+  }
+
+  return (
+    <MembersArea
+      members={members}
+      currentUserEmail={currentUserEmail}
+      roleLabels={roleLabels}
+      canGrantCrown={superAdmin}
+      memberCounts={memberCounts}
+      accounts={accounts}
+      lumofyStaff={lumofyStaff}
+      directoryPermissions={directoryPermissions}
+      lockedEmails={lockedEmails}
+      memberEmails={appUsers.map((u) => u.email.toLowerCase())}
+    />
+  );
+}
+
+/* ------------------------------------------------------------- Properties */
+
+async function PropertiesTab({ superAdmin }: { superAdmin: boolean }) {
+  const defs = await getPropertyDefinitions();
+  let stakeholderTypes: string[] = [];
+  let attachmentCategories: string[] = [];
+  if (hasDatabase() && superAdmin) {
+    try {
+      const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
+      [stakeholderTypes, attachmentCategories] = await withDbTimeout(
+        Promise.all([
+          getWorkspaceConfigFromDb("stakeholder_types").then((v) => (v as string[]) ?? []),
+          getWorkspaceConfigFromDb("attachment_categories").then((v) => (v as string[]) ?? []),
+        ]),
+      );
+    } catch (err) {
+      console.warn("[settings] workspace config read failed:", err);
+    }
   }
 
   return (
     <div className="flex flex-col gap-8">
-      <section className="max-w-3xl">
-        <div className="mb-5">
-          <h2 className="font-display text-base font-semibold text-fg">Properties</h2>
-          <p className="mt-1 font-body text-sm text-fg-muted">
-            {superAdmin
-              ? "Configure the fields on client profiles — rename labels, manage option lists, and create custom properties."
-              : "Property definitions are managed by your admin and are read-only for your role."}
-          </p>
-        </div>
+      <SettingsSection
+        title="Client fields"
+        description={
+          superAdmin
+            ? "Configure the fields on client profiles — rename labels, manage option lists, and create custom properties."
+            : "Property definitions are managed by your admin and are read-only for your role."
+        }
+      >
         <PropertiesManager initialDefs={defs} isSuperAdmin={superAdmin} />
-      </section>
+      </SettingsSection>
 
       {superAdmin && (
         <>
-          <section className="max-w-3xl">
-            <div className="mb-5">
-              <h2 className="font-display text-base font-semibold text-fg">Users &amp; roles</h2>
-              <p className="mt-1 font-body text-sm text-fg-muted">
-                Add team members and set each one&apos;s role. CSM tiers see only their own clients and can&apos;t change
-                property definitions; super-admins manage everything. A user is matched by the email they sign in with.
-              </p>
-            </div>
-            <UsersManager initialUsers={appUsers} currentUserEmail={currentUserEmail} roleLabels={roleLabels} />
-          </section>
-
-          <section className="max-w-3xl">
-            <div className="mb-5">
-              <h2 className="font-display text-base font-semibold text-fg">Role names</h2>
-              <p className="mt-1 font-body text-sm text-fg-muted">
-                Customise how each role tier is labelled across the app. The internal role key (shown in grey) stays
-                fixed; only the display name changes.
-              </p>
-            </div>
-            <RoleLabelsManager initialLabels={roleLabels} />
-          </section>
-        </>
-      )}
-
-      {superAdmin && (
-        <>
-          <section className="max-w-3xl">
-            <div className="mb-5">
-              <h2 className="font-display text-base font-semibold text-fg">Lumofy team</h2>
-              <p className="mt-1 font-body text-sm text-fg-muted">
-                Manage the internal Lumofy team members that can be assigned in the stakeholder mapping matrix. Fill in name, title, email and phone for each person.
-              </p>
-            </div>
-            <LumofyStaffManager initialStaff={lumofyStaff} />
-          </section>
-
-          <section className="max-w-3xl">
-            <div className="mb-5">
-              <h2 className="font-display text-base font-semibold text-fg">Stakeholder types</h2>
-              <p className="mt-1 font-body text-sm text-fg-muted">
-                Define the stakeholder roles used in the client stakeholder mapping matrix. These labels appear as the row headers in every client&apos;s Communication → Stakeholder Mapping view.
-              </p>
-            </div>
+          <SettingsSection
+            title="Stakeholder types"
+            description="Define the stakeholder roles used in the client stakeholder mapping matrix. These labels appear as the row headers in every client's Communication → Stakeholder Mapping view."
+          >
             <StakeholderTypesManager initialTypes={stakeholderTypes} />
-          </section>
+          </SettingsSection>
 
-          <section className="max-w-3xl">
-            <div className="mb-5">
-              <h2 className="font-display text-base font-semibold text-fg">Attachment categories</h2>
-              <p className="mt-1 font-body text-sm text-fg-muted">
-                Define the categories CSMs can tag files with on every account's Attachments tab (e.g. Contract, Invoice, Deck). These appear as filter and picker options there.
-              </p>
-            </div>
+          <SettingsSection
+            title="Attachment categories"
+            description="Define the categories CSMs can tag files with on every account's Attachments tab (e.g. Contract, Invoice, Deck). These appear as filter and picker options there."
+          >
             <AttachmentCategoriesManager initialCategories={attachmentCategories} />
-          </section>
+          </SettingsSection>
         </>
       )}
-
-      <section className="max-w-3xl">
-        <div className="mb-5">
-          <h2 className="font-display text-base font-semibold text-fg">Data sync</h2>
-          <p className="mt-1 font-body text-sm text-fg-muted">
-            Pull the latest companies and deals from HubSpot. The daily sync runs automatically and never overwrites
-            your in-app edits; use these controls to sync on demand.
-          </p>
-        </div>
-        <SyncManager
-          isSuperAdmin={superAdmin}
-          initialLastSyncedAt={lastSyncedAt}
-          hubspotConfigured={integrations.hubspot()}
-          databaseConfigured={hasDatabase()}
-        />
-      </section>
     </div>
   );
 }
 
-async function WorkflowsTab({ roleLabels }: { roleLabels: Record<string, string> }) {
-  const { getCsmAssignmentConfig, getImplementationAssignmentConfig, getCapacityConfig, getClientHealthConfig } = await import("@/lib/assignment/config");
+/* --------------------------------------------------------------- Projects */
+
+async function ProjectsTab({ superAdmin, currentUserEmail }: { superAdmin: boolean; currentUserEmail: string | null }) {
+  const [config, templates] = await Promise.all([getProjectConfig(), listProjectTemplates()]);
+  return (
+    <div className="flex flex-col gap-8">
+      <SettingsSection
+        title="Project options"
+        description={
+          superAdmin
+            ? "Configure the Status and Type vocabularies used on every account's Project Management tab. Statuses double as the kanban columns."
+            : "Project statuses and types are managed by your admin and are read-only for your role."
+        }
+      >
+        <ProjectOptionsManager initialConfig={config} isSuperAdmin={superAdmin} />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Project templates"
+        description="Reusable milestone/task blueprints any CSM can apply to a new project. Everyone sees every template; you can edit or delete the ones you created (super-admins can manage all)."
+      >
+        <ProjectTemplatesManager
+          initialTemplates={templates}
+          config={config}
+          currentUserEmail={currentUserEmail}
+          isSuperAdmin={superAdmin}
+        />
+      </SettingsSection>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ Automations */
+
+async function AutomationsTab({ roleLabels }: { roleLabels: Record<string, string> }) {
+  const { getCsmAssignmentConfig, getImplementationAssignmentConfig, getCapacityConfig, getClientHealthConfig } =
+    await import("@/lib/assignment/config");
   const { getTeamHealth } = await import("@/lib/assignment/health");
   const [csm, impl, capacity, teamHealth, clientHealth] = await Promise.all([
     getCsmAssignmentConfig(),
@@ -254,13 +307,46 @@ async function WorkflowsTab({ roleLabels }: { roleLabels: Record<string, string>
   return (
     <div className="max-w-3xl">
       <div className="mb-5">
-        <h2 className="font-display text-base font-semibold text-fg">Workflows</h2>
+        <h2 className="font-display text-base font-semibold text-fg">Automations</h2>
         <p className="mt-1 font-body text-sm text-fg-muted">
           Two automations: how new clients are routed to a CSM and an Implementation owner, and how every account&apos;s
           health score is calculated. Pick one below.
         </p>
       </div>
-      <WorkflowManager initialCsm={csm} initialImpl={impl} initialCapacity={capacity} teamHealth={teamHealth} initialClientHealth={clientHealth} roleLabels={roleLabels} />
+      <WorkflowManager
+        initialCsm={csm}
+        initialImpl={impl}
+        initialCapacity={capacity}
+        teamHealth={teamHealth}
+        initialClientHealth={clientHealth}
+        roleLabels={roleLabels}
+      />
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------- Integrations */
+
+async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
+  let lastSyncedAt: string | null = null;
+  if (hasDatabase()) {
+    const { getSyncCheckpoint } = await import("@/lib/repo/drizzle");
+    lastSyncedAt = await withDbTimeout(getSyncCheckpoint("last_synced_at")).catch(() => null);
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      <SettingsSection
+        title="HubSpot data sync"
+        description="Pull the latest companies and deals from HubSpot. The daily sync runs automatically and never overwrites your in-app edits; use these controls to sync on demand."
+      >
+        <SyncManager
+          isSuperAdmin={superAdmin}
+          initialLastSyncedAt={lastSyncedAt}
+          hubspotConfigured={integrations.hubspot()}
+          databaseConfigured={hasDatabase()}
+        />
+      </SettingsSection>
     </div>
   );
 }

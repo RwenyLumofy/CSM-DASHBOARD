@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { RiskRow } from "@/lib/metrics/movement";
+import { ProvisionalTag } from "@/components/reports/ProvisionalTag";
 import { cn } from "@/lib/cn";
 
 /* =========================================================================
@@ -48,6 +49,8 @@ export interface SummaryData {
   attentionArr: number;
   attentionCount: number;
   topRisk: RiskRow | null;
+  /** ARR sources are unreconciled — mark the ARR-denominated tiles provisional. */
+  provisional: boolean;
   qs: string;
 }
 
@@ -64,17 +67,25 @@ export function SummaryRow({ d }: { d: SummaryData }) {
   // alone, and it's the context line rather than a fifth number.
   const attentionShare = d.renewalArr > 0 ? (d.attentionArr / d.renewalArr) * 100 : null;
 
+  // Dividers are EXPLICIT cell borders, not a gap-px bleed. On hi-DPI the gap
+  // trick placed 1px lines at fractional pixel positions, so some anti-aliased
+  // away (one divider looked missing); painted borders snap to the pixel grid
+  // and render consistently. Per breakpoint: 1-col → top borders; 2-col → left
+  // on 2 & 4, top on 3 & 4; 4-col → left on 2, 3, 4.
   return (
-    <div className="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2 xl:grid-cols-[1fr_1.4fr_1fr_1fr]">
+    <div className="grid grid-cols-1 overflow-hidden rounded-lg border border-border [&>*]:border-border [&>*:not(:first-child)]:border-t sm:grid-cols-2 sm:[&>*:nth-child(2)]:border-l sm:[&>*:nth-child(2)]:border-t-0 sm:[&>*:nth-child(4)]:border-l xl:grid-cols-[1fr_1.4fr_1fr_1fr] xl:[&>*:not(:first-child)]:border-t-0 xl:[&>*:not(:first-child)]:border-l">
       <Cell
         href={link("/clients")}
         label={d.isCurrent ? "Current ARR" : "Closing ARR"}
         tip="Ledger balance at the end of the selected period, across the filtered book."
       >
-        <Value>{money(d.closingArr)}</Value>
+        <span className="flex items-center">
+          <Value>{money(d.closingArr)}</Value>
+          {d.provisional && <ProvisionalTag />}
+        </span>
         <Delta value={arrDelta} unit="money" vs={d.comparisonLabel} />
         <Ctx>
-          {d.activeAccounts} accounts · {d.isCurrent ? "as of today" : d.periodEndLabel}
+          {d.activeAccounts} active accounts · {d.isCurrent ? "as of today" : d.periodEndLabel}
         </Ctx>
       </Cell>
 
@@ -93,9 +104,12 @@ export function SummaryRow({ d }: { d: SummaryData }) {
         label="Upcoming renewals"
         tip="ARR on accounts whose renewal date falls in the 90 days after the selected period ends."
       >
-        <Value>{money(d.renewalArr)}</Value>
+        <span className="flex items-center">
+          <Value>{money(d.renewalArr)}</Value>
+          {d.provisional && <ProvisionalTag />}
+        </span>
         <Ctx>{d.renewalCount} accounts</Ctx>
-        <Ctx>Next 90 days{d.isCurrent ? "" : ` from ${d.periodEndLabel}`}</Ctx>
+        <Ctx>{d.isCurrent ? "Next 90 days" : `90 days following ${d.periodEndLabel}`}</Ctx>
       </Cell>
 
       <Cell
@@ -103,7 +117,10 @@ export function SummaryRow({ d }: { d: SummaryData }) {
         label="Renewal ARR requiring attention"
         tip="ARR on upcoming renewals carrying risk signals — declining usage, low health, SLA breaches. Not a churn forecast."
       >
-        <Value>{money(d.attentionArr)}</Value>
+        <span className="flex items-center">
+          <Value>{money(d.attentionArr)}</Value>
+          {d.provisional && <ProvisionalTag />}
+        </span>
         <Ctx>
           {d.attentionCount} renewal{d.attentionCount === 1 ? "" : "s"}
         </Ctx>

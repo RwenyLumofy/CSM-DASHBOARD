@@ -4,7 +4,7 @@
 import { cache } from "react";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { authEnabled, env, hasDatabase } from "@/lib/config";
-import { DEFAULT_ROLE, isRole, teamForRole, type Role, type Team } from "@/lib/roles";
+import { DEFAULT_ROLE, isRole, permissionTier, defaultScopeForRole, type AccessScope, type Role } from "@/lib/roles";
 import type { Client } from "@/lib/types";
 
 /** Lower-cased primary email of the signed-in user, or null. Cached per request. */
@@ -93,49 +93,113 @@ export async function isSuperAdmin(): Promise<boolean> {
 }
 
 /**
- * Does `email` own `client` for the given team? CSM-team users own clients
- * where they are the CSM; Implementation-team users own clients where they are
- * the implementation owner. Single source of truth for both scoping helpers so
- * the list filter and the single-client gate can never diverge.
+ * Does `email` own `client`? An operator owns a client when they're named on
+ * EITHER owner slot (CSM or Implementation) — permission no longer branches on
+ * team, so a flat operator sees/edits whatever they're on. Single source of
+ * truth for both scoping helpers so the list filter and the single-client gate
+ * can never diverge.
  */
-function ownsClient(client: Client, email: string, team: Team | null): boolean {
-  if (team === "implementation") {
-    return (client.implementationOwner?.email ?? "").toLowerCase() === email;
+function ownsClient(client: Client, email: string): boolean {
+  return (client.csm?.email ?? "").toLowerCase() === email
+    || (client.implementationOwner?.email ?? "").toLowerCase() === email;
+}
+
+/** super_admin or admin — the two management tiers. Admin runs the workspace;
+ *  the crown (managing admins, integrations, destructive actions) stays gated
+ *  by isSuperAdmin(). */
+export async function isAdminOrSuper(): Promise<boolean> {
+  const role = await getCurrentUserRole();
+  return role === "super_admin" || role === "admin";
+}
+
+/* -------------------------------------------------------------------------
+   Effective access scope — what slice of the account book the current user may
+   reach. Independent of role: the role sets the default (admin/guest/super →
+   all, operator → assigned), but a per-user override in app_users.scope can
+   narrow it, and 'selected' pins an explicit set of client ids. super_admin is
+   ALWAYS all-accounts and can't be narrowed.
+   ------------------------------------------------------------------------- */
+
+export type EffectiveScope =
+  | { mode: "none" } // not signed in / unresolved
+  | { mode: "all" }
+  | { mode: "assigned" }
+  | { mode: "selected"; clientIds: Set<string> };
+
+/** Resolve the signed-in user's effective scope. Cached per request. Reads are
+ *  resilient — if the scope column / grants table aren't migrated yet, this
+ *  falls back to the role default so nothing breaks. */
+export const getCurrentUserScope = cache(async (): Promise<EffectiveScope> => {
+  const role = await getCurrentUserRole();
+  if (!role) return { mode: "none" };
+  if (permissionTier(role) === "super_admin") return { mode: "all" }; // never narrowed
+
+  const email = await getCurrentUserEmail();
+  let override: string | null = null;
+  if (hasDatabase() && email) {
+    try {
+      const { getUserScopeFromDb } = await import("@/lib/repo/drizzle");
+      override = await getUserScopeFromDb(email);
+    } catch { /* fall back to role default */ }
   }
-  // default / csm team
-  return (client.csm?.email ?? "").toLowerCase() === email;
+
+  const scope: AccessScope = override && ["all", "assigned", "selected"].includes(override)
+    ? (override as AccessScope)
+    : defaultScopeForRole(role);
+
+  if (scope === "all") return { mode: "all" };
+  if (scope === "assigned") return { mode: "assigned" };
+
+  let ids: string[] = [];
+  if (hasDatabase() && email) {
+    try {
+      const { getGrantsForUserDb } = await import("@/lib/repo/drizzle");
+      ids = await getGrantsForUserDb(email);
+    } catch { /* no grants readable → empty selected set */ }
+  }
+  return { mode: "selected", clientIds: new Set(ids) };
+});
+
+/** Does `scope` admit `client` for `email`? Pure — the shared predicate behind
+ *  the single-client gate and the list filter, so they can never diverge. */
+function scopeAdmits(client: Client, scope: EffectiveScope, email: string | null): boolean {
+  switch (scope.mode) {
+    case "none": return false;
+    case "all": return true;
+    case "assigned": return !!email && ownsClient(client, email);
+    case "selected": return scope.clientIds.has(client.id);
+  }
 }
 
-/** Roles that see every client rather than only the ones they own. Unlike
- *  super_admin this doesn't grant admin actions (user/property management,
- *  owner reassignment) — it only widens which clients scopeClientsToUser()/
- *  canSeeClient() let through. */
-function hasFullClientVisibility(role: Role | null): boolean {
-  return role === "super_admin" || role === "csm_officer";
-}
-
-/** True when the given client is visible to the current user (own client / admin). */
+/** True when the given client is visible (read) to the current user. */
 export async function canSeeClient(client: Client | null): Promise<boolean> {
   if (!client) return false;
-  const role = await getCurrentUserRole();
-  if (hasFullClientVisibility(role)) return true;
-  if (!role) return false;
+  const scope = await getCurrentUserScope();
+  if (scope.mode === "all") return true;
   const email = await getCurrentUserEmail();
-  return !!email && ownsClient(client, email, teamForRole(role));
+  return scopeAdmits(client, scope, email);
 }
 
-/**
- * Restrict a client list to what the current user may see. Super-admins and
- * CSM Officers (dev bypass too) see everything; other CSM-team roles see only
- * clients they're the CSM of; Implementation-team roles see only clients they
- * implement.
- */
-export async function scopeClientsToUser(clients: Client[]): Promise<Client[]> {
+/** True when the current user may EDIT the given client. The WRITE gate —
+ *  distinct from canSeeClient so read-only guests can view what they can't
+ *  change. A member may edit anything IN THEIR SCOPE unless their role is
+ *  view-only (guest). Every client mutation must gate on THIS. */
+export async function canEditClient(client: Client | null): Promise<boolean> {
+  if (!client) return false;
   const role = await getCurrentUserRole();
-  if (hasFullClientVisibility(role)) return clients;
-  if (!role) return [];
+  if (!role || permissionTier(role) === "guest") return false; // guest = read-only
+  const scope = await getCurrentUserScope();
+  if (scope.mode === "all") return true;
   const email = await getCurrentUserEmail();
-  if (!email) return [];
-  const team = teamForRole(role);
-  return clients.filter((c) => ownsClient(c, email, team));
+  return scopeAdmits(client, scope, email);
+}
+
+/** Restrict a client list to what the current user may see, honouring scope
+ *  (all / assigned / selected). */
+export async function scopeClientsToUser(clients: Client[]): Promise<Client[]> {
+  const scope = await getCurrentUserScope();
+  if (scope.mode === "all") return clients;
+  if (scope.mode === "none") return [];
+  const email = await getCurrentUserEmail();
+  return clients.filter((c) => scopeAdmits(c, scope, email));
 }

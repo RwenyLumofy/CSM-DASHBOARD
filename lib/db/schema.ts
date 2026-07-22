@@ -280,10 +280,54 @@ export const csmUsers = pgTable("csm_users", {
 export const appUsers = pgTable("app_users", {
   email: text("email").primaryKey(), // lower-cased primary email
   name: text("name"),
-  role: text("role").notNull().default("csm_officer"),
+  role: text("role").notNull().default("csm_officer"), // the PERMISSION tier
+  title: text("title"), // job title / position (free text), e.g. "Growth Marketing Lead"
+  department: text("department"), // free text, e.g. "Marketing"
+  // Access scope OVERRIDE, independent of role. null = role default
+  // (admin/guest/super → all, operator → assigned). 'all' | 'assigned' | 'selected'.
+  // 'selected' means the member sees exactly the accounts in user_account_grants.
+  scope: text("scope"),
   addedByEmail: text("added_by_email"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Per-user account grants — the client ids a member with scope='selected' may
+ * access. Independent of ownership (a granted account need not be owned). Auth
+ * unions/uses this only when the member's effective scope is 'selected'.
+ */
+export const userAccountGrants = pgTable("user_account_grants", {
+  userEmail: text("user_email").notNull(), // lower-cased app_users.email
+  clientId: text("client_id").notNull(), // clients.id
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.userEmail, t.clientId] }),
+  userIdx: index("user_account_grants_user_idx").on(t.userEmail),
+}));
+
+/**
+ * Today board tasks — the user-authored tasks on the Today operating board.
+ * Each task belongs to a board lane (`category`) and can link to an account
+ * and/or a project. Distinct from client_actions (AI-generated) and
+ * notifications (assignments): these are the CSM's own planned work.
+ */
+export const todayTasks = pgTable("today_tasks", {
+  id: text("id").primaryKey(), // "tdt-{uuid}"
+  ownerEmail: text("owner_email").notNull(), // lower-cased login email
+  category: text("category").notNull(), // board lane: derisking | projects | escalations | lifecycle | stakeholders
+  title: text("title").notNull(),
+  accountId: text("account_id"), // clients.id (optional link)
+  projectId: text("project_id"), // client_projects.id (optional link)
+  dueDate: timestamp("due_date", { withTimezone: true }),
+  priority: text("priority").notNull().default("normal"), // urgent | high | normal | low
+  notes: text("notes"), // optional description, supports @mentions
+  sourceType: text("source_type"), // provenance: signal | commitment | null
+  sourceId: text("source_id"), // id of the linked signal/commitment
+  createdByEmail: text("created_by_email"), // who authored it (may differ from assignee)
+  status: text("status").notNull().default("open"), // open | done
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("today_tasks_owner_idx").on(t.ownerEmail)]);
 
 /**
  * Sync state — stores named checkpoints (ISO timestamps).

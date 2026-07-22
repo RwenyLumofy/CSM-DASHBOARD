@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { assignCsm, updateClientDetails } from "@/lib/data";
-import { canSeeClient, isSuperAdmin } from "@/lib/auth";
+import { canSeeClient, canEditClient, isAdminOrSuper } from "@/lib/auth";
 import { withDbTimeout } from "@/lib/db/client";
 
 export const runtime = "nodejs";
@@ -17,16 +17,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // user could PATCH any client by guessing its id).
     const { getClientByIdFromDb } = await import("@/lib/repo/drizzle");
     const target = await withDbTimeout(getClientByIdFromDb(id));
+    // 404 if you can't even see it (don't reveal existence to id-guessers);
+    // 403 if you can see it but can't edit it (guests / non-owner operators).
     if (!(await canSeeClient(target))) {
       return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
+    }
+    if (!(await canEditClient(target))) {
+      return NextResponse.json({ ok: false, error: "You don't have permission to edit this account." }, { status: 403 });
     }
 
     // Owner (re)assignment is super-admin only — the assignment workflow and the
     // profile Owners card are the canonical paths. Gate any csm/implementation
     // owner change here so legacy inline pickers can't bypass it.
     const ownerChange = "csmId" in body || "implementationOwnerEmail" in body;
-    if (ownerChange && !(await isSuperAdmin())) {
-      return NextResponse.json({ ok: false, error: "Super-admin access required to reassign owners." }, { status: 403 });
+    if (ownerChange && !(await isAdminOrSuper())) {
+      return NextResponse.json({ ok: false, error: "Admin access required to reassign owners." }, { status: 403 });
     }
 
     // Lightweight CSM-only path (the inline assign button).

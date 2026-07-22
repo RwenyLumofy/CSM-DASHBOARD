@@ -4,7 +4,7 @@
    Writing with source 'manual' marks it as a human decision, and any open
    "needs admin" action item for that client+team is resolved. */
 
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdminOrSuper } from "@/lib/auth";
 import { assignCsmOwner, assignImplementationOwner } from "@/lib/data";
 import { hasDatabase } from "@/lib/config";
 
@@ -14,7 +14,7 @@ export interface OwnerActionResult {
 }
 
 async function guard(): Promise<OwnerActionResult | null> {
-  if (!(await isSuperAdmin())) return { ok: false, error: "Super-admin access required." };
+  if (!(await isAdminOrSuper())) return { ok: false, error: "Super-admin access required." };
   if (!hasDatabase()) return { ok: false, error: "No database configured." };
   return null;
 }

@@ -357,6 +357,8 @@ body {
   100% { background-color: transparent; }
 }
 
+@keyframes pm-slide-in { from { transform: translateX(24px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.pm-slide-in { animation: pm-slide-in 240ms var(--ease-standard) both; }
 .pm-in       { animation: pm-in var(--duration-base) var(--ease-standard) both; }
 .pm-pop      { animation: pm-pop 280ms var(--ease-emphasis) both; }
 .pm-land     { animation: pm-land 560ms var(--ease-standard); }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Lock, Loader2, AlertTriangle, ShieldCheck, Check } from "lucide-react";
-import { ROLES, DEFAULT_ROLE_LABELS, type Role } from "@/lib/roles";
+import { ROLE_GROUPS, DEFAULT_ROLE_LABELS, permissionRole, type Role } from "@/lib/roles";
 import { Avatar } from "@/components/ui/Avatar";
 import { addOrUpdateUserAction, removeUserAction } from "@/app/(app)/settings/user-actions";
 
@@ -11,6 +11,8 @@ interface AppUser {
   email: string;
   name: string | null;
   role: Role;
+  title: string | null;
+  department: string | null;
   bootstrap: boolean;
 }
 
@@ -22,6 +24,28 @@ function initialsOf(u: AppUser): string {
 
 function label(role: string, roleLabels: Record<string, string>) {
   return roleLabels[role] ?? DEFAULT_ROLE_LABELS[role as Role] ?? role;
+}
+
+/** The <option>s for a role <select>, grouped into the permission tiers
+ *  (Super Admin / Admin / Operators / Guest). */
+function RoleOptions({ roleLabels }: { roleLabels: Record<string, string> }) {
+  return (
+    <>
+      {ROLE_GROUPS.map((g, i) =>
+        g.label ? (
+          <optgroup key={g.label} label={g.label}>
+            {g.roles.map((r) => (
+              <option key={r} value={r}>{label(r, roleLabels)}</option>
+            ))}
+          </optgroup>
+        ) : (
+          g.roles.map((r) => (
+            <option key={`${i}-${r}`} value={r}>{label(r, roleLabels)}</option>
+          ))
+        ),
+      )}
+    </>
+  );
 }
 
 export function UsersManager({
@@ -42,12 +66,14 @@ export function UsersManager({
   const [savedEmail, setSavedEmail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState<{ email: string; name: string; role: Role }>({
-    email: "", name: "", role: "csm_officer",
+  const [form, setForm] = useState<{ email: string; name: string; title: string; department: string; role: Role }>({
+    email: "", name: "", title: "", department: "", role: "operator",
   });
 
+  // Always display one of the four flat permission categories — a legacy
+  // granular role (e.g. csm_officer) collapses to its tier (operator).
   function currentRole(u: AppUser): Role {
-    return pendingRoles[u.email] ?? u.role;
+    return pendingRoles[u.email] ?? permissionRole(u.role);
   }
 
   function currentName(u: AppUser): string {
@@ -55,7 +81,7 @@ export function UsersManager({
   }
 
   function isDirty(u: AppUser): boolean {
-    const roleDirty = pendingRoles[u.email] !== undefined && pendingRoles[u.email] !== u.role;
+    const roleDirty = pendingRoles[u.email] !== undefined && pendingRoles[u.email] !== permissionRole(u.role);
     const nameDirty = pendingNames[u.email] !== undefined && pendingNames[u.email] !== (u.name ?? "");
     return roleDirty || nameDirty;
   }
@@ -108,7 +134,7 @@ export function UsersManager({
       if (!r.ok) {
         setError(r.error ?? "Something went wrong.");
       } else {
-        setForm({ email: "", name: "", role: "csm_officer" });
+        setForm({ email: "", name: "", title: "", department: "", role: "csm_officer" });
         setAdding(false);
         router.refresh();
       }
@@ -157,6 +183,9 @@ export function UsersManager({
                     </span>
                   )}
                 </div>
+                {(u.title || u.department) && (
+                  <span className="caption block truncate">{[u.title, u.department].filter(Boolean).join(" · ")}</span>
+                )}
                 {currentName(u) && <span className="caption block truncate">{u.email}</span>}
               </div>
 
@@ -176,9 +205,7 @@ export function UsersManager({
                     }
                     className="rounded-lg border border-border bg-surface px-2.5 py-1.5 font-body text-[12.5px] font-semibold text-fg outline-none ring-sirius focus:ring-2 disabled:opacity-50"
                   >
-                    {ROLES.map((r) => (
-                      <option key={r} value={r}>{label(r, roleLabels)}</option>
-                    ))}
+                    <RoleOptions roleLabels={roleLabels} />
                   </select>
 
                   {/* Save button — visible only when role was changed */}
@@ -221,7 +248,7 @@ export function UsersManager({
       <div className="mt-4 border-t border-border-subtle pt-4">
         {adding ? (
           <div className="flex flex-col gap-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <input
                 autoFocus
                 type="email"
@@ -237,14 +264,29 @@ export function UsersManager({
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className="rounded-lg border border-border bg-surface px-3 py-2 font-body text-sm text-fg outline-none ring-sirius focus:ring-2"
               />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <input
+                type="text"
+                placeholder="Title (e.g. Growth Lead)"
+                value={form.title}
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                className="rounded-lg border border-border bg-surface px-3 py-2 font-body text-sm text-fg outline-none ring-sirius focus:ring-2"
+              />
+              <input
+                type="text"
+                placeholder="Department (e.g. Marketing)"
+                value={form.department}
+                onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
+                className="rounded-lg border border-border bg-surface px-3 py-2 font-body text-sm text-fg outline-none ring-sirius focus:ring-2"
+              />
               <select
                 value={form.role}
                 onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as Role }))}
+                title="Permission"
                 className="rounded-lg border border-border bg-surface px-3 py-2 font-body text-sm text-fg outline-none ring-sirius focus:ring-2"
               >
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>{label(r, roleLabels)}</option>
-                ))}
+                <RoleOptions roleLabels={roleLabels} />
               </select>
             </div>
             <div className="flex items-center gap-2">

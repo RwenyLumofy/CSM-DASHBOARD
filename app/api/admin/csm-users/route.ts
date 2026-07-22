@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCsmUsers } from "@/lib/data";
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdminOrSuper } from "@/lib/auth";
 import { SAMPLE_CSMS } from "@/lib/sample/csms";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ export async function GET() {
 // meaning any authenticated user (not just an admin) could add or corrupt CSM
 // records. Reads stay open (the CSM directory isn't sensitive), writes don't.
 export async function POST(req: Request) {
-  if (!(await isSuperAdmin())) {
+  if (!(await isAdminOrSuper())) {
     return NextResponse.json({ ok: false, error: "Only an admin can manage CSM users." }, { status: 403 });
   }
   try {
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
 /** Seeds the known Lumofy CSMs on first run. */
 export async function PUT() {
-  if (!(await isSuperAdmin())) {
+  if (!(await isAdminOrSuper())) {
     return NextResponse.json({ ok: false, error: "Only an admin can manage CSM users." }, { status: 403 });
   }
   try {

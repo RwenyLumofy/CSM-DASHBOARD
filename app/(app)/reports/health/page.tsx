@@ -1,3 +1,4 @@
+import { Construction } from "lucide-react";
 import { HealthDragPanel } from "@/components/reports/HealthDragPanel";
 import { Donut } from "@/components/ui/charts";
 import { Card, CardEyebrow } from "@/components/ui/Card";
@@ -97,6 +98,30 @@ export default async function HealthPage({
           </Card>
 
           <HealthDragPanel drag={r.healthDrag} />
+        </div>
+      )}
+
+      {/* Scaffold — the value-realization analysis moved here from the Overview's
+          concentration panel. Not built yet: it's gated on usage-data coverage,
+          which is currently too sparse to support it (see the note). Kept as a
+          visible placeholder so the intent isn't lost. */}
+      {live > 0 && (
+        <div className="rounded-2xl border border-dashed border-border bg-bg-subtle/40 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-bg-muted text-fg-subtle">
+              <Construction size={13} strokeWidth={2} aria-hidden />
+            </span>
+            <div>
+              <p className="font-body text-[13px] font-semibold text-fg">Value realization — planned</p>
+              <p className="caption mt-1 max-w-2xl leading-relaxed">
+                Per-account “does this account use what it pays for” — usage trend, seats used vs licensed, adoption of
+                key features. Moved off the Overview’s concentration panel, where it compared usage share against ARR
+                share on a different clock and ran on usage data missing for a large share of accounts. Gated on
+                usage-data coverage: until usage is reliably captured for most accounts, this analysis would mostly read
+                “no usage data”, so it isn’t built yet.
+              </p>
+            </div>
+          </div>
         </div>
       )}
     </div>

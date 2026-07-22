@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdminOrSuper } from "@/lib/auth";
 import { withDbTimeout } from "@/lib/db/client";
 
 // workspaceConfig keys
@@ -16,7 +16,7 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  if (!(await isSuperAdmin())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!(await isAdminOrSuper())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { key, value } = await req.json() as { key: ConfigKey; value: unknown };
   if (!key || !KEYS.includes(key)) return NextResponse.json({ error: "invalid key" }, { status: 400 });
   const { setWorkspaceConfigDb } = await import("@/lib/repo/drizzle");

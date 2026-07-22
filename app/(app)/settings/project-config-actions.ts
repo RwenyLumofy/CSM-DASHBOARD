@@ -5,7 +5,7 @@
    - the shared template library — any CSM/super-admin can create a template;
      editing/deleting is limited to the creator or a super-admin. */
 
-import { isSuperAdmin } from "@/lib/auth";
+import { isAdminOrSuper } from "@/lib/auth";
 import { getCurrentActor } from "@/lib/projects/actor";
 import { createTemplate, editTemplate, getTemplate, removeTemplate, saveProjectConfig } from "@/lib/projects/data";
 import { normalizeProjectConfig, type ProjectConfig } from "@/lib/projects/config";
@@ -19,7 +19,7 @@ export interface ActionResult {
 /* ------------------------------------------------------------------- config */
 
 export async function saveProjectConfigAction(config: ProjectConfig): Promise<ActionResult> {
-  if (!(await isSuperAdmin())) return { ok: false, error: "Only super-admins can change project options." };
+  if (!(await isAdminOrSuper())) return { ok: false, error: "Only super-admins can change project options." };
   try {
     await saveProjectConfig(normalizeProjectConfig(config));
     return { ok: true };
@@ -60,7 +60,7 @@ export async function createTemplateAction(input: {
 async function canManageTemplate(templateId: string): Promise<{ ok: true } | ActionResult> {
   const template = await getTemplate(templateId);
   if (!template) return { ok: false, error: "Template not found." };
-  if (await isSuperAdmin()) return { ok: true };
+  if (await isAdminOrSuper()) return { ok: true };
   const actor = await getCurrentActor();
   if (actor.email && template.createdByEmail && actor.email === template.createdByEmail.toLowerCase()) return { ok: true };
   return { ok: false, error: "Only the template's creator or a super-admin can change it." };
