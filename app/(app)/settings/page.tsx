@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FolderKanban, Plug, Settings2, Users, Workflow as WorkflowIcon, type LucideIcon } from "lucide-react";
+import { FolderKanban, Plug, Settings2, TrendingDown, Users, Workflow as WorkflowIcon, type LucideIcon } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PropertiesManager } from "@/components/settings/PropertiesManager";
 import { SyncManager } from "@/components/settings/SyncManager";
@@ -9,7 +9,8 @@ import { StakeholderTypesManager } from "@/components/settings/StakeholderTypesM
 import { AttachmentCategoriesManager } from "@/components/settings/AttachmentCategoriesManager";
 import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManager";
 import { ProjectTemplatesManager } from "@/components/settings/ProjectTemplatesManager";
-import { getAppUsers, getClients, getOwnedAccountCounts, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
+import { ChurnTaxonomyManager } from "@/components/settings/ChurnTaxonomyManager";
+import { getAppUsers, getChurnTaxonomy, getClients, getOwnedAccountCounts, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
 import { getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getCurrentUserEmail, isAdminOrSuper, isSuperAdmin } from "@/lib/auth";
 import { hasDatabase, integrations } from "@/lib/config";
@@ -45,7 +46,7 @@ export const maxDuration = 300;
    Each tab is an async component, so only the active tab's data is fetched.
    ========================================================================= */
 
-type TabKey = "members" | "properties" | "projects" | "automations" | "integrations";
+type TabKey = "members" | "properties" | "projects" | "automations" | "churn" | "integrations";
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams;
@@ -63,6 +64,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     ["properties", "Properties", Settings2],
     ["projects", "Projects", FolderKanban],
     ...(canManage ? ([["automations", "Automations", WorkflowIcon]] as [TabKey, string, LucideIcon][]) : []),
+    ...(canManage ? ([["churn", "Churn taxonomy", TrendingDown]] as [TabKey, string, LucideIcon][]) : []),
     ["integrations", "Integrations", Plug],
   ];
 
@@ -94,6 +96,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <ProjectsTab superAdmin={canManage} currentUserEmail={currentUserEmail} />
       ) : activeTab === "automations" && canManage ? (
         <AutomationsTab roleLabels={roleLabels} />
+      ) : activeTab === "churn" && canManage ? (
+        <ChurnTaxonomyTab />
       ) : activeTab === "integrations" ? (
         <IntegrationsTab superAdmin={superAdmin} />
       ) : (
@@ -348,5 +352,19 @@ async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
         />
       </SettingsSection>
     </div>
+  );
+}
+
+/* --------------------------------------------------------- Churn taxonomy */
+
+async function ChurnTaxonomyTab() {
+  const taxonomy = await getChurnTaxonomy();
+  return (
+    <SettingsSection
+      title="Churn taxonomy"
+      description="Define the reason structure a churned account is classified under — categories and the reasons within them. When an account churns it's tagged with one reason here, and the Churn dashboard groups losses by this taxonomy."
+    >
+      <ChurnTaxonomyManager initial={taxonomy} />
+    </SettingsSection>
   );
 }
