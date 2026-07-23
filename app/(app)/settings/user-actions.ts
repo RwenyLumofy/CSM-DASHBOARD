@@ -77,7 +77,7 @@ export async function addOrUpdateUserAction(input: {
   const blocked = await guard(email, input.role);
   if (blocked) return blocked;
   try {
-    const { upsertAppUserDb } = await import("@/lib/repo/drizzle");
+    const { upsertAppUserDb, getAppUserRoleFromDb } = await import("@/lib/repo/drizzle");
     await upsertAppUserDb({
       email,
       name: input.name?.trim() || null,
@@ -87,6 +87,11 @@ export async function addOrUpdateUserAction(input: {
       department: input.department === undefined ? undefined : input.department.trim() || null,
       addedByEmail: await getCurrentUserEmail(),
     });
+    // Read back — a save must persist, or fail loudly (never a false success).
+    const persisted = await getAppUserRoleFromDb(email);
+    if (persisted !== input.role) {
+      return { ok: false, error: `Save didn't persist — the database still shows "${persisted ?? "no row"}". Check write access to app_users.` };
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -101,8 +106,15 @@ export async function setUserRoleAction(email: string, role: string, name?: stri
   const blocked = await guard(e, role);
   if (blocked) return blocked;
   try {
-    const { setAppUserRoleDb } = await import("@/lib/repo/drizzle");
+    const { setAppUserRoleDb, getAppUserRoleFromDb } = await import("@/lib/repo/drizzle");
     await setAppUserRoleDb(e, role, name);
+    // Verify the write actually persisted — a save must never *look* successful
+    // without landing (guards against read-replica writes, RLS silently eating
+    // an UPDATE, etc.). Read it straight back and confirm.
+    const persisted = await getAppUserRoleFromDb(e);
+    if (persisted !== role) {
+      return { ok: false, error: `Save didn't persist — the database still shows "${persisted ?? "no row"}". Check write access to app_users.` };
+    }
     return { ok: true };
   } catch (er) {
     return { ok: false, error: String(er) };
