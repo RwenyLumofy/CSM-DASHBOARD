@@ -34,6 +34,7 @@ import {
   tasksForClient,
 } from "@/lib/sample/data";
 import { SAMPLE_CSMS } from "@/lib/sample/csms";
+import { DEFAULT_CHURN_TAXONOMY, normalizeChurnTaxonomy, type ChurnTaxonomy } from "@/lib/metrics/churn-taxonomy";
 import { buildPortfolioSummary } from "@/lib/metrics/portfolio";
 import { computeRetention, downgrades } from "@/lib/metrics/retention";
 import { currentQuarter, withRunningBalance } from "@/lib/metrics/arr";
@@ -662,6 +663,22 @@ export async function getRoleLabels(): Promise<Record<string, string>> {
   return { ...DEFAULT_ROLE_LABELS };
 }
 
+/** The admin-defined churn taxonomy (Settings → Churn taxonomy). Falls back to
+ *  the default tree when unconfigured or the DB is unavailable. */
+export async function getChurnTaxonomy(): Promise<ChurnTaxonomy> {
+  if (hasDatabase() && dbHealthy()) {
+    try {
+      const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
+      const stored = await withDbTimeout(getWorkspaceConfigFromDb("churn_taxonomy"));
+      const norm = normalizeChurnTaxonomy(stored);
+      if (norm.length) return norm;
+    } catch {
+      // fall through to default
+    }
+  }
+  return DEFAULT_CHURN_TAXONOMY;
+}
+
 // cache()-wrapped: the profile page calls getTeamMembers() 3x (csm / impl / AE),
 // each of which calls getAppUsers(). Without memoization that's 3 full app_users
 // reads per request against the remote DB; cache() collapses them to one.
@@ -688,12 +705,18 @@ export const getAppUsers = cache(async (): Promise<AppUser[]> => {
   })();
   const csmsPromise = getCsmUsers();
 
+  // Rank so a legacy mixed-case duplicate row can never shadow a promotion.
+  const roleRank = (r: string) => (r === "super_admin" ? 3 : r === "admin" ? 2 : r === "guest" ? 0 : 1);
   for (const r of await appUsersPromise) {
-    if (byEmail.get(r.email)?.bootstrap) continue; // permanent super-admin wins
-    byEmail.set(r.email, {
-      email: r.email,
+    const key = r.email.toLowerCase(); // collapse any stored casing onto one key
+    if (byEmail.get(key)?.bootstrap) continue; // permanent super-admin wins
+    const role = isRole(r.role) ? r.role : DEFAULT_ROLE;
+    const existing = byEmail.get(key);
+    if (existing && !existing.bootstrap && roleRank(existing.role) >= roleRank(role)) continue;
+    byEmail.set(key, {
+      email: key,
       name: r.name,
-      role: isRole(r.role) ? r.role : DEFAULT_ROLE,
+      role,
       title: r.title,
       department: r.department,
       scope: r.scope,

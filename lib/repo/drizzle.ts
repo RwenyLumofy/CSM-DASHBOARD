@@ -1365,8 +1365,16 @@ export async function getAppUsersFromDb(): Promise<AppUserRow[]> {
  */
 export async function getAppUserRoleFromDb(email: string): Promise<string | null> {
   const sql = getRawSql();
-  const rows = await withCancellableDbTimeout(sql`select "role" from "app_users" where "email" = ${email} limit 1`);
-  return rows[0]?.role ?? null;
+  // Case-INSENSITIVE match: emails are stored lower-cased, but a legacy row may
+  // carry mixed case. A case-sensitive "=" would then miss the row entirely and
+  // silently resolve the user to the default tier — the "promotion doesn't stick
+  // for certain people" bug. If duplicate mixed-case rows exist, return the
+  // STRONGEST role so a stale lower-tier row can never shadow a promotion.
+  const rows = await withCancellableDbTimeout(sql`select "role" from "app_users" where lower("email") = ${email.toLowerCase()}`);
+  if (!rows.length) return null;
+  if (rows.length === 1) return rows[0].role ?? null;
+  const rank = (r: string | null) => (r === "super_admin" ? 3 : r === "admin" ? 2 : r === "guest" ? 0 : 1);
+  return rows.map((r) => r.role as string).sort((a, b) => rank(b) - rank(a))[0] ?? null;
 }
 
 export async function upsertAppUserDb(u: {
@@ -1405,10 +1413,19 @@ export async function upsertAppUserDb(u: {
  *  (e.g. a CSM who appears via csm_users merge but hasn't been explicitly added). */
 export async function setAppUserRoleDb(email: string, role: string, name?: string | null): Promise<void> {
   const db = getDb();
-  await db
-    .insert(schema.appUsers)
-    .values({ email, role, name: name ?? null })
-    .onConflictDoUpdate({ target: schema.appUsers.email, set: { role } });
+  const sql = getRawSql();
+  const lower = email.toLowerCase();
+  // Update the existing row regardless of its stored casing, so a legacy
+  // mixed-case row is promoted IN PLACE — never shadowed by a new lower-cased
+  // duplicate (the primary key is case-sensitive, so a plain lower-case upsert
+  // would leave the old row untouched and the promotion wouldn't "stick").
+  const res = await sql`update "app_users" set "role" = ${role} where lower("email") = ${lower}`;
+  if (!res.count) {
+    await db
+      .insert(schema.appUsers)
+      .values({ email: lower, role, name: name ?? null })
+      .onConflictDoUpdate({ target: schema.appUsers.email, set: { role } });
+  }
 }
 
 export async function deleteAppUserDb(email: string): Promise<void> {
