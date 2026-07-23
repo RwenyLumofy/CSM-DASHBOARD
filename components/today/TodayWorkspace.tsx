@@ -16,9 +16,7 @@ import { useToast } from "@/components/clients/projects/shared";
 import { TodayHeader } from "./TodayHeader";
 import { PortfolioPulse } from "./PortfolioPulse";
 import { TopPriorities } from "./TopPriorities";
-import { TeamCoverage } from "./TeamCoverage";
-import { SinceYesterday } from "./SinceYesterday";
-import { Upcoming } from "./Upcoming";
+import { Projects } from "./Projects";
 import { FocusAreaBoxes } from "./FocusAreaBoxes";
 import { AccountSignalDrawer } from "./AccountSignalDrawer";
 import { UserProfileDrawer } from "./UserProfileDrawer";
@@ -36,51 +34,38 @@ export function TodayWorkspace({ snapshot }: { snapshot: TodaySnapshot }) {
 }
 
 function Inner() {
-  const { scope, ownerFilter, setOwnerFilter: setOwner, overlay, closeOverlays } = useToday();
+  const { ownerFilter, overlay, closeOverlays } = useToday();
   const { show, node: toast } = useToast();
 
   useEffect(() => { track("today_viewed", {}); }, []);
 
-  // Apply the admin owner drill-in before the board reads.
+  // Apply the admin owner drill-in (header CSM picker) before the board reads.
   setOwnerFilter(ownerFilter);
-  const cov = { scope, ownerFilter, onPick: (id: string) => setOwner(id), onClear: () => setOwner(null) };
 
   const drillToPriorities = () => document.getElementById("top-priorities")?.scrollIntoView({ behavior: "smooth", block: "start" });
 
+  // One composition for every scope — scope only changes what the modules
+  // resolve (data) and the headline summary, never the grid.
   return (
-    // Each scope is its OWN page. My portfolio: personal driver (worklist + agenda
-    // rail). My team: coverage workspace. Company: portfolio lens.
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6 lg:p-8">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 p-4 sm:p-6 lg:p-8">
+      {/* Row 1 — header */}
       <TodayHeader />
+
+      {/* Row 2 — pulse strip (full content width) */}
       <PortfolioPulse onDrill={drillToPriorities} />
 
-      {scope === "my_portfolio" ? (
-        // Do-now (left) beside the agenda + what changed (right).
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)] lg:items-start">
+      {/* Row 3 — primary operating area: Focus now (8) + agenda rail (4).
+          Tablet/mobile: Focus now full width, Your day drops below it. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
+        <div className="min-w-0 lg:col-span-8">
           <TopPriorities id="top-priorities" />
-          <div className="flex flex-col gap-4">
-            <Upcoming />
-            <SinceYesterday />
-          </div>
         </div>
-      ) : scope === "my_team" ? (
-        // Team priorities → the full coverage workspace → what changed.
-        <>
-          <div className="max-w-3xl"><TopPriorities id="top-priorities" /></div>
-          <TeamCoverage {...cov} full />
-          <div className="max-w-3xl"><SinceYesterday /></div>
-        </>
-      ) : (
-        // Company: material work → what changed + coverage concentration.
-        <>
-          <div className="max-w-3xl"><TopPriorities id="top-priorities" /></div>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
-            <SinceYesterday />
-            <TeamCoverage {...cov} />
-          </div>
-        </>
-      )}
+        <div className="min-w-0 lg:col-span-4">
+          <Projects />
+        </div>
+      </div>
 
+      {/* Row 4 — focus areas (where manual work is organised) */}
       <FocusAreaBoxes />
 
       {overlay.account && <AccountSignalDrawer accountId={overlay.account.id} initialTab={overlay.account.tab} onClose={closeOverlays} />}

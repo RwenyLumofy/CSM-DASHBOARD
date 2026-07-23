@@ -26,6 +26,10 @@ type Sort = "recommended" | "arr" | "urgent";
 const SORTS: { key: Sort; label: string }[] = [
   { key: "recommended", label: "Recommended" }, { key: "arr", label: "Highest ARR" }, { key: "urgent", label: "Most urgent" },
 ];
+type Filter = "act" | "review" | "all";
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: "act", label: "Act now" }, { key: "review", label: "Review" }, { key: "all", label: "All" },
+];
 
 function tagsFor(p: Priority): string[] {
   const set = new Set<string>();
@@ -41,43 +45,76 @@ function actionDue(p: Priority, today: string): { text: string; tone?: "danger" 
   return { text: `due ${formatDate(p.dueDate)}` };
 }
 
+/** "Act now" = urgent severity, an urgent due state, or an open escalation.
+ *  Everything else is "Review" (lower-tier, data-needed, no pressing clock). */
+function isActNow(p: Priority, today: string): boolean {
+  const tone = priorityLevel(p).tone;
+  if (tone === "danger" || tone === "warning") return true;
+  const d = actionDue(p, today);
+  if (d.tone === "danger" || d.tone === "warning") return true;
+  return getFocusRelated(p.accountId).escalationOpen;
+}
+
 export function TopPriorities({ id }: { id?: string }) {
   const { scope, openAccount, openAddTask } = useTodayCtx();
   const today = getToday();
   const all = getPriorities(scope, null);
   const [sort, setSort] = useState<Sort>("recommended");
+  const [filter, setFilter] = useState<Filter>("act");
   const [showAll, setShowAll] = useState(false);
   const [reviewed, setReviewed] = useState<Set<string>>(new Set());
   const [snoozed, setSnoozed] = useState<Set<string>>(new Set());
   const [menuFor, setMenuFor] = useState<string | null>(null);
 
   const active = useMemo(() => {
-    const list = all.filter((p) => !snoozed.has(p.id));
+    let list = all.filter((p) => !snoozed.has(p.id));
+    if (filter === "act") list = list.filter((p) => isActNow(p, today));
+    else if (filter === "review") list = list.filter((p) => !isActNow(p, today));
     const arr = [...list];
     if (sort === "arr") arr.sort((a, b) => b.valueAtStake - a.valueAtStake);
     else if (sort === "urgent") arr.sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"));
     return arr;
-  }, [all, snoozed, sort]);
+  }, [all, snoozed, sort, filter, today]);
 
-  const shown = showAll ? active : active.slice(0, 5);
+  // Counts for the segmented control (independent of the active filter).
+  const notSnoozed = useMemo(() => all.filter((p) => !snoozed.has(p.id)), [all, snoozed]);
+  const actCount = useMemo(() => notSnoozed.filter((p) => isActNow(p, today)).length, [notSnoozed, today]);
+  const countFor = (f: Filter) => (f === "act" ? actCount : f === "review" ? notSnoozed.length - actCount : notSnoozed.length);
+
+  const shown = showAll ? active : active.slice(0, 6);
   const act = (fn: () => void) => { fn(); setMenuFor(null); };
 
   return (
     <section id={id} aria-label="Focus now" className="flex flex-col">
-      <div className="mb-2.5 flex items-baseline gap-2">
-        <h2 className="font-body text-[12px] font-bold uppercase tracking-[0.06em] text-fg-muted">{HEADING[scope]}</h2>
-        <span tabIndex={0} role="img" aria-label={RANKING_EXPLAINER} title={RANKING_EXPLAINER} className="grid size-4 translate-y-0.5 cursor-help place-items-center rounded-full text-fg-subtle hover:text-fg"><Info size={12} /></span>
-        <span className="font-body text-[12px] font-semibold text-fg-subtle">{shown.length} of {active.length}</span>
-        <label className="ml-auto inline-flex items-center gap-1.5">
-          <span className="font-body text-[11.5px] text-fg-subtle">Sort</span>
-          <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort priorities" className="cursor-pointer rounded-md bg-transparent py-0.5 font-body text-[12px] font-semibold text-fg-muted outline-none hover:text-fg">
-            {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-          </select>
-        </label>
+      <div className="mb-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex items-baseline gap-2">
+          <h2 className="font-body text-[12px] font-bold uppercase tracking-[0.06em] text-fg-muted">{HEADING[scope]}</h2>
+          <span tabIndex={0} role="img" aria-label={RANKING_EXPLAINER} title={RANKING_EXPLAINER} className="grid size-4 translate-y-0.5 cursor-help place-items-center rounded-full text-fg-subtle hover:text-fg"><Info size={12} /></span>
+          <span className="font-body text-[12px] font-semibold text-fg-subtle">{active.length} item{active.length === 1 ? "" : "s"}</span>
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-border bg-bg-muted/50 p-0.5" role="tablist" aria-label="Filter priorities">
+            {FILTERS.map((f) => (
+              <button key={f.key} role="tab" aria-selected={filter === f.key} onClick={() => { setFilter(f.key); setShowAll(false); }}
+                className={cn("rounded-md px-2 py-1 font-body text-[11.5px] font-semibold transition-colors", filter === f.key ? "bg-surface text-sirius shadow-sm" : "text-fg-muted hover:text-fg")}>
+                {f.label} <span className="tabular-nums opacity-70">{countFor(f.key)}</span>
+              </button>
+            ))}
+          </div>
+          <label className="inline-flex items-center gap-1.5">
+            <span className="font-body text-[11.5px] text-fg-subtle">Sort</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort priorities" className="cursor-pointer rounded-md bg-transparent py-0.5 font-body text-[12px] font-semibold text-fg-muted outline-none hover:text-fg">
+              {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+            </select>
+          </label>
+        </div>
       </div>
 
       {active.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center font-body text-[13px] text-fg-subtle">Nothing needs your attention today.</div>
+        <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center font-body text-[13px] text-fg-subtle">
+          {filter === "act" ? "Nothing needs immediate action." : filter === "review" ? "Nothing waiting for review." : "Nothing needs your attention today."}
+          {filter === "act" && countFor("review") > 0 && <> <button onClick={() => setFilter("review")} className="font-semibold text-sirius hover:underline">Review {countFor("review")} more →</button></>}
+        </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
           {shown.map((p, i) => {
@@ -94,29 +131,26 @@ export function TopPriorities({ id }: { id?: string }) {
             const arrLine = `${formatMoney(p.valueAtStake)}${p.valueKind === "expansion" ? " potential" : " ARR"}${p.timing ? ` · ${p.timing}` : ""}`;
 
             return (
-              <div key={p.id} className={cn("flex items-start gap-3 px-[15px] py-3.5", i > 0 && "border-t border-border-subtle", isRev && "opacity-45")}>
+              <div key={p.id} className={cn("flex items-start gap-3 px-4 py-3", i > 0 && "border-t border-border-subtle", isRev && "opacity-45")}>
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className={cn("rounded px-1.5 py-0.5 font-body text-[9px] font-bold uppercase tracking-[0.05em]", TIER[level.tone])}>{level.label}</span>
-                    <span className="rounded border border-border px-1.5 py-0.5 font-body text-[9px] font-semibold uppercase tracking-[0.03em] text-fg-subtle">{type}</span>
-                    <button onClick={() => openAccount(p.accountId)} className="font-body text-[14px] font-semibold text-fg hover:text-sirius">{acct?.name ?? p.accountId}</button>
+                    <span className="font-body text-[10.5px] font-medium uppercase tracking-[0.03em] text-fg-subtle">{type}</span>
+                    <button onClick={() => openAccount(p.accountId)} title={acct?.name ?? p.accountId} className="max-w-[15rem] truncate font-body text-[14px] font-semibold text-fg hover:text-sirius">{acct?.name ?? p.accountId}</button>
                     <span className="font-body text-[12px] tabular-nums text-fg-subtle">{arrLine}</span>
                     {isRev && <span className="font-body text-[11px] text-fg-subtle">· Reviewed</span>}
                   </div>
 
-                  <p className="mt-1.5 font-body text-[12.5px] text-fg-muted">{p.reason}</p>
+                  <p className="mt-1 line-clamp-1 font-body text-[12.5px] text-fg-muted">{p.reason}</p>
 
-                  {(rel.escalationOpen || rel.overdueTasks > 0 || flag) && (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      {rel.escalationOpen && <span className="inline-flex items-center gap-1 rounded bg-warning-bg px-1.5 py-0.5 font-body text-[10px] font-medium text-warning-fg"><Flag size={9} /> Escalation open</span>}
-                      {rel.overdueTasks > 0 && <span className="inline-flex items-center gap-1 rounded bg-danger-bg px-1.5 py-0.5 font-body text-[10px] font-medium text-danger-fg"><AlertTriangle size={9} /> {rel.overdueTasks} overdue task{rel.overdueTasks === 1 ? "" : "s"}</span>}
-                      {flag && <span className="rounded border border-border bg-bg-muted px-1.5 py-0.5 font-body text-[10px] font-medium text-fg-subtle">{flag}</span>}
-                    </div>
-                  )}
-
-                  <div className="mt-1.5 font-body text-[11px] text-fg-subtle">
-                    {scope !== "my_portfolio" && <>Owner <span className="font-medium text-fg-muted">{owner?.name ?? "Unassigned"}</span> · </>}
-                    Next action <span className={cn(due.tone === "danger" && "font-semibold text-danger-fg", due.tone === "warning" && "font-semibold text-warning-fg")}>{due.text}</span>
+                  {/* one concise meta line — due state, owner, exceptions; no "next
+                      action" (the button already names it), no pills */}
+                  <div className="mt-1 flex flex-wrap items-center font-body text-[11px] text-fg-subtle">
+                    <span className={cn("font-medium capitalize", due.tone === "danger" ? "text-danger-fg" : due.tone === "warning" ? "text-warning-fg" : "text-fg-muted")}>{due.text}</span>
+                    {scope !== "my_portfolio" && <><span className="px-1.5 text-fg-subtle/50">·</span><span>Owner <span className="font-medium text-fg-muted">{owner?.name ?? "Unassigned"}</span></span></>}
+                    {rel.escalationOpen && <><span className="px-1.5 text-fg-subtle/50">·</span><span className="inline-flex items-center gap-1 text-warning-fg"><Flag size={9} /> Escalation</span></>}
+                    {rel.overdueTasks > 0 && <><span className="px-1.5 text-fg-subtle/50">·</span><span className="inline-flex items-center gap-1 text-danger-fg"><AlertTriangle size={9} /> {rel.overdueTasks} overdue</span></>}
+                    {flag && <><span className="px-1.5 text-fg-subtle/50">·</span><span>{flag}</span></>}
                   </div>
                 </div>
 
@@ -141,9 +175,9 @@ export function TopPriorities({ id }: { id?: string }) {
             );
           })}
 
-          {active.length > 5 && (
+          {active.length > 6 && (
             <button onClick={() => setShowAll((v) => !v)} className="flex w-full items-center justify-center gap-1 border-t border-border-subtle px-4 py-2.5 font-body text-[12px] font-semibold text-sirius hover:bg-accent-soft/40">
-              {showAll ? "Show top 5" : `View all ${active.length}`} <ChevronDown size={13} className={cn("transition-transform", showAll && "rotate-180")} />
+              {showAll ? "Show less" : `View all ${active.length}`} <ChevronDown size={13} className={cn("transition-transform", showAll && "rotate-180")} />
             </button>
           )}
         </div>

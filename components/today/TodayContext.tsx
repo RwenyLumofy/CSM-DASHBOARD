@@ -72,7 +72,13 @@ export function TodayProvider({ children }: { children: ReactNode }) {
   const addTask = useCallback((t: TodayTask) => { setLocalTasks((prev) => [t, ...prev]); track("action_created", { category: t.category }); }, []);
   const setTaskStatus = useCallback((id: string, status: "open" | "done") => { setTaskStatusState((prev) => ({ ...prev, [id]: status })); if (status === "done") track("action_completed", { taskId: id }); }, []);
 
-  const setScope = useCallback((s: PortfolioScope) => { setScopeState(s); track("scope_changed", { scope: s }); }, []);
+  const setScope = useCallback((s: PortfolioScope) => {
+    setScopeState(s);
+    // Switching scope escapes any CSM drill-in — otherwise "viewing X's book"
+    // sticks across tabs and every module stays filtered to that one CSM.
+    setOwnerFilterState(null);
+    track("scope_changed", { scope: s });
+  }, []);
   const setOwnerFilter = useCallback((userId: string | null) => {
     setOwnerFilterState(userId);
     if (userId) { setScopeState("company"); track("scope_changed", { scope: "owner", ownerId: userId }); }

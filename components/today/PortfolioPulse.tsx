@@ -25,13 +25,11 @@ function metricsFor(scope: string): Metric[] {
     const arrLabel = scope === "company" ? "Total ARR" : "Team ARR";
 
     if (scope === "company") {
-      const pct = p.healthTotal ? Math.round((p.healthScored / p.healthTotal) * 100) : 0;
       return [
         { label: `${arrLabel} · ${p.accountCount}`, value: formatMoney(p.arrOwned) },
         { label: `At-risk ARR · ${p.attentionCount}`, value: p.attentionCount ? formatMoney(p.arrAttention) : "None", drill: true, tone: p.attentionCount ? "danger" : undefined },
         { label: "Renewal ARR · 90d", value: p.renew90Count ? formatMoney(p.renew90Arr) : "None", drill: true },
         { label: "Overdue actions", value: String(p.overdueCount), drill: true, tone: p.overdueCount ? "warning" : undefined },
-        { label: `Health scored · ${pct}%`, value: `${p.healthScored} of ${p.healthTotal}` },
       ];
     }
     return [
@@ -49,7 +47,6 @@ function metricsFor(scope: string): Metric[] {
     { label: `At risk · ${p.attentionCount}`, value: p.attentionCount ? formatMoney(p.arrAttention) : "None", drill: true, tone: p.attentionCount ? "danger" : undefined },
     { label: `Renews 90d · ${p.renew90Count}`, value: p.renew90Count ? formatMoney(p.renew90Arr) : "None", drill: true },
     { label: `Due · ${p.overdueCount} overdue`, value: String(dueTotal), drill: true, tone: p.overdueCount ? "warning" : undefined },
-    { label: "Health scored", value: `${p.healthScored} of ${p.healthTotal}` },
   ];
 }
 
@@ -57,19 +54,18 @@ export function PortfolioPulse({ onDrill }: { onDrill: () => void }) {
   const { scope } = useToday();
   const metrics = metricsFor(scope);
 
+  const cols = metrics.length === 5 ? "sm:grid-cols-5" : metrics.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-4";
+
   return (
     <section aria-label="Portfolio pulse" className="overflow-hidden rounded-xl border border-border bg-surface tabular-nums shadow-sm">
-      <div className="grid grid-cols-2 sm:grid-cols-5">
-        {metrics.map((m, i) => {
-          const Tag = m.drill ? "button" : "div";
-          return (
-            <Tag key={m.label} {...(m.drill ? { onClick: onDrill, type: "button" as const } : {})}
-              className={cn("border-border-subtle px-4 py-3 text-left", i > 0 && "sm:border-l", i % 2 === 1 && "border-l", i >= 2 && "border-t sm:border-t-0", m.drill && "transition-colors hover:bg-bg-muted/40")}>
-              <div className={cn("font-display text-[18px] font-semibold leading-tight tracking-[-0.01em]", m.tone === "danger" ? "text-danger-fg" : m.tone === "warning" ? "text-warning-fg" : "text-fg")}>{m.value}</div>
-              <div className="mt-0.5 font-body text-[10.5px] font-medium uppercase tracking-[0.03em] text-fg-subtle">{m.label}</div>
-            </Tag>
-          );
-        })}
+      <div className={cn("grid grid-cols-2", cols)}>
+        {metrics.map((m, i) => (
+          <button key={m.label} type="button" onClick={onDrill} aria-label={`${m.label}: ${m.value} — go to Do today`}
+            className={cn("border-border-subtle px-4 py-3 text-left transition-colors hover:bg-bg-muted/40 focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sirius", i > 0 && "sm:border-l", i % 2 === 1 && "border-l", i >= 2 && "border-t sm:border-t-0")}>
+            <div className={cn("font-display text-[18px] font-semibold leading-tight tracking-[-0.01em]", m.tone === "danger" ? "text-danger-fg" : m.tone === "warning" ? "text-warning-fg" : "text-fg")}>{m.value}</div>
+            <div className="mt-0.5 font-body text-[10.5px] font-medium uppercase tracking-[0.03em] text-fg-subtle">{m.label}</div>
+          </button>
+        ))}
       </div>
     </section>
   );
