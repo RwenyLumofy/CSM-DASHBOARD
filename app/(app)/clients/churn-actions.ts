@@ -1,11 +1,12 @@
 "use server";
 
 /* =========================================================================
-   Churn classification — tag a churned client with ONE reason id from the
-   admin-managed churn taxonomy (Settings → Churn taxonomy). Stored on the
-   client's protected `properties.churn_reason` JSONB key so it survives the
-   HubSpot sync, and validated against the live taxonomy so a stored id can
-   never drift from a renamed/removed reason.
+   Churn classification — tag a churned client with the reason(s) it left for,
+   from the admin-managed churn taxonomy (Settings → Churn taxonomy). An account
+   can have MORE THAN ONE reason. Stored on the client's protected
+   `properties.churn_reasons` JSONB key (a string[] of stable reason ids) so it
+   survives the HubSpot sync, validated against the live taxonomy so a stored id
+   can never drift from a renamed/removed reason.
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";
@@ -19,22 +20,23 @@ export interface ChurnReasonResult {
   error?: string;
 }
 
-/** Set (or clear, when reasonId is null) a client's churn reason. */
-export async function setClientChurnReasonAction(clientId: string, reasonId: string | null): Promise<ChurnReasonResult> {
-  if (!(await isAdminOrSuper())) return { ok: false, error: "Admin access is required to set a churn reason." };
+/** Set the full set of churn reasons for a client (replaces any prior set;
+ *  pass [] to clear). Ids not in the live taxonomy are dropped. */
+export async function setClientChurnReasonsAction(clientId: string, reasonIds: string[]): Promise<ChurnReasonResult> {
+  if (!(await isAdminOrSuper())) return { ok: false, error: "Admin access is required to set churn reasons." };
   if (!hasDatabase()) return { ok: false, error: "No database configured." };
   if (!clientId) return { ok: false, error: "Missing client." };
 
-  // Reject anything that isn't a live taxonomy reason — keeps the stored tag
-  // in lock-step with what the Churn dashboard can group by.
-  if (reasonId) {
-    const ids = churnReasonIds(await getChurnTaxonomy());
-    if (!ids.has(reasonId)) return { ok: false, error: "That churn reason no longer exists in the taxonomy." };
-  }
+  // Keep only live taxonomy ids, de-duplicated — the stored tag stays in
+  // lock-step with what the Churn dashboard can group by.
+  const valid = churnReasonIds(await getChurnTaxonomy());
+  const clean = [...new Set(reasonIds)].filter((id) => valid.has(id));
 
   try {
     const { setClientPropertyDb } = await import("@/lib/repo/drizzle");
-    await setClientPropertyDb(clientId, "churn_reason", reasonId);
+    await setClientPropertyDb(clientId, "churn_reasons", clean.length ? clean : null);
+    // Retire the legacy single-reason key so reads never see a stale scalar.
+    await setClientPropertyDb(clientId, "churn_reason", null);
     revalidatePath(`/clients/${clientId}`);
     revalidatePath("/clients");
     return { ok: true };

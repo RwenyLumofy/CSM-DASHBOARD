@@ -148,7 +148,11 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         <ChurnReasonBanner
           clientId={client.id}
           taxonomy={churnTaxonomy}
-          currentReasonId={typeof props.churn_reason === "string" ? props.churn_reason : null}
+          currentReasonIds={
+            Array.isArray(props.churn_reasons)
+              ? (props.churn_reasons as unknown[]).filter((x): x is string => typeof x === "string")
+              : typeof props.churn_reason === "string" ? [props.churn_reason] : [] // legacy single value
+          }
           canEdit={canManageChurn}
         />
       )}
