@@ -16,10 +16,11 @@
    ========================================================================= */
 
 import { useMemo, useRef, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Plus, Search, X, Loader2, Check, ShieldAlert, Lock, Copy, AlertTriangle,
-  MoreHorizontal, Pencil, Trash2, ArrowRight,
+  MoreHorizontal, Pencil, Trash2, ChevronDown, Crown, Globe, UserRound, Layers,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Avatar, toneForKey } from "@/components/ui/Avatar";
@@ -28,7 +29,15 @@ import {
   roleDescription, defaultScopeForRole, allowedScopesForRole, SCOPE_LABELS, permissionCapabilities,
   type Role, type AccessScope,
 } from "@/lib/roles";
-import { addOrUpdateUserAction, removeUserAction, setUserScopeAction } from "@/app/(app)/settings/user-actions";
+import { addOrUpdateUserAction, removeUserAction, setUserScopeAction, setUserRoleAction } from "@/app/(app)/settings/user-actions";
+
+/** Role → pill tone. Tier is the signal: super-admin (crown) → admin → operator → guest. */
+const ROLE_TONE: Record<string, string> = {
+  super_admin: "border-sirius/25 bg-sirius/10 text-sirius",
+  admin: "border-[#C99A14]/30 bg-[#C99A14]/10 text-[#8A6D12]",
+  operator: "border-border bg-bg-muted text-fg-muted",
+  guest: "border-border-subtle bg-bg-muted/50 text-fg-subtle",
+};
 
 export interface Account { id: string; name: string }
 
@@ -52,6 +61,49 @@ function effectiveScope(m: Member): AccessScope {
 function scopeCellLabel(m: Member): string {
   const s = effectiveScope(m);
   return s === "selected" ? `Selected · ${m.grantedClientIds.length}` : SCOPE_LABELS[s];
+}
+
+/** Icon that conveys the access scope at a glance (globe = all, person =
+ *  assigned-only, layers = a hand-picked set). */
+function scopeIcon(m: Member): typeof Globe {
+  const s = effectiveScope(m);
+  return s === "all" ? Globe : s === "selected" ? Layers : UserRound;
+}
+
+/** Access scope shown as icon + label, so scope reads without parsing text. */
+function AccessCell({ m }: { m: Member }) {
+  const Icon = scopeIcon(m);
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 font-body text-[12.5px] text-fg-muted">
+      <Icon size={14} className="shrink-0 text-fg-subtle" aria-hidden />
+      <span className="truncate">{scopeCellLabel(m)}</span>
+    </span>
+  );
+}
+
+/** Membership at a glance — total plus a count per permission tier. Gives the
+ *  admin a sense of the shape of access before scanning the rows. */
+function MemberStats({ members }: { members: Member[] }) {
+  const counts: Record<string, number> = { super_admin: 0, admin: 0, operator: 0, guest: 0 };
+  for (const m of members) { const k = permissionRole(m.role); counts[k] = (counts[k] ?? 0) + 1; }
+  const chips: { key: string; n: number; label: string; dot: string }[] = [
+    { key: "total", n: members.length, label: members.length === 1 ? "member" : "members", dot: "border-[1.5px] border-border-strong" },
+    { key: "super_admin", n: counts.super_admin, label: "Super Admin", dot: "bg-sirius" },
+    { key: "admin", n: counts.admin, label: "Admin", dot: "bg-[#C99A14]" },
+    { key: "operator", n: counts.operator, label: "Operator", dot: "bg-fg-subtle" },
+    ...(counts.guest > 0 ? [{ key: "guest", n: counts.guest, label: "Guest", dot: "bg-fg-subtle/50" }] : []),
+  ];
+  return (
+    <div className="flex flex-wrap gap-2">
+      {chips.map((c) => (
+        <span key={c.key} className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+          <span className={cn("size-[7px] rounded-full", c.dot)} />
+          <span className="font-body text-[14px] font-semibold tabular-nums leading-none text-fg">{c.n}</span>
+          <span className="font-body text-[12px] leading-none text-fg-subtle">{c.label}</span>
+        </span>
+      ))}
+    </div>
+  );
 }
 
 /* ----------------------------------------------------------------- helpers */
@@ -127,6 +179,8 @@ export function MembersManager({
 
   return (
     <div className="flex flex-col gap-4">
+      {members.length > 0 && <MemberStats members={members} />}
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2.5">
         <div className="relative min-w-[200px] flex-1">
@@ -156,9 +210,11 @@ export function MembersManager({
         </button>
       </div>
 
-      <p className="font-body text-[12px] text-fg-subtle">
-        {filtered.length} of {members.length} {members.length === 1 ? "member" : "members"}
-      </p>
+      {(query.trim() || roleFilter !== "all") && (
+        <p className="-mt-1 font-body text-[12px] text-fg-subtle">
+          Showing {filtered.length} of {members.length}
+        </p>
+      )}
 
       {/* List */}
       {members.length === 0 ? (
@@ -170,43 +226,66 @@ export function MembersManager({
           {/* Desktop table */}
           <table className="hidden w-full md:table">
             <thead>
-              <tr className="border-b border-border-subtle text-left">
-                {["Member", "Role", "Access scope", "Actions"].map((h) => (
-                  <th key={h} className={cn("px-4 py-2.5 font-body text-[11px] font-semibold uppercase tracking-[0.04em] text-fg-subtle", h === "Actions" && "text-right")}>
+              <tr className="border-b border-border-subtle">
+                {[
+                  { h: "Member", align: "left" as const },
+                  { h: "Role", align: "left" as const },
+                  { h: "Access", align: "left" as const },
+                  { h: "Owns", align: "right" as const },
+                  { h: "", align: "right" as const },
+                ].map(({ h, align }, i) => (
+                  <th key={h || i} className={cn("px-4 py-2.5 font-body text-[11px] font-semibold uppercase tracking-[0.04em] text-fg-subtle", align === "right" ? "text-right" : "text-left")}>
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((m) => (
-                <tr key={m.email} className="border-b border-border-subtle last:border-b-0 hover:bg-bg-muted/40">
-                  <td className="px-4 py-3">
-                    <MemberCell m={m} isSelf={m.email === currentUserEmail} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <RoleCell m={m} roleLabels={roleLabels} />
-                  </td>
-                  <td className="px-4 py-3 font-body text-[12.5px] text-fg-muted">{scopeCellLabel(m)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <RowMenu m={m} isSelf={m.email === currentUserEmail} onEdit={() => setEditing(m)} onFlash={flash} onDone={() => router.refresh()} />
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((m) => {
+                const isSelf = m.email === currentUserEmail;
+                return (
+                  <tr key={m.email} className={cn("border-b border-border-subtle last:border-b-0 hover:bg-bg-muted/40", isSelf && "bg-accent-soft/20")}>
+                    <td className="px-4 py-3">
+                      <MemberCell m={m} isSelf={isSelf} />
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <InlineRole m={m} roleLabels={roleLabels} canGrantCrown={canGrantCrown} onFlash={flash} onDone={() => router.refresh()} />
+                    </td>
+                    <td className="px-4 py-3"><AccessCell m={m} /></td>
+                    <td className="px-4 py-3 text-right font-body text-[12.5px] tabular-nums text-fg-muted">
+                      {m.ownedAccounts > 0 ? m.ownedAccounts : <span className="text-fg-subtle">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <RowMenu m={m} isSelf={isSelf} onEdit={() => setEditing(m)} onFlash={flash} onDone={() => router.refresh()} />
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
           {/* Mobile cards */}
           <ul className="divide-y divide-border-subtle md:hidden">
-            {filtered.map((m) => (
-              <li key={m.email} className="flex items-start gap-3 p-4">
-                <MemberCell m={m} isSelf={m.email === currentUserEmail} compact />
-                <div className="ml-auto flex flex-col items-end gap-2">
-                  <RowMenu m={m} isSelf={m.email === currentUserEmail} onEdit={() => setEditing(m)} onFlash={flash} onDone={() => router.refresh()} />
-                  <span className="font-body text-[11.5px] text-fg-subtle">{label(m.role, roleLabels)} · {scopeCellLabel(m)}</span>
-                </div>
-              </li>
-            ))}
+            {filtered.map((m) => {
+              const isSelf = m.email === currentUserEmail;
+              return (
+                <li key={m.email} className={cn("flex flex-col gap-3 p-4", isSelf && "bg-accent-soft/20")}>
+                  <div className="flex items-start gap-3">
+                    <MemberCell m={m} isSelf={isSelf} compact />
+                    <div className="ml-auto">
+                      <RowMenu m={m} isSelf={isSelf} onEdit={() => setEditing(m)} onFlash={flash} onDone={() => router.refresh()} />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <InlineRole m={m} roleLabels={roleLabels} canGrantCrown={canGrantCrown} onFlash={flash} onDone={() => router.refresh()} />
+                    <span className="flex items-center gap-1.5">
+                      <AccessCell m={m} />
+                      {m.ownedAccounts > 0 && <span className="font-body text-[11.5px] text-fg-subtle">· {m.ownedAccounts} owned</span>}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -267,17 +346,188 @@ function MemberCell({ m, isSelf, compact }: { m: Member; isSelf: boolean; compac
   );
 }
 
-function RoleCell({ m, roleLabels }: { m: Member; roleLabels: Record<string, string> }) {
-  const key = permissionRole(m.role);
-  const custom = roleLabels[key];
-  const isCustom = custom && custom !== DEFAULT_ROLE_LABELS[key];
+/* -------- Inline role control -------------------------------------------- */
+/* The table's primary action lives in the row: change a role in one click,
+   with the save state shown right here (saving → saved → or the exact DB
+   error). Escalating to a crown role (Admin / Super Admin) needs super-admin
+   rights; Super Admin also passes a confirm. Permanent super-admins are a
+   read-only pill. */
+
+function RolePill({ role, roleLabels, className, children }: {
+  role: Role; roleLabels: Record<string, string>; className?: string; children?: React.ReactNode;
+}) {
+  const key = permissionRole(role);
   return (
-    <div className="flex items-center gap-1.5">
-      {m.bootstrap && <Lock size={12} className="text-sirius/70" aria-label="Permanent super-admin" />}
-      <div>
-        <div className="font-body text-[13px] font-medium text-fg">{isCustom ? custom : DEFAULT_ROLE_LABELS[key]}</div>
-        {isCustom && <div className="font-body text-[11px] text-fg-subtle">{DEFAULT_ROLE_LABELS[key]} permissions</div>}
-      </div>
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-body text-[12px] font-medium", ROLE_TONE[key] ?? ROLE_TONE.operator, className)}>
+      {key === "super_admin" && <Crown size={11} className="shrink-0" />}
+      <span className="truncate">{label(role, roleLabels)}</span>
+      {children}
+    </span>
+  );
+}
+
+function InlineRole({ m, roleLabels, canGrantCrown, onFlash, onDone }: {
+  m: Member; roleLabels: Record<string, string>; canGrantCrown: boolean;
+  onFlash: (s: string) => void; onDone: () => void;
+}) {
+  const current = permissionRole(m.role);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmSuper, setConfirmSuper] = useState<Role | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const MENU_W = 224; // w-56
+
+  // Anchor the (portaled) menu under the trigger. Portalling escapes the
+  // table's `overflow-hidden`, which would otherwise clip the dropdown.
+  function openMenu() {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) {
+      const left = Math.min(r.left, window.innerWidth - MENU_W - 8); // keep on-screen
+      setPos({ top: r.bottom + 4, left: Math.max(8, left) });
+    }
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const dismiss = () => setOpen(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", dismiss, true);
+    window.addEventListener("resize", dismiss);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", dismiss, true);
+      window.removeEventListener("resize", dismiss);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  // Permanent super-admin (env) — role is fixed; show a locked pill.
+  if (m.bootstrap) {
+    return <RolePill role={m.role} roleLabels={roleLabels}><Lock size={10} className="shrink-0 opacity-70" aria-label="Permanent super-admin" /></RolePill>;
+  }
+
+  async function apply(next: Role) {
+    setOpen(false);
+    setConfirmSuper(null);
+    if (next === current) return;
+    setBusy(true);
+    setError(null);
+    const r = await setUserRoleAction(m.email, next, m.name);
+    setBusy(false);
+    if (!r.ok) { setError(r.error ?? "Couldn't change role."); return; }
+    setSaved(true);
+    onFlash(`${m.name ?? m.email} is now ${label(next, roleLabels)}.`);
+    setTimeout(() => setSaved(false), 1800);
+    onDone(); // re-fetch so the whole row reflects the change
+  }
+
+  function pick(next: Role) {
+    if (next === current) { setOpen(false); return; }
+    if (next === "super_admin") { setOpen(false); setConfirmSuper(next); return; } // guardrail
+    apply(next);
+  }
+
+  return (
+    <div className="relative inline-block">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        disabled={busy}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Role: ${label(current, roleLabels)}. Change role`}
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-body text-[12px] font-medium outline-none ring-sirius transition-colors focus-visible:ring-2 disabled:opacity-70",
+          ROLE_TONE[current] ?? ROLE_TONE.operator,
+          "hover:brightness-[0.97]",
+        )}
+      >
+        {current === "super_admin" && <Crown size={11} className="shrink-0" />}
+        <span className="truncate">{label(current, roleLabels)}</span>
+        {busy ? <Loader2 size={12} className="shrink-0 animate-spin" />
+          : saved ? <Check size={12} className="shrink-0 text-[#2DB47A]" />
+          : <ChevronDown size={12} className="shrink-0 opacity-60" />}
+      </button>
+
+      {open && pos && typeof document !== "undefined" && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          style={{ position: "fixed", top: pos.top, left: pos.left, width: MENU_W }}
+          className="z-[60] overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-lg"
+        >
+          {PERMISSION_ROLES.map((r) => {
+            const crownLocked = (r === "admin" || r === "super_admin") && !canGrantCrown;
+            const isCurrent = r === current;
+            return (
+              <button
+                key={r}
+                type="button"
+                role="menuitemradio"
+                aria-checked={isCurrent}
+                disabled={crownLocked}
+                onClick={() => pick(r)}
+                className={cn(
+                  "flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors",
+                  crownLocked ? "cursor-not-allowed opacity-50" : "hover:bg-bg-muted",
+                )}
+              >
+                <span className="mt-0.5 grid size-4 shrink-0 place-items-center">
+                  {isCurrent && <Check size={13} className="text-sirius" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1.5 font-body text-[13px] font-medium text-fg">
+                    {r === "super_admin" && <Crown size={11} className="text-sirius" />}
+                    {label(r, roleLabels)}
+                  </span>
+                  <span className="mt-0.5 block font-body text-[11.5px] text-fg-subtle">
+                    {crownLocked ? "Only a super-admin can grant this." : roleDescription(r)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>,
+        document.body,
+      )}
+
+      {/* Save failure — shown right in the row so a write can never fail silently. */}
+      {error && (
+        <div className="mt-1.5 flex max-w-[240px] items-start gap-1.5 font-body text-[11px] leading-snug text-[#B23A57]">
+          <AlertTriangle size={12} className="mt-px shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {confirmSuper && (
+        <ConfirmDialog
+          title="Grant Super Admin?"
+          body={
+            <p className="font-body text-[13px] text-fg-muted">
+              <strong className="text-fg">{m.name ?? m.email}</strong> will get unrestricted access to every
+              account and all settings. Grant it only when required.
+            </p>
+          }
+          confirmLabel={busy ? "Granting…" : "Grant Super Admin"}
+          busy={busy}
+          onConfirm={() => apply(confirmSuper)}
+          onCancel={() => setConfirmSuper(null)}
+        />
+      )}
     </div>
   );
 }
@@ -335,8 +585,7 @@ function RowMenu({ m, isSelf, onEdit, onFlash, onDone }: {
 
       {open && (
         <div role="menu" className="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-lg">
-          <MenuItem icon={Pencil} label="Edit details" onClick={() => { setOpen(false); onEdit(); }} />
-          <MenuItem icon={ArrowRight} label="Change role & access" onClick={() => { setOpen(false); onEdit(); }} />
+          <MenuItem icon={Pencil} label="Edit details & access" onClick={() => { setOpen(false); onEdit(); }} />
           <div className="my-1 border-t border-border-subtle" />
           <MenuItem
             icon={Trash2}

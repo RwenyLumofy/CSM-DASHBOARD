@@ -5,10 +5,20 @@
    Permanent super-admins (SUPER_ADMIN_EMAILS) can't be edited or removed here.
    ========================================================================= */
 
+import { revalidatePath } from "next/cache";
 import { isAdminOrSuper, isSuperAdmin, getCurrentUserEmail } from "@/lib/auth";
 import { getAppUsers, getOwnedAccountCounts } from "@/lib/data";
 import { env, hasDatabase } from "@/lib/config";
 import { isRole, permissionTier } from "@/lib/roles";
+
+/** Invalidate every server-rendered view that reflects members, roles or the
+ *  per-user access scope, so a save is visible immediately (not only after a
+ *  hard reload). Members show on /settings; role/scope changes also change what
+ *  each user can see app-wide, so revalidate the whole app at the layout level. */
+function revalidateMembers(): void {
+  revalidatePath("/settings");
+  revalidatePath("/", "layout");
+}
 
 export interface UserActionResult {
   ok: boolean;
@@ -92,6 +102,7 @@ export async function addOrUpdateUserAction(input: {
     if (persisted !== input.role) {
       return { ok: false, error: `Save didn't persist — the database still shows "${persisted ?? "no row"}". Check write access to app_users.` };
     }
+    revalidateMembers();
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -115,6 +126,7 @@ export async function setUserRoleAction(email: string, role: string, name?: stri
     if (persisted !== role) {
       return { ok: false, error: `Save didn't persist — the database still shows "${persisted ?? "no row"}". Check write access to app_users.` };
     }
+    revalidateMembers();
     return { ok: true };
   } catch (er) {
     return { ok: false, error: String(er) };
@@ -141,6 +153,7 @@ export async function setUserScopeAction(input: {
   try {
     const { setUserScopeDb } = await import("@/lib/repo/drizzle");
     await setUserScopeDb(email, input.scope, input.scope === "selected" ? (input.clientIds ?? []) : []);
+    revalidateMembers();
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -174,6 +187,7 @@ export async function removeUserAction(email: string, opts?: { reassigned?: bool
   try {
     const { deleteAppUserDb } = await import("@/lib/repo/drizzle");
     await deleteAppUserDb(e);
+    revalidateMembers();
     return { ok: true };
   } catch (er) {
     return { ok: false, error: String(er) };

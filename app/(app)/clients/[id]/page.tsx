@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { ClientProfileTabs } from "@/components/clients/ClientProfileTabs";
 import { ClientHeaderCard } from "@/components/clients/ClientHeaderCard";
+import { ChurnReasonBanner } from "@/components/clients/ChurnReasonBanner";
 import {
   getAttachmentsForClient,
   getClientForProfile,
@@ -14,8 +15,9 @@ import {
   getPropertyDefinitions,
   getRoleLabels,
   getTeamMembers,
+  getChurnTaxonomy,
 } from "@/lib/data";
-import { getCurrentUserRole, isSuperAdmin } from "@/lib/auth";
+import { getCurrentUserRole, isSuperAdmin, isAdminOrSuper } from "@/lib/auth";
 import { getProjectBoard, getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getNotesForClient } from "@/lib/notes/data";
 import { hasDatabase, integrations } from "@/lib/config";
@@ -39,7 +41,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const client = await getClientForProfile(id);
   if (!client) notFound();
 
-  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates] =
+  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn] =
     await Promise.all([
       getNotesForClient(id),
       getAttachmentsForClient(id),
@@ -58,6 +60,8 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       getProjectBoard(id),
       getProjectConfig(),
       listProjectTemplates(),
+      getChurnTaxonomy(),
+      isAdminOrSuper(),
     ]);
   const ownerOptions = (ms: typeof csmMembers) => ms.map((m) => ({ email: m.email, name: m.name ?? m.email, role: m.role }));
   // Project owner/implementer/task-owner pickers use the same team directories.
@@ -138,6 +142,16 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         useCases={useCases}
         onboardingLabel={onboardingLabel}
       />
+
+      {/* ── Churn reason — classify why a churned account left ────────── */}
+      {client.status === "churned" && (
+        <ChurnReasonBanner
+          clientId={client.id}
+          taxonomy={churnTaxonomy}
+          currentReasonId={typeof props.churn_reason === "string" ? props.churn_reason : null}
+          canEdit={canManageChurn}
+        />
+      )}
 
       {/* ── Tabs ─────────────────────────────────────────────────────── */}
       <ClientProfileTabs
