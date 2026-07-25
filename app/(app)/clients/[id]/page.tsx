@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { ClientProfileTabs } from "@/components/clients/ClientProfileTabs";
 import { ClientHeaderCard } from "@/components/clients/ClientHeaderCard";
 import { ChurnReasonBanner } from "@/components/clients/ChurnReasonBanner";
+import { CsPulsePanel } from "@/components/clients/CsPulsePanel";
 import {
   getAttachmentsForClient,
   getClientForProfile,
@@ -17,7 +18,10 @@ import {
   getTeamMembers,
   getChurnTaxonomy,
 } from "@/lib/data";
+import { getAccountHealth, getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
+import { normalizePulse } from "@/lib/health/pulse";
 import { getCurrentUserRole, isSuperAdmin, isAdminOrSuper } from "@/lib/auth";
+import { permissionRole } from "@/lib/roles";
 import { getProjectBoard, getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getNotesForClient } from "@/lib/notes/data";
 import { hasDatabase, integrations } from "@/lib/config";
@@ -41,7 +45,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const client = await getClientForProfile(id);
   if (!client) notFound();
 
-  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn] =
+  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, accountHealth, pulseDimensions, pulseTiers] =
     await Promise.all([
       getNotesForClient(id),
       getAttachmentsForClient(id),
@@ -62,6 +66,9 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       listProjectTemplates(),
       getChurnTaxonomy(),
       isAdminOrSuper(),
+      getAccountHealth(id),
+      getCsPulseDimensions(),
+      getCsPulseTiers(),
     ]);
   const ownerOptions = (ms: typeof csmMembers) => ms.map((m) => ({ email: m.email, name: m.name ?? m.email, role: m.role }));
   // Project owner/implementer/task-owner pickers use the same team directories.
@@ -142,6 +149,18 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         useCases={useCases}
         onboardingLabel={onboardingLabel}
       />
+
+      {/* ── Client health — live score + CS Pulse capture ────────────── */}
+      {client.status !== "onboarding" && (
+        <CsPulsePanel
+          clientId={client.id}
+          health={accountHealth}
+          pulse={normalizePulse(props.cs_pulse)}
+          dimensions={pulseDimensions}
+          tiers={pulseTiers}
+          canEdit={permissionRole(role) !== "guest"}
+        />
+      )}
 
       {/* ── Churn reason — classify why a churned account left ────────── */}
       {client.status === "churned" && (
