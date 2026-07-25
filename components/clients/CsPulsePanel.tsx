@@ -8,7 +8,7 @@
    signals, tiers) comes from lib/health so it can never drift from the engine.
    ========================================================================= */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, HeartPulse } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -59,6 +59,17 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Deep-link from the Pulse queue (/clients/{id}#pulse): open the capture
+  // drawer and scroll it into view, then drop the hash so a refresh doesn't
+  // re-open it. Only for users who can actually record a pulse.
+  useEffect(() => {
+    if (!canEdit || typeof window === "undefined" || window.location.hash !== "#pulse") return;
+    setOpen(true);
+    rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }, [canEdit]);
 
   const age = pulseAgeDays(pulse);
   const freshness = age == null
@@ -73,7 +84,7 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
   const showScore = health && !health.notAssessed && health.calculatedScore != null;
 
   return (
-    <div className="rounded-xl border border-border bg-surface shadow-sm">
+    <div ref={rootRef} className="scroll-mt-24 rounded-xl border border-border bg-surface shadow-sm">
       <div className="flex flex-wrap items-center gap-3 border-b border-border-subtle px-5 py-3.5">
         <span className="grid size-7 place-items-center rounded-lg bg-accent-soft text-sirius"><HeartPulse size={15} /></span>
         <h3 className="font-display text-[14px] font-semibold text-fg">Client health</h3>

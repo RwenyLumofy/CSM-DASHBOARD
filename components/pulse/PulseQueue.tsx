@@ -1,20 +1,17 @@
 "use client";
 
 /* =========================================================================
-   "Pulse due" queue — the capture-first home for CS Pulse. Lists the viewer's
-   accounts whose pulse is missing / lapsed / about to lapse and lets them
-   record one in place via the shared PulseDrawer (same flow as the profile).
-   Recording re-scores the account server-side; router.refresh() then drops the
-   freshly-pulsed account off the list.
+   "Pulse due" queue — the capture-first WORKLIST for CS Pulse. Lists the
+   viewer's accounts whose pulse is missing / lapsed / about to lapse and links
+   each into its account profile (#pulse) to record in context — usage, tickets
+   and stakeholders in view while the CSM rates. Capture itself lives on the
+   profile (CsPulsePanel); this surface is purely discovery + routing.
    ========================================================================= */
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { HeartPulse, CheckCircle2 } from "lucide-react";
+import { HeartPulse, CheckCircle2, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { PULSE_VALIDITY_DAYS, type PulseDimension, type RatingTier } from "@/lib/health/pulse";
-import { PulseDrawer } from "@/components/clients/PulseDrawer";
+import { PULSE_VALIDITY_DAYS } from "@/lib/health/pulse";
 import type { PulseQueueItem } from "@/lib/health/pulse-queue";
 
 const money = (n: number) => (n >= 1000 ? `$${Math.round(n / 1000)}k` : `$${Math.round(n)}`);
@@ -46,14 +43,10 @@ function Stat({ n, label, tone }: { n: number; label: string; tone: string }) {
   );
 }
 
-export function PulseQueue({ items, counts, dimensions, tiers }: {
+export function PulseQueue({ items, counts }: {
   items: PulseQueueItem[];
   counts: { missing: number; stale: number; dueSoon: number; total: number; covered: number; eligible: number };
-  dimensions: PulseDimension[];
-  tiers: RatingTier[];
 }) {
-  const router = useRouter();
-  const [active, setActive] = useState<PulseQueueItem | null>(null);
   const coverage = counts.eligible ? Math.round((counts.covered / counts.eligible) * 100) : 0;
 
   return (
@@ -61,7 +54,7 @@ export function PulseQueue({ items, counts, dimensions, tiers }: {
       <div>
         <h1 className="font-display text-[22px] font-semibold text-fg">CS Pulse</h1>
         <p className="mt-1 max-w-2xl font-body text-sm text-fg-muted">
-          Your monthly read on each account — stakeholder coverage, engagement, and renewal readiness. A pulse is valid for {PULSE_VALIDITY_DAYS} days; when it lapses the account can’t be scored until you refresh it.
+          Your monthly read on each account — stakeholder coverage, engagement, and renewal readiness. A pulse is valid for {PULSE_VALIDITY_DAYS} days; when it lapses the account can’t be scored until you refresh it. Open an account to record its pulse in context.
         </p>
       </div>
 
@@ -97,7 +90,11 @@ export function PulseQueue({ items, counts, dimensions, tiers }: {
             const chip = stateChip(i);
             const renew = monthYear(i.renewalDate);
             return (
-              <div key={i.clientId} className={cn("flex flex-wrap items-center gap-3 px-5 py-3.5", idx > 0 && "border-t border-border-subtle")}>
+              <Link
+                key={i.clientId}
+                href={`/clients/${i.clientId}#pulse`}
+                className={cn("group flex flex-wrap items-center gap-3 px-5 py-3.5 transition-colors hover:bg-bg-muted/40", idx > 0 && "border-t border-border-subtle")}
+              >
                 {/* avatar */}
                 {i.logoUrl ? (
                   <img src={i.logoUrl} alt="" className="size-9 shrink-0 rounded-lg object-cover" />
@@ -107,9 +104,7 @@ export function PulseQueue({ items, counts, dimensions, tiers }: {
 
                 {/* name + owner */}
                 <div className="min-w-0 flex-1">
-                  <Link href={`/clients/${i.clientId}`} className="font-body text-[14px] font-semibold text-fg hover:text-sirius hover:underline">
-                    {i.name}
-                  </Link>
+                  <span className="font-body text-[14px] font-semibold text-fg group-hover:text-sirius">{i.name}</span>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-body text-[12px] text-fg-subtle">
                     <span>{i.ownerName ?? "Unassigned"}</span>
                     <span aria-hidden>·</span>
@@ -125,26 +120,15 @@ export function PulseQueue({ items, counts, dimensions, tiers }: {
                   <span className="font-body text-[11.5px] text-fg-subtle">{lastPulsed(i)}</span>
                 </div>
 
-                {/* action */}
-                <button type="button" onClick={() => setActive(i)}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-sirius px-3 py-1.5 font-body text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90">
+                {/* action cue */}
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-sirius px-3 py-1.5 font-body text-[12.5px] font-semibold text-white transition-opacity group-hover:opacity-90">
                   <HeartPulse size={13} /> {i.state === "missing" ? "Rate pulse" : "Update"}
-                </button>
-              </div>
+                  <ChevronRight size={14} className="-mr-1 opacity-80" />
+                </span>
+              </Link>
             );
           })}
         </div>
-      )}
-
-      {active && (
-        <PulseDrawer
-          clientId={active.clientId}
-          pulse={active.pulse}
-          dimensions={dimensions}
-          tiers={tiers}
-          onClose={() => setActive(null)}
-          onSaved={() => { setActive(null); router.refresh(); }}
-        />
       )}
     </>
   );
