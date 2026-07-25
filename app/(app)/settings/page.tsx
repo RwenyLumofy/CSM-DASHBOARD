@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FolderKanban, Plug, Settings2, TrendingDown, Users, Workflow as WorkflowIcon, type LucideIcon } from "lucide-react";
+import { FolderKanban, HeartPulse, Plug, Settings2, TrendingDown, Users, Workflow as WorkflowIcon, type LucideIcon } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PropertiesManager } from "@/components/settings/PropertiesManager";
 import { SyncManager } from "@/components/settings/SyncManager";
@@ -10,6 +10,9 @@ import { AttachmentCategoriesManager } from "@/components/settings/AttachmentCat
 import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManager";
 import { ProjectTemplatesManager } from "@/components/settings/ProjectTemplatesManager";
 import { ChurnTaxonomyManager } from "@/components/settings/ChurnTaxonomyManager";
+import { ClientHealthEditor, type ModelOverview } from "@/components/settings/ClientHealthEditor";
+import { getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
+import { assembleModel } from "@/lib/health/model-assembly";
 import { getAppUsers, getChurnTaxonomy, getClients, getOwnedAccountCounts, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
 import { getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getCurrentUserEmail, isAdminOrSuper, isSuperAdmin } from "@/lib/auth";
@@ -46,7 +49,7 @@ export const maxDuration = 300;
    Each tab is an async component, so only the active tab's data is fetched.
    ========================================================================= */
 
-type TabKey = "members" | "properties" | "projects" | "automations" | "churn" | "integrations";
+type TabKey = "members" | "properties" | "projects" | "automations" | "health" | "churn" | "integrations";
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams;
@@ -64,6 +67,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     ["properties", "Properties", Settings2],
     ["projects", "Projects", FolderKanban],
     ...(canManage ? ([["automations", "Automations", WorkflowIcon]] as [TabKey, string, LucideIcon][]) : []),
+    ...(canManage ? ([["health", "Client health", HeartPulse]] as [TabKey, string, LucideIcon][]) : []),
     ...(canManage ? ([["churn", "Churn taxonomy", TrendingDown]] as [TabKey, string, LucideIcon][]) : []),
     ["integrations", "Integrations", Plug],
   ];
@@ -96,6 +100,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <ProjectsTab superAdmin={canManage} currentUserEmail={currentUserEmail} />
       ) : activeTab === "automations" && canManage ? (
         <AutomationsTab roleLabels={roleLabels} />
+      ) : activeTab === "health" && canManage ? (
+        <ClientHealthTab />
       ) : activeTab === "churn" && canManage ? (
         <ChurnTaxonomyTab />
       ) : activeTab === "integrations" ? (
@@ -356,6 +362,44 @@ async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
 }
 
 /* --------------------------------------------------------- Churn taxonomy */
+
+/* ---------------------------------------------------------- Client health */
+
+function formulaSource(f: unknown): string {
+  const x = f as Record<string, unknown> | undefined;
+  if (!x) return "—";
+  if (x.type === "categorical_map") return "CS Pulse rating";
+  if (x.type === "ratio" || x.type === "stage_adjusted_ratio") {
+    const num = (x.numerator_metric ?? x.actual_metric ?? "?") as string;
+    const den = (x.denominator_metric ?? x.expected_metric ?? "?") as string;
+    return `${num} ÷ ${den}`;
+  }
+  if (x.type === "threshold_table") return "threshold table";
+  if (x.type === "latest_valid_value") return ((x.metrics as string[]) ?? []).join(" → ");
+  return (x.type as string) ?? "—";
+}
+
+async function ClientHealthTab() {
+  const [dimensions, tiers] = await Promise.all([getCsPulseDimensions(), getCsPulseTiers()]);
+  const model = assembleModel(dimensions, tiers);
+  const overview: ModelOverview = {
+    components: model.components.map((c) => ({
+      name: c.name,
+      weight: c.weight,
+      mandatory: !!c.isMandatory,
+      children: (c.children ?? []).map((ch) => ({ name: ch.name, weight: ch.weight, source: formulaSource(ch.formula) })),
+    })),
+    bands: [...model.bands].sort((a, b) => b.minScore - a.minScore).map((b) => ({ name: b.name, min: b.minScore })),
+  };
+  return (
+    <SettingsSection
+      title="Client health model"
+      description="How every account's health score is calculated — the CS Pulse the CSM records each month, the rating scale, and the full weighted formula. Editing the pulse dimensions or scale here updates the capture form and re-scores accounts."
+    >
+      <ClientHealthEditor initialDimensions={dimensions} initialTiers={tiers} overview={overview} />
+    </SettingsSection>
+  );
+}
 
 async function ChurnTaxonomyTab() {
   const taxonomy = await getChurnTaxonomy();
