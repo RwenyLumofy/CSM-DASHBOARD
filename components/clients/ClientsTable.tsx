@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { PopMenu } from "@/components/clients/projects/shared";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
+import { healthBand } from "@/lib/metrics/exec";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
 import { ImportDialog } from "@/components/clients/ImportDialog";
 
@@ -141,6 +142,36 @@ function arrMovement(c: Client): { dir: "up" | "down"; pct: number; delta: numbe
   return { dir: delta > 0 ? "up" : "down", pct: Math.abs(Math.round((delta / c.previousArr) * 100)), delta };
 }
 
+/* ---- command bar + view presets ---------------------------------------- */
+
+type ViewKey = "all" | "mine" | "risk" | "renewing" | "onboarding";
+
+const TILE_TONE: Record<"danger" | "warning" | "neutral", { box: string; fg: string }> = {
+  danger: { box: "border-[#B23A57]/20 bg-[#B23A57]/[0.07]", fg: "text-[#B23A57]" },
+  warning: { box: "border-[#C99A14]/25 bg-[#C99A14]/[0.10]", fg: "text-[#8A6D12]" },
+  neutral: { box: "border-border bg-bg-muted/50", fg: "text-fg-muted" },
+};
+
+/** A triage stat in the command bar. Interactive ones (a filter behind them)
+ *  get a hover + an active ring; display-only stats (ARR movement, coverage)
+ *  render as a plain tile. */
+function CommandTile({ tone, label, value, sub, valueClass, active, onClick }: {
+  tone: "danger" | "warning" | "neutral"; label: string; value: React.ReactNode; sub?: string; valueClass?: string; active?: boolean; onClick?: () => void;
+}) {
+  const t = TILE_TONE[tone];
+  const cls = cn("rounded-xl border px-3.5 py-2.5 text-left transition-all", t.box, onClick && "cursor-pointer hover:shadow-sm", active && "ring-2 ring-sirius/50");
+  const body = (
+    <>
+      <div className={cn("font-body text-[12px] font-medium", t.fg)}>{label}</div>
+      <div className={cn("font-display text-[22px] font-bold leading-tight tabular", valueClass ?? t.fg)}>{value}</div>
+      {sub && <div className={cn("font-body text-[11.5px] leading-tight", t.fg)} style={{ opacity: 0.85 }}>{sub}</div>}
+    </>
+  );
+  return onClick
+    ? <button type="button" onClick={onClick} className={cls}>{body}</button>
+    : <div className={cls}>{body}</div>;
+}
+
 /** The "Tier" account property (client.properties.tier) — an unrelated,
  *  same-named concept to Client["health"]["tier"] (healthy/watch/at_risk,
  *  filtered separately below as the "Health" dropdown). */
@@ -177,6 +208,7 @@ export function ClientsTable({
   initialQuery = "",
   showActions = false,
   canAssignOwners = false,
+  currentUserEmail = null,
   completenessByClient = {},
 }: {
   clients: Client[];
@@ -187,6 +219,8 @@ export function ClientsTable({
   showActions?: boolean;
   /** Super-admin: may reassign the CSM inline / in bulk. Others see read-only. */
   canAssignOwners?: boolean;
+  /** The viewer's email — powers the "My accounts" view (owned by them). */
+  currentUserEmail?: string | null;
   /** Profile-completeness severity per client id, keyed for the incomplete-profile badge. */
   completenessByClient?: Record<string, { severity: "red" | "yellow" | "none"; missingRed: { key: string; label: string }[]; missingYellow: { key: string; label: string }[] }>;
 }) {
@@ -208,6 +242,11 @@ export function ClientsTable({
   const [channel, setChannel] = useState("all");
   const [country, setCountry] = useState("all");
   const [accountTier, setAccountTier] = useState("all");
+  // View presets (tabs / command tiles) toggle these two cross-cutting filters,
+  // which don't map onto a single dropdown: "mine" = owned by the viewer,
+  // "risk" = health band at_risk (score-based, see lib/metrics/exec.healthBand).
+  const [mineOnly, setMineOnly] = useState(false);
+  const [riskOnly, setRiskOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("arr");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -240,8 +279,11 @@ export function ClientsTable({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const me = (currentUserEmail ?? "").toLowerCase();
     let rows = clients.filter((c) => {
       if (statusFilter.size > 0 && !statusFilter.has(c.status)) return false;
+      if (mineOnly && !(me && ((c.csm?.email ?? "").toLowerCase() === me || (c.implementationOwner?.email ?? "").toLowerCase() === me))) return false;
+      if (riskOnly && !(c.status !== "churned" && healthBand(c.health.score) === "at_risk")) return false;
       if (renewalRange) {
         if (!c.renewalDate) return false;
         const d = c.renewalDate.slice(0, 10);
@@ -274,7 +316,7 @@ export function ClientsTable({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [clients, query, tier, completenessFilter, completenessByClient, csm, statusFilter, renewalRange, channel, country, accountTier, sortKey, sortDir]);
+  }, [clients, query, tier, completenessFilter, completenessByClient, csm, statusFilter, renewalRange, channel, country, accountTier, mineOnly, riskOnly, currentUserEmail, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -287,12 +329,78 @@ export function ClientsTable({
   // the "Clear all" affordance and the active-filter count on "More filters".
   const secondaryActive = [completenessFilter !== "all", channel !== "all", country !== "all", accountTier !== "all"].filter(Boolean).length;
   const anyFilterActive =
-    query.trim() !== "" || tier !== "all" || csm !== "all" || renewal !== "all" || statusFilter.size > 0 || secondaryActive > 0;
+    query.trim() !== "" || tier !== "all" || csm !== "all" || renewal !== "all" || statusFilter.size > 0 || secondaryActive > 0 || mineOnly || riskOnly;
   function clearAll() {
     setQuery(""); setTier("all"); setCompletenessFilter("all"); setCsm("all");
     setChannel("all"); setCountry("all"); setAccountTier("all");
     setStatusFilter(new Set()); setRenewal("all"); setCustomStart(""); setCustomEnd("");
+    setMineOnly(false); setRiskOnly(false);
   }
+
+  // Command-bar stats — a triage read on the WHOLE book (not the filtered view),
+  // computed client-side from what we already have. "At risk" uses the stable
+  // score band; pulse coverage reads the migration-free properties.cs_pulse.
+  const stats = useMemo(() => {
+    const now = Date.now();
+    let atRisk = 0, atRiskArr = 0, renewing = 0, renewingArr = 0, arr = 0, prevArr = 0, pulseFresh = 0, pulseEligible = 0;
+    for (const c of clients) {
+      if (c.status !== "churned") {
+        arr += c.arr; prevArr += c.previousArr;
+        if (healthBand(c.health.score) === "at_risk") { atRisk++; atRiskArr += c.arr; }
+        const d = daysToRenewal(c.renewalDate);
+        if (d != null && d >= 0 && d <= 90) { renewing++; renewingArr += c.arr; }
+      }
+      if (c.status === "active" || c.status === "renewal") {
+        pulseEligible++;
+        const p = c.properties?.cs_pulse as { updatedAt?: string } | undefined;
+        if (p?.updatedAt && (now - new Date(p.updatedAt).getTime()) / 86_400_000 <= 30) pulseFresh++;
+      }
+    }
+    const arrDeltaPct = prevArr > 0 ? Math.round(((arr - prevArr) / prevArr) * 1000) / 10 : 0;
+    const pulsePct = pulseEligible > 0 ? Math.round((pulseFresh / pulseEligible) * 100) : 0;
+    return { atRisk, atRiskArr, renewing, renewingArr, arrDeltaPct, pulsePct, pulseDue: pulseEligible - pulseFresh };
+  }, [clients]);
+
+  // View presets — each is a fresh slice (clear, then set its own filter), so
+  // the tabs read as mutually-exclusive starting points you can then refine.
+  const currentView =
+    !anyFilterActive ? "all"
+    : mineOnly && !riskOnly && renewal === "all" && statusFilter.size === 0 ? "mine"
+    : riskOnly && !mineOnly ? "risk"
+    : renewal === "next_90" && !riskOnly && !mineOnly && statusFilter.size === 0 ? "renewing"
+    : statusFilter.size === 1 && statusFilter.has("onboarding") && !riskOnly && !mineOnly && renewal === "all" ? "onboarding"
+    : "custom";
+  function selectView(v: ViewKey) {
+    clearAll();
+    if (v === "mine") setMineOnly(true);
+    else if (v === "risk") setRiskOnly(true);
+    else if (v === "renewing") setRenewal("next_90");
+    else if (v === "onboarding") setStatusFilter(new Set(["onboarding"]));
+  }
+  const views = ([
+    { key: "all", label: "All book", count: null, tone: "" },
+    { key: "mine", label: "My accounts", count: null, tone: "" },
+    { key: "risk", label: "At risk", count: stats.atRisk, tone: "#B23A57" },
+    { key: "renewing", label: "Renewing", count: stats.renewing, tone: "#8A6D12" },
+    { key: "onboarding", label: "Onboarding", count: null, tone: "" },
+  ] as { key: ViewKey; label: string; count: number | null; tone: string }[]).filter((v) => v.key !== "mine" || !!currentUserEmail);
+
+  // Active-filter chips — what's applied, always visible, each removable. Note
+  // "mine"/"risk"/renewal(≤90d)/status(onboarding) are also what the tabs set,
+  // so removing a chip cleanly drops you back toward "All book".
+  const RENEWAL_LABEL: Record<string, string> = { overdue: "Overdue", this_quarter: "This quarter", next_quarter: "Next quarter", next_30: "Next 30 days", next_90: "≤ 90 days", custom: "Custom range" };
+  const COMPLETENESS_LABEL: Record<string, string> = { none: "Complete", yellow: "Partial", red: "Incomplete" };
+  const chips: { label: string; onRemove: () => void }[] = [];
+  if (mineOnly) chips.push({ label: "My accounts", onRemove: () => setMineOnly(false) });
+  if (riskOnly) chips.push({ label: "At risk", onRemove: () => setRiskOnly(false) });
+  if (tier !== "all") chips.push({ label: `Health: ${tier}`, onRemove: () => setTier("all") });
+  if (csm !== "all") chips.push({ label: `CSM: ${csms.find((m) => m.id === csm)?.name ?? csm}`, onRemove: () => setCsm("all") });
+  [...statusFilter].forEach((s) => chips.push({ label: `Status: ${STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s}`, onRemove: () => setStatusFilter((prev) => { const n = new Set(prev); n.delete(s); return n; }) }));
+  if (renewal !== "all") chips.push({ label: `Renewal: ${RENEWAL_LABEL[renewal] ?? renewal}`, onRemove: () => { setRenewal("all"); setCustomStart(""); setCustomEnd(""); } });
+  if (channel !== "all") chips.push({ label: `Channel: ${channel}`, onRemove: () => setChannel("all") });
+  if (country !== "all") chips.push({ label: `Country: ${country}`, onRemove: () => setCountry("all") });
+  if (accountTier !== "all") chips.push({ label: `Tier: ${accountTier}`, onRemove: () => setAccountTier("all") });
+  if (completenessFilter !== "all") chips.push({ label: `Profile: ${COMPLETENESS_LABEL[completenessFilter] ?? completenessFilter}`, onRemove: () => setCompletenessFilter("all") });
   // Same raw sum-across-clients convention as buildPortfolioSummary (lib/metrics/portfolio.ts) —
   // no currency conversion exists anywhere in the app, so mixed-currency portfolios just add face
   // values under one label. Unlike that summary, this intentionally does NOT exclude churned
@@ -374,29 +482,55 @@ export function ClientsTable({
 
   return (
     <div className="rounded-lg border border-border bg-surface shadow-sm">
-      {/* Toolbar */}
+      {/* Header + command bar — opens by telling you where to look */}
       {showActions && (
-        <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-3.5">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5" title={isFiltered ? `${filtered.length} of ${clients.length} clients match the current filters` : undefined}>
-              <span className="font-display text-2xl font-bold tracking-tight leading-none tabular text-fg">{filtered.length}</span>
-              <span className="font-body text-[13px] text-fg-muted">
-                {isFiltered ? `of ${clients.length} clients` : filtered.length === 1 ? "client" : "clients"}
+        <div className="flex flex-col gap-3.5 border-b border-border px-5 pb-4 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-baseline gap-2">
+              <h2 className="font-display text-[17px] font-semibold text-fg">Clients</h2>
+              <span className="font-body text-[13px] text-fg-muted tabular">
+                {isFiltered ? <><span className="font-semibold text-fg">{filtered.length}</span> of {clients.length}</> : <>{clients.length} accounts</>}
+                {" · "}
+                <span className="font-semibold text-fg">{formatCurrency(totalArr, arrCurrency, { compact: true })}</span>
+                {isFiltered ? ` of ${formatCurrency(totalArrAll, arrCurrency, { compact: true })}` : ""} ARR
               </span>
             </div>
-            <div className="flex items-center gap-1.5" title={isFiltered ? `${formatCurrency(totalArr, arrCurrency, { compact: true })} of ${formatCurrency(totalArrAll, arrCurrency, { compact: true })} ARR match the current filters` : undefined}>
-              <span className="font-display text-2xl font-bold tracking-tight leading-none tabular text-fg">{formatCurrency(totalArr, arrCurrency, { compact: true })}</span>
-              <span className="font-body text-[13px] text-fg-muted">
-                {isFiltered ? `of ${formatCurrency(totalArrAll, arrCurrency, { compact: true })} ARR` : "ARR"}
-              </span>
+            <div className="flex items-center gap-2">
+              <ImportDialog />
+              <AddClientDialog />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <ImportDialog />
-            <AddClientDialog />
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            <CommandTile tone="danger" label="At risk" value={stats.atRisk}
+              sub={`${formatCurrency(stats.atRiskArr, arrCurrency, { compact: true })} exposed`}
+              active={currentView === "risk"} onClick={() => selectView(currentView === "risk" ? "all" : "risk")} />
+            <CommandTile tone="warning" label="Renewing ≤ 90d" value={stats.renewing}
+              sub={`${formatCurrency(stats.renewingArr, arrCurrency, { compact: true })} up for renewal`}
+              active={currentView === "renewing"} onClick={() => selectView(currentView === "renewing" ? "all" : "renewing")} />
+            <CommandTile tone="neutral" label="Net ARR movement"
+              value={`${stats.arrDeltaPct > 0 ? "+" : ""}${stats.arrDeltaPct}%`}
+              valueClass={stats.arrDeltaPct >= 0 ? "text-[#1F9D63]" : "text-[#B23A57]"} sub="vs prior period" />
+            <CommandTile tone="neutral" label="Pulse coverage" value={`${stats.pulsePct}%`} sub={`${stats.pulseDue} accounts due`} />
           </div>
         </div>
       )}
+
+      {/* View presets — quick lenses that set the filters below */}
+      <div className="flex flex-wrap items-center gap-1 border-b border-border bg-surface px-4">
+        {views.map((v) => {
+          const on = currentView === v.key;
+          return (
+            <button key={v.key} type="button" onClick={() => selectView(v.key)}
+              className={cn("-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2.5 font-body text-[13px] transition-colors",
+                on ? "border-sirius font-semibold text-fg" : "border-transparent text-fg-muted hover:text-fg")}>
+              {v.label}
+              {v.count != null && v.count > 0 && (
+                <span className="font-semibold tabular" style={on ? undefined : { color: v.tone }}>{v.count}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Filters — search on its own row; the dropdowns below, with the less-used
           ones tucked behind "More filters" so the bar reads clean. */}
@@ -464,6 +598,17 @@ export function ClientsTable({
             accountTier={accountTier} setAccountTier={setAccountTier} accountTiers={accountTiers}
           />
         </div>
+        {chips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-body text-[12px] text-fg-subtle">Filtering:</span>
+            {chips.map((c, i) => (
+              <span key={i} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 font-body text-[12px] font-medium text-fg">
+                {c.label}
+                <button type="button" onClick={c.onRemove} aria-label={`Remove ${c.label}`} className="text-fg-subtle transition-colors hover:text-fg"><X size={12} /></button>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Bulk action bar */}

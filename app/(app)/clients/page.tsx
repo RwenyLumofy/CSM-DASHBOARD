@@ -1,6 +1,6 @@
 import { ClientsTable } from "@/components/clients/ClientsTable";
 import { getClients, getCsms, getImplementationOwners, getPropertyDefinitions } from "@/lib/data";
-import { isSuperAdmin } from "@/lib/auth";
+import { isSuperAdmin, getCurrentUserEmail } from "@/lib/auth";
 import { getAllDealsFromDb } from "@/lib/repo/drizzle";
 import { withDbTimeout } from "@/lib/db/client";
 import { dealOverridesMap, applyDealOverrides, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
@@ -15,13 +15,14 @@ export default async function ClientsPage({
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
-  const [clients, csms, impls, propertyDefs, params, superAdmin, allDeals] = await Promise.all([
+  const [clients, csms, impls, propertyDefs, params, superAdmin, viewerEmail, allDeals] = await Promise.all([
     getClients(),
     getCsms(),
     getImplementationOwners(),
     getPropertyDefinitions(),
     searchParams,
     isSuperAdmin(),
+    getCurrentUserEmail(),
     // Falls back to [] (just blanks out profile-completeness) instead of a
     // timeout crashing the whole clients list — this call has no try/catch
     // of its own, unlike everything else here that already goes through
@@ -57,6 +58,7 @@ export default async function ClientsPage({
         initialQuery={params.q ?? ""}
         showActions
         canAssignOwners={superAdmin}
+        currentUserEmail={viewerEmail}
         completenessByClient={Object.fromEntries(completenessByClient)}
       />
     </div>
