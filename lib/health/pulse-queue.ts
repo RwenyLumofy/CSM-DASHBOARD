@@ -41,6 +41,25 @@ export interface PulseQueue {
   dimensions: PulseDimension[];
 }
 
+/** Compact, serializable roll-up for nudges (e.g. the Today page). */
+export interface PulseDueSummary {
+  total: number;
+  missing: number;
+  stale: number;
+  dueSoon: number;
+  top: { clientId: string; name: string }[]; // up to 3, most urgent first
+}
+
+export function toPulseDueSummary(q: PulseQueue): PulseDueSummary {
+  return {
+    total: q.counts.total,
+    missing: q.counts.missing,
+    stale: q.counts.stale,
+    dueSoon: q.counts.dueSoon,
+    top: q.items.slice(0, 3).map((i) => ({ clientId: i.clientId, name: i.name })),
+  };
+}
+
 /** Only accounts that are live enough to have a relationship read — onboarding
  *  is too early and churned accounts are done, so neither belongs in the queue. */
 const isEligible = (status: string) => status === "active" || status === "renewal";

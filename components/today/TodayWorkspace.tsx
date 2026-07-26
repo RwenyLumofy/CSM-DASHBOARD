@@ -9,6 +9,7 @@
 
 import { useEffect } from "react";
 import type { TodaySnapshot } from "@/lib/today/types";
+import type { PulseDueSummary } from "@/lib/health/pulse-queue";
 import { initTodayStore, setOwnerFilter, getViewer } from "@/lib/today/repo";
 import { track } from "@/lib/today/analytics";
 import { TodayProvider, useToday } from "./TodayContext";
@@ -23,17 +24,18 @@ import { UserProfileDrawer } from "./UserProfileDrawer";
 import { SignalPageDrawer } from "./SignalPageDrawer";
 import { AskSignalDrawer } from "./AskSignalDrawer";
 import { AddTaskModal } from "./AddTaskModal";
+import { PulseDueBanner } from "./PulseDueBanner";
 
-export function TodayWorkspace({ snapshot }: { snapshot: TodaySnapshot }) {
+export function TodayWorkspace({ snapshot, pulseDue }: { snapshot: TodaySnapshot; pulseDue?: PulseDueSummary }) {
   initTodayStore(snapshot);
   return (
     <TodayProvider>
-      <Inner />
+      <Inner pulseDue={pulseDue} />
     </TodayProvider>
   );
 }
 
-function Inner() {
+function Inner({ pulseDue }: { pulseDue?: PulseDueSummary }) {
   const { ownerFilter, overlay, closeOverlays } = useToday();
   const { show, node: toast } = useToast();
 
@@ -50,6 +52,9 @@ function Inner() {
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 p-4 sm:p-6 lg:p-8">
       {/* Row 1 — header */}
       <TodayHeader />
+
+      {/* Row 1.5 — CS Pulse nudge (only when the viewer has pulses due) */}
+      {pulseDue && <PulseDueBanner summary={pulseDue} />}
 
       {/* Row 2 — pulse strip (full content width) */}
       <PortfolioPulse onDrill={drillToPriorities} />
