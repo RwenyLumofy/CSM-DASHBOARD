@@ -259,6 +259,15 @@ export function ClientsTable({
 
   const channels = useMemo(() => [...new Set(clients.map(channelOf).filter(Boolean) as string[])].sort(), [clients]);
   const countries = useMemo(() => [...new Set(clients.map((c) => c.country).filter(Boolean) as string[])].sort(), [clients]);
+  const industries = useMemo(() => [...new Set(clients.map((c) => c.industry).filter(Boolean) as string[])].sort(), [clients]);
+  // The `csms` prop carries only {id, name}; the email lives on each client's
+  // csm object. Build id -> email so Add Client can submit a real owner email
+  // (the API assigns by email) instead of a hand-typed one.
+  const csmEmailById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of clients) if (c.csm?.id && c.csm.email) m.set(c.csm.id, c.csm.email);
+    return m;
+  }, [clients]);
   const accountTiers = useMemo(() => [...new Set(clients.map(accountTierOf).filter(Boolean) as string[])].sort(), [clients]);
   // Health tiers are admin-defined (Settings → Workflows → Client health), so
   // the filter options come from whatever tier names are actually present,
@@ -546,7 +555,12 @@ export function ClientsTable({
                 {isFiltered && <span className="tabular text-fg-subtle">({filtered.length})</span>}
               </button>
               <ImportDialog />
-              <AddClientDialog />
+              <AddClientDialog
+                csms={csms.map((m) => ({ id: m.id, name: m.name, email: csmEmailById.get(m.id) ?? null }))}
+                countries={countries}
+                industries={industries}
+                existingNames={clients.map((c) => c.name)}
+              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
