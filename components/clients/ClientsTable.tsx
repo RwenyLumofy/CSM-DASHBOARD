@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState, memo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Plus, SlidersHorizontal, X } from "lucide-react";
+import { ArrowDown, ArrowUp, AlertTriangle, Check, ChevronDown, ChevronRight, Download, Loader2, Plus, SlidersHorizontal, X } from "lucide-react";
 import type { Client, PropertyDefinition } from "@/lib/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
 import { HealthPill } from "@/components/ui/HealthPill";
@@ -14,6 +14,7 @@ import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
 import { healthBand } from "@/lib/metrics/exec";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
 import { ImportDialog } from "@/components/clients/ImportDialog";
+import { toCsv, downloadCsv, stampedFilename, type CsvCell } from "@/lib/csv";
 
 type SortKey = "name" | "arr" | "health" | "renewal";
 type SortDir = "asc" | "desc";
@@ -453,6 +454,44 @@ export function ClientsTable({
     }
   }, [router]);
 
+  /* Export exactly WHAT YOU SEE — the current filter + sort, not the whole
+     book. Filtering down to "Zainab's at-risk renewals" and getting all 72
+     rows in the file would be a nasty surprise. Row count is in the button. */
+  const CSV_HEADERS = [
+    "Name", "Domain", "Status", "CSM", "Implementation owner",
+    "ARR", "Currency", "Previous ARR", "Renewal date", "Contract start",
+    "Health score", "Health tier", "Country", "Industry", "Segment",
+    "Employees", "Acquisition channel", "Account tier", "Profile completeness",
+  ];
+  function exportCsv() {
+    const rows: CsvCell[][] = filtered.map((c) => [
+      c.name,
+      c.domain,
+      c.status,
+      c.csm?.name ?? "",
+      c.implementationOwner?.name ?? "",
+      c.arr,
+      c.currency,
+      c.previousArr,
+      c.renewalDate ? c.renewalDate.slice(0, 10) : "",
+      c.startedAt ? c.startedAt.slice(0, 10) : "",
+      // Churned accounts have no meaningful live score — leave blank rather
+      // than exporting a stale number that looks current in a spreadsheet.
+      c.status === "churned" ? "" : c.health.score,
+      c.status === "churned" ? "Churned" : c.health.tier,
+      c.country,
+      c.industry,
+      c.segment,
+      c.employees,
+      channelOf(c),
+      accountTierOf(c),
+      completenessByClient[c.id]?.severity === "red" ? "Incomplete"
+        : completenessByClient[c.id]?.severity === "yellow" ? "Partial"
+        : "Complete",
+    ]);
+    downloadCsv(stampedFilename("lumofy-clients"), toCsv(CSV_HEADERS, rows));
+  }
+
   const currentBulk = BULK_FIELDS.find((f) => f.key === bulkField) ?? null;
 
   async function applyBulk() {
@@ -496,6 +535,16 @@ export function ClientsTable({
               </span>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={exportCsv}
+                disabled={filtered.length === 0}
+                title={isFiltered ? `Export the ${filtered.length} matching accounts` : `Export all ${filtered.length} accounts`}
+                className="inline-flex items-center gap-1.5 rounded-sm border border-border bg-surface px-3 py-2 font-body text-[13px] font-semibold text-fg-muted transition-colors hover:border-border-strong hover:text-fg disabled:opacity-40"
+              >
+                <Download size={14} /> Export CSV
+                {isFiltered && <span className="tabular text-fg-subtle">({filtered.length})</span>}
+              </button>
               <ImportDialog />
               <AddClientDialog />
             </div>
