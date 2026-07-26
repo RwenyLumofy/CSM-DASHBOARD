@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, HeartPulse, Inbox, ListChecks, PanelLeftClose, Settings, ShieldCheck, Sun, Users } from "lucide-react";
+import { BarChart3, Inbox, ListChecks, PanelLeftClose, Settings, ShieldCheck, Sun, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
 import { Logo } from "@/components/brand/Logo";
@@ -20,7 +20,6 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: "/today", label: "Today", icon: Sun },
   { href: "/clients", label: "Clients", icon: Users },
-  { href: "/pulse", label: "Pulse", icon: HeartPulse },
   { href: "/inbox", label: "Action list", icon: Inbox },
   { href: "/playbooks", label: "Playbooks", icon: ListChecks },
   { href: "/reports", label: "Insights", icon: BarChart3 },

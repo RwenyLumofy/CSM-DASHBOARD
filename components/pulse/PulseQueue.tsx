@@ -50,13 +50,10 @@ export function PulseQueue({ items, counts }: {
   const coverage = counts.eligible ? Math.round((counts.covered / counts.eligible) * 100) : 0;
 
   return (
-    <>
-      <div>
-        <h1 className="font-display text-[22px] font-semibold text-fg">CS Pulse</h1>
-        <p className="mt-1 max-w-2xl font-body text-sm text-fg-muted">
-          Your monthly read on each account — stakeholder coverage, engagement, and renewal readiness. A pulse is valid for {PULSE_VALIDITY_DAYS} days; when it lapses the account can’t be scored until you refresh it. Open an account to record its pulse in context.
-        </p>
-      </div>
+    <div className="flex flex-col gap-5">
+      <p className="max-w-2xl font-body text-sm text-fg-muted">
+        Your monthly read on each account — stakeholder coverage, engagement, and renewal readiness. A pulse is valid for {PULSE_VALIDITY_DAYS} days; when it lapses the account can’t be scored until you refresh it. Open an account to record its pulse in context.
+      </p>
 
       {/* summary strip */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-border bg-surface px-5 py-4 shadow-sm">
@@ -130,6 +127,6 @@ export function PulseQueue({ items, counts }: {
           })}
         </div>
       )}
-    </>
+    </div>
   );
 }

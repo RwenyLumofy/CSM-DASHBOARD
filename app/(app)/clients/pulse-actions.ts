@@ -55,7 +55,8 @@ export async function setClientPulseAction(clientId: string, input: {
     if (result) await persistAccountHealth(clientId, result);
     revalidatePath(`/clients/${clientId}`);
     revalidatePath("/clients");
-    revalidatePath("/pulse");
+    revalidatePath("/reports/pulse");
+    revalidatePath("/today");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };

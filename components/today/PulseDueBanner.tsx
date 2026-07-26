@@ -41,7 +41,7 @@ export function PulseDueBanner({ summary }: { summary: PulseDueSummary }) {
         ))}
       </div>
 
-      <Link href="/pulse"
+      <Link href="/reports/pulse"
         className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-sirius px-3.5 py-1.5 font-body text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90">
         Review pulses <ChevronRight size={14} className="-mr-1" />
       </Link>
