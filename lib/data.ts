@@ -52,7 +52,7 @@ import { getClientHealthConfig } from "@/lib/assignment/config";
 import { DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, permissionTier, teamForRole, type Role, type Team } from "@/lib/roles";
 import { dbHealthy, markDbHealthy, markDbUnhealthy } from "@/lib/db/health";
 import { withDbTimeout } from "@/lib/db/client";
-import { FIELD_OVERRIDES_KEY, RECOMPUTED_PROPERTY_FIELDS } from "@/lib/client-overrides";
+import { RECOMPUTED_PROPERTY_FIELDS } from "@/lib/client-overrides";
 import {
   appendArrEvent,
   getArrEventsByClient,
@@ -1017,7 +1017,7 @@ export async function updateClientDetails(
   },
 ): Promise<void> {
   if (!hasDatabase()) throw new Error("Database not configured");
-  const { updateClientFields, updateClientProperties, getClientByIdFromDb, recomputeClient } = await import("@/lib/repo/drizzle");
+  const { updateClientFields, mergeClientPropertiesDb, recomputeClient } = await import("@/lib/repo/drizzle");
   if (payload.csmId !== undefined) await assignCsm(clientId, payload.csmId);
   if (payload.implementationOwnerEmail !== undefined) {
     await assignImplementationOwner(clientId, payload.implementationOwnerEmail);
@@ -1026,20 +1026,18 @@ export async function updateClientDetails(
     await withDbTimeout(updateClientFields(clientId, payload.fields as import("@/lib/repo/drizzle").ClientFieldUpdate));
   }
   if (payload.properties) {
-    // MERGE over existing so a single-field inline edit never wipes the rest.
-    const existing = await withDbTimeout(getClientByIdFromDb(clientId));
-    const merged: Record<string, unknown> = { ...(existing?.properties ?? {}), ...payload.properties };
-    // If this edit directly sets a field recomputeClientReferral would
-    // otherwise auto-derive from deal history (referral_source,
-    // closed_won_date_prop — e.g. the ClientsTable bulk-edit tool), pin it in
-    // __field_overrides so the next sync's recompute never silently reverts it.
+    // Merge in POSTGRES, not here. Reading the blob and spreading the patch over
+    // it in JS raced with every other writer on this row (cs_pulse, cs_health,
+    // churn_reasons, the scheduled usage sync) — whoever wrote last silently
+    // erased the other's keys. mergeClientPropertiesDb does it in one statement.
+    //
+    // If this edit directly sets a field recomputeClientReferral would otherwise
+    // auto-derive from deal history (referral_source, closed_won_date_prop —
+    // e.g. the ClientsTable bulk-edit tool), pin it in __field_overrides so the
+    // next sync's recompute never silently reverts it. The union happens inside
+    // the same UPDATE, so it can't be based on a stale read either.
     const touchedRecomputed = RECOMPUTED_PROPERTY_FIELDS.filter((k) => Object.prototype.hasOwnProperty.call(payload.properties!, k));
-    if (touchedRecomputed.length > 0) {
-      const overridden = new Set((merged[FIELD_OVERRIDES_KEY] as string[] | undefined) ?? []);
-      for (const f of touchedRecomputed) overridden.add(f);
-      merged[FIELD_OVERRIDES_KEY] = [...overridden];
-    }
-    await withDbTimeout(updateClientProperties(clientId, merged));
+    await withDbTimeout(mergeClientPropertiesDb(clientId, payload.properties, touchedRecomputed));
     // A properties edit can be a __deal_overrides amount/contractStartDate
     // change, which affects ARR/renewal — re-materialize immediately so the
     // header doesn't show stale numbers until the next sync cycle.

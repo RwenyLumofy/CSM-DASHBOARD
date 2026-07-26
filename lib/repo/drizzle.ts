@@ -1191,10 +1191,11 @@ export async function addPropertyOption(key: string, option: string): Promise<vo
   await withDbTimeout(db.update(schema.propertyDefinitions).set({ options: [...current, option] }).where(eq(schema.propertyDefinitions.key, key)));
 }
 
-export async function updateClientProperties(clientId: string, properties: Record<string, unknown>): Promise<void> {
-  const db = getDb();
-  await db.update(schema.clients).set({ properties, updatedAt: new Date() }).where(eq(schema.clients.id, clientId));
-}
+/* updateClientProperties() used to live here: a whole-blob overwrite of
+   `properties`. Deliberately removed rather than left unused — every caller had
+   to read-modify-write to avoid clobbering the other keys, which is exactly the
+   lost-update race that cost real data. Use setClientPropertyDb (one key) or
+   mergeClientPropertiesDb (several) instead; both merge inside Postgres. */
 
 /** Editable core client columns (ARR/CSM are managed elsewhere). */
 export interface ClientFieldUpdate {
@@ -1275,14 +1276,88 @@ export async function upsertCsmUser(user: { id: string; name: string; email: str
 /** Set (or clear, when value is null) a single key on a client's properties
  *  jsonb via read-modify-write, leaving every other property intact. Used for
  *  the usage-environment resolution cache and the manual environment overrides. */
+/**
+ * Set (or delete, with value === null) ONE key on a client's `properties`
+ * JSONB, atomically.
+ *
+ * This used to SELECT the whole blob, mutate it in JS, and UPDATE it back — a
+ * lost-update race with a wide window. Concurrent writers each read the same
+ * snapshot and the last one to land silently erased the other's key. That is
+ * not theoretical here: cs_pulse (CSM records a pulse), cs_health (the re-score
+ * right after it), churn_reasons (churn classification) and the usage sync's
+ * env cache — which runs on a SCHEDULE, unattended — all write through this
+ * function, on the same row.
+ *
+ * Postgres does the merge now, inside a single statement, so there is no
+ * read-modify-write window at all: `||` shallow-merges the patch (replacing
+ * that one top-level key) and `-` removes it. Everything else in `properties`
+ * is untouched by definition, including keys written a millisecond earlier by
+ * someone else.
+ */
 export async function setClientPropertyDb(clientId: string, key: string, value: unknown | null): Promise<void> {
   const db = getDb();
-  const rows = await db.select({ properties: schema.clients.properties }).from(schema.clients).where(eq(schema.clients.id, clientId)).limit(1);
-  if (rows.length === 0) return;
-  const props = { ...((rows[0].properties as Record<string, unknown>) ?? {}) };
-  if (value === null) delete props[key];
-  else props[key] = value;
-  await db.update(schema.clients).set({ properties: props, updatedAt: new Date() }).where(eq(schema.clients.id, clientId));
+  if (value === null) {
+    await db.execute(sql`
+      UPDATE clients
+         SET properties = COALESCE(properties, '{}'::jsonb) - ${key},
+             updated_at = now()
+       WHERE id = ${clientId}
+    `);
+    return;
+  }
+  await db.execute(sql`
+    UPDATE clients
+       SET properties = COALESCE(properties, '{}'::jsonb) || ${JSON.stringify({ [key]: value })}::jsonb,
+           updated_at = now()
+     WHERE id = ${clientId}
+  `);
+}
+
+/**
+ * Merge SEVERAL keys into a client's `properties` at once, atomically, and
+ * optionally union values into the `__field_overrides` array in the same
+ * statement (see lib/client-overrides.ts — it pins fields the sync would
+ * otherwise re-derive). Same rationale as setClientPropertyDb above: the
+ * previous caller (updateClientDetails) read the blob, spread the patch over
+ * it in JS, and wrote the whole thing back, which raced with pulse/health/churn
+ * writes on the same row.
+ *
+ * `patch` replaces those top-level keys wholesale — the semantics every caller
+ * already assumed. Keys absent from `patch` are preserved.
+ */
+export async function mergeClientPropertiesDb(
+  clientId: string,
+  patch: Record<string, unknown>,
+  addFieldOverrides: string[] = [],
+): Promise<void> {
+  const db = getDb();
+  const patchJson = JSON.stringify(patch);
+  if (addFieldOverrides.length === 0) {
+    await db.execute(sql`
+      UPDATE clients
+         SET properties = COALESCE(properties, '{}'::jsonb) || ${patchJson}::jsonb,
+             updated_at = now()
+       WHERE id = ${clientId}
+    `);
+    return;
+  }
+  // Union the new override names into whatever is already there, reading the
+  // current row inside the same UPDATE so it can't be based on a stale read.
+  const overridesJson = JSON.stringify(addFieldOverrides);
+  await db.execute(sql`
+    UPDATE clients
+       SET properties = (COALESCE(properties, '{}'::jsonb) || ${patchJson}::jsonb)
+             || jsonb_build_object(
+                  '__field_overrides',
+                  (SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
+                     FROM jsonb_array_elements_text(
+                            COALESCE(properties -> '__field_overrides', '[]'::jsonb)
+                            || ${overridesJson}::jsonb
+                          ) AS t(elem))
+                ),
+           updated_at = now()
+     WHERE id = ${clientId}
+  `);
 }
 
 /** Overwrite a client's `support` snapshot (Intercom summary + SLA breaches)
