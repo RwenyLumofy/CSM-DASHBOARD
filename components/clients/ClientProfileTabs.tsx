@@ -1563,6 +1563,9 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
   const [mappings, setMappings] = useState<StakeholderMapping[]>(initialMappings);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     async function load() {
@@ -1588,6 +1591,9 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
   }
 
   function updateMapping(type: string, patch: Partial<Omit<StakeholderMapping, "type">>) {
+    // Any edit invalidates a prior "Saved" confirmation and clears a stale error.
+    setSaved(false);
+    setError(null);
     setMappings((prev) => {
       const existing = prev.find((m) => m.type === type);
       if (existing) return prev.map((m) => m.type === type ? { ...m, ...patch } : m);
@@ -1597,13 +1603,29 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
 
   async function saveMappings() {
     setSaving(true);
+    setError(null);
+    setSaved(false);
     try {
-      await fetch(`/api/clients/${clientId}`, {
+      const res = await fetch(`/api/clients/${clientId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ properties: { stakeholder_mappings: mappings } }),
       });
-    } finally { setSaving(false); }
+      // Previously fire-and-forget: a 403 (not the account owner) / 500 / timeout
+      // was swallowed, so the map looked saved but was lost on reload. Surface the
+      // failure, and on success re-read from the server so it's provably persisted.
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setError(body?.error ?? `Couldn't save the stakeholder map (HTTP ${res.status}).`);
+        return;
+      }
+      setSaved(true);
+      router.refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (loading) {
@@ -1659,6 +1681,12 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
         >
           <Check size={14} /> {saving ? "Saving…" : "Save mapping"}
         </button>
+        {saved && !error && (
+          <span className="flex items-center gap-1.5 font-body text-xs font-semibold text-[#1F9D63]"><Check size={13} /> Saved</span>
+        )}
+        {error && (
+          <span className="flex items-center gap-1.5 font-body text-xs font-medium text-[#B23A57]"><AlertTriangle size={13} className="shrink-0" /> {error}</span>
+        )}
         {types.length === 0 && (
           <p className="font-body text-xs text-fg-muted">
             Configure stakeholder types in <a href="/settings" className="text-sirius hover:underline">Settings → Stakeholder types</a>.
