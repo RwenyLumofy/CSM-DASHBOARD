@@ -143,35 +143,9 @@ function arrMovement(c: Client): { dir: "up" | "down"; pct: number; delta: numbe
   return { dir: delta > 0 ? "up" : "down", pct: Math.abs(Math.round((delta / c.previousArr) * 100)), delta };
 }
 
-/* ---- command bar + view presets ---------------------------------------- */
+/* ---- view presets ------------------------------------------------------- */
 
 type ViewKey = "all" | "mine" | "risk" | "renewing" | "onboarding";
-
-const TILE_TONE: Record<"danger" | "warning" | "neutral", { box: string; fg: string }> = {
-  danger: { box: "border-[#B23A57]/20 bg-[#B23A57]/[0.07]", fg: "text-[#B23A57]" },
-  warning: { box: "border-[#C99A14]/25 bg-[#C99A14]/[0.10]", fg: "text-[#8A6D12]" },
-  neutral: { box: "border-border bg-bg-muted/50", fg: "text-fg-muted" },
-};
-
-/** A triage stat in the command bar. Interactive ones (a filter behind them)
- *  get a hover + an active ring; display-only stats (ARR movement, coverage)
- *  render as a plain tile. */
-function CommandTile({ tone, label, value, sub, valueClass, active, onClick }: {
-  tone: "danger" | "warning" | "neutral"; label: string; value: React.ReactNode; sub?: string; valueClass?: string; active?: boolean; onClick?: () => void;
-}) {
-  const t = TILE_TONE[tone];
-  const cls = cn("rounded-xl border px-3.5 py-2.5 text-left transition-all", t.box, onClick && "cursor-pointer hover:shadow-sm", active && "ring-2 ring-sirius/50");
-  const body = (
-    <>
-      <div className={cn("font-body text-[12px] font-medium", t.fg)}>{label}</div>
-      <div className={cn("font-display text-[22px] font-bold leading-tight tabular", valueClass ?? t.fg)}>{value}</div>
-      {sub && <div className={cn("font-body text-[11.5px] leading-tight", t.fg)} style={{ opacity: 0.85 }}>{sub}</div>}
-    </>
-  );
-  return onClick
-    ? <button type="button" onClick={onClick} className={cls}>{body}</button>
-    : <div className={cls}>{body}</div>;
-}
 
 /** The "Tier" account property (client.properties.tier) — an unrelated,
  *  same-named concept to Client["health"]["tier"] (healthy/watch/at_risk,
@@ -347,28 +321,19 @@ export function ClientsTable({
     setMineOnly(false); setRiskOnly(false);
   }
 
-  // Command-bar stats — a triage read on the WHOLE book (not the filtered view),
-  // computed client-side from what we already have. "At risk" uses the stable
-  // score band; pulse coverage reads the migration-free properties.cs_pulse.
+  // Counts for the view tabs only — a read on the WHOLE book, not the filtered
+  // view, so "At risk 3" means 3 in the book. (The old command-bar tiles that
+  // also showed ARR movement and pulse coverage are gone: they duplicated these
+  // counts, and portfolio analytics belong in Insights, not on a working list.)
   const stats = useMemo(() => {
-    const now = Date.now();
-    let atRisk = 0, atRiskArr = 0, renewing = 0, renewingArr = 0, arr = 0, prevArr = 0, pulseFresh = 0, pulseEligible = 0;
+    let atRisk = 0, renewing = 0;
     for (const c of clients) {
-      if (c.status !== "churned") {
-        arr += c.arr; prevArr += c.previousArr;
-        if (healthBand(c.health.score) === "at_risk") { atRisk++; atRiskArr += c.arr; }
-        const d = daysToRenewal(c.renewalDate);
-        if (d != null && d >= 0 && d <= 90) { renewing++; renewingArr += c.arr; }
-      }
-      if (c.status === "active" || c.status === "renewal") {
-        pulseEligible++;
-        const p = c.properties?.cs_pulse as { updatedAt?: string } | undefined;
-        if (p?.updatedAt && (now - new Date(p.updatedAt).getTime()) / 86_400_000 <= 30) pulseFresh++;
-      }
+      if (c.status === "churned") continue;
+      if (healthBand(c.health.score) === "at_risk") atRisk++;
+      const d = daysToRenewal(c.renewalDate);
+      if (d != null && d >= 0 && d <= 90) renewing++;
     }
-    const arrDeltaPct = prevArr > 0 ? Math.round(((arr - prevArr) / prevArr) * 1000) / 10 : 0;
-    const pulsePct = pulseEligible > 0 ? Math.round((pulseFresh / pulseEligible) * 100) : 0;
-    return { atRisk, atRiskArr, renewing, renewingArr, arrDeltaPct, pulsePct, pulseDue: pulseEligible - pulseFresh };
+    return { atRisk, renewing };
   }, [clients]);
 
   // View presets — each is a fresh slice (clear, then set its own filter), so
@@ -530,9 +495,10 @@ export function ClientsTable({
 
   return (
     <div className="rounded-lg border border-border bg-surface shadow-sm">
-      {/* Header + command bar — opens by telling you where to look */}
+      {/* Header — the book's size and the actions on it. Deliberately just a
+          title + counts: the view tabs below already carry the triage numbers. */}
       {showActions && (
-        <div className="flex flex-col gap-3.5 border-b border-border px-5 pb-4 pt-4">
+        <div className="border-b border-border px-5 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-baseline gap-2">
               <h2 className="font-display text-[17px] font-semibold text-fg">Clients</h2>
@@ -562,18 +528,6 @@ export function ClientsTable({
                 existingNames={clients.map((c) => c.name)}
               />
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-            <CommandTile tone="danger" label="At risk" value={stats.atRisk}
-              sub={`${formatCurrency(stats.atRiskArr, arrCurrency, { compact: true })} exposed`}
-              active={currentView === "risk"} onClick={() => selectView(currentView === "risk" ? "all" : "risk")} />
-            <CommandTile tone="warning" label="Renewing ≤ 90d" value={stats.renewing}
-              sub={`${formatCurrency(stats.renewingArr, arrCurrency, { compact: true })} up for renewal`}
-              active={currentView === "renewing"} onClick={() => selectView(currentView === "renewing" ? "all" : "renewing")} />
-            <CommandTile tone="neutral" label="Net ARR movement"
-              value={`${stats.arrDeltaPct > 0 ? "+" : ""}${stats.arrDeltaPct}%`}
-              valueClass={stats.arrDeltaPct >= 0 ? "text-[#1F9D63]" : "text-[#B23A57]"} sub="vs prior period" />
-            <CommandTile tone="neutral" label="Pulse coverage" value={`${stats.pulsePct}%`} sub={`${stats.pulseDue} accounts due`} />
           </div>
         </div>
       )}
