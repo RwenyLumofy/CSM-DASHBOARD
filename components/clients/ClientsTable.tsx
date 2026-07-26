@@ -3,11 +3,10 @@
 import { useCallback, useMemo, useState, memo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Plus, SlidersHorizontal, X } from "lucide-react";
 import type { Client, PropertyDefinition } from "@/lib/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
 import { HealthPill } from "@/components/ui/HealthPill";
-import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
 import { PopMenu } from "@/components/clients/projects/shared";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -90,6 +89,56 @@ async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<v
 function channelOf(c: Client): string | null {
   const v = c.properties?.referral_source;
   return typeof v === "string" && v.trim() ? v : null;
+}
+
+/* ---- row presentation helpers (avatar, status, renewal, ARR movement) ---- */
+
+/** Company logo, or a coloured initial when there's none — makes the book
+ *  scannable the way the Pulse queue and Members table are. */
+function ClientAvatar({ name, logoUrl }: { name: string; logoUrl: string | null }) {
+  if (logoUrl) return <img src={logoUrl} alt="" className="size-8 shrink-0 rounded-lg border border-border-subtle object-cover" />;
+  return (
+    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent-soft font-display text-[12px] font-bold text-sirius">
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+const STATUS_TONE: Record<string, string> = {
+  onboarding: "text-[#215BEA] bg-[#215BEA]/10 border-[#215BEA]/22",
+  active: "text-[#1F9D63] bg-[#1F9D63]/10 border-[#1F9D63]/22",
+  renewal: "text-[#8A6D12] bg-[#C99A14]/12 border-[#C99A14]/28",
+  churned: "text-fg-subtle bg-bg-muted border-border",
+};
+const STATUS_LABEL: Record<string, string> = { onboarding: "Onboarding", active: "Active", renewal: "Renewal", churned: "Churned" };
+
+function StatusPill({ status }: { status: string }) {
+  return (
+    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 font-body text-[11.5px] font-semibold", STATUS_TONE[status] ?? STATUS_TONE.active)}>
+      {STATUS_LABEL[status] ?? status}
+    </span>
+  );
+}
+
+/** Turns days-to-renewal into an urgency chip ("in 23d" / "overdue 5d"), or
+ *  null when it's far out (>90d) or the account is churned — then just the date
+ *  shows. Colour escalates as the date approaches / passes. */
+function renewalCountdown(dtr: number | null, churned: boolean): { text: string; tone: string } | null {
+  if (dtr == null || churned) return null;
+  if (dtr < 0) return { text: `overdue ${-dtr}d`, tone: "text-[#B23A57]" };
+  if (dtr === 0) return { text: "due today", tone: "text-[#B23A57]" };
+  if (dtr <= 30) return { text: `in ${dtr}d`, tone: "text-[#C2610E]" };
+  if (dtr <= 90) return { text: `in ${dtr}d`, tone: "text-[#8A6D12]" };
+  return null;
+}
+
+/** Expansion / downgrade vs the prior period, skipped for brand-new accounts
+ *  (previousArr 0 would read as a meaningless +∞). */
+function arrMovement(c: Client): { dir: "up" | "down"; pct: number; delta: number } | null {
+  if (!c.previousArr || c.previousArr <= 0) return null;
+  const delta = c.arr - c.previousArr;
+  if (delta === 0) return null;
+  return { dir: delta > 0 ? "up" : "down", pct: Math.abs(Math.round((delta / c.previousArr) * 100)), delta };
 }
 
 /** The "Tier" account property (client.properties.tier) — an unrelated,
@@ -233,6 +282,17 @@ export function ClientsTable({
   }
 
   const isFiltered = filtered.length !== clients.length;
+
+  // Whether ANY filter is set (independent of whether results differ) — drives
+  // the "Clear all" affordance and the active-filter count on "More filters".
+  const secondaryActive = [completenessFilter !== "all", channel !== "all", country !== "all", accountTier !== "all"].filter(Boolean).length;
+  const anyFilterActive =
+    query.trim() !== "" || tier !== "all" || csm !== "all" || renewal !== "all" || statusFilter.size > 0 || secondaryActive > 0;
+  function clearAll() {
+    setQuery(""); setTier("all"); setCompletenessFilter("all"); setCsm("all");
+    setChannel("all"); setCountry("all"); setAccountTier("all");
+    setStatusFilter(new Set()); setRenewal("all"); setCustomStart(""); setCustomEnd("");
+  }
   // Same raw sum-across-clients convention as buildPortfolioSummary (lib/metrics/portfolio.ts) —
   // no currency conversion exists anywhere in the app, so mixed-currency portfolios just add face
   // values under one label. Unlike that summary, this intentionally does NOT exclude churned
@@ -313,7 +373,7 @@ export function ClientsTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
+    <div className="rounded-lg border border-border bg-surface shadow-sm">
       {/* Toolbar */}
       {showActions && (
         <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-3.5">
@@ -338,69 +398,72 @@ export function ClientsTable({
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-bg-subtle px-5 py-3">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name, domain, country, CSM…"
-          className="min-w-[200px] flex-1 rounded-sm border border-border bg-surface px-3.5 py-2.5 font-body text-[13px] text-fg outline-none transition-colors placeholder:text-fg-subtle focus:border-sirius focus:ring-2 focus:ring-sirius/15"
-        />
-        <FilterSelect value={tier} onChange={setTier} label="Health">
-          <option value="all">All health</option>
-          {healthTiers.map((t) => <option key={t} value={t}>{t}</option>)}
-        </FilterSelect>
-        <FilterSelect value={completenessFilter} onChange={(v) => setCompletenessFilter(v as "all" | "none" | "yellow" | "red")} label="Profile completeness">
-          <option value="all">All profiles</option>
-          <option value="none">Complete</option>
-          <option value="yellow">Partial complete</option>
-          <option value="red">Incomplete</option>
-        </FilterSelect>
-        <FilterSelect value={csm} onChange={setCsm} label="CSM">
-          <option value="all">All CSMs</option>
-          {csms.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </FilterSelect>
-        <FilterSelect value={channel} onChange={setChannel} label="Acquisition channel">
-          <option value="all">All channels</option>
-          {channels.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
-        </FilterSelect>
-        <FilterSelect value={country} onChange={setCountry} label="Country">
-          <option value="all">All countries</option>
-          {countries.map((co) => <option key={co} value={co}>{co}</option>)}
-        </FilterSelect>
-        <FilterSelect value={accountTier} onChange={setAccountTier} label="Tier">
-          <option value="all">All tiers</option>
-          {accountTiers.map((t) => <option key={t} value={t}>{t}</option>)}
-        </FilterSelect>
-        <FilterMultiSelect label="Status" allLabel="All statuses" options={STATUS_OPTIONS} selected={statusFilter} onChange={setStatusFilter} />
-        <FilterSelect value={renewal} onChange={(v) => setRenewal(v as RenewalFilter)} label="Renewal">
-          <option value="all">Any renewal date</option>
-          <option value="overdue">Overdue</option>
-          <option value="this_quarter">This quarter</option>
-          <option value="next_quarter">Next quarter</option>
-          <option value="next_30">Next 30 days</option>
-          <option value="next_90">Next 90 days</option>
-          <option value="custom">Custom range…</option>
-        </FilterSelect>
-        {renewal === "custom" && (
-          <span className="flex items-center gap-1.5">
-            <input
-              type="date"
-              value={customStart}
-              onChange={(e) => setCustomStart(e.target.value)}
-              aria-label="Renewal from"
-              className="rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] text-fg-muted outline-none transition-colors focus:border-sirius-200"
-            />
-            <span className="caption">to</span>
-            <input
-              type="date"
-              value={customEnd}
-              onChange={(e) => setCustomEnd(e.target.value)}
-              aria-label="Renewal to"
-              className="rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] text-fg-muted outline-none transition-colors focus:border-sirius-200"
-            />
-          </span>
-        )}
+      {/* Filters — search on its own row; the dropdowns below, with the less-used
+          ones tucked behind "More filters" so the bar reads clean. */}
+      <div className="flex flex-col gap-2.5 border-b border-border bg-bg-subtle px-5 py-3">
+        <div className="flex items-center gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name, domain, country, CSM…"
+            className="min-w-[200px] flex-1 rounded-sm border border-border bg-surface px-3.5 py-2.5 font-body text-[13px] text-fg outline-none transition-colors placeholder:text-fg-subtle focus:border-sirius focus:ring-2 focus:ring-sirius/15"
+          />
+          {anyFilterActive && (
+            <button
+              type="button"
+              onClick={clearAll}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] font-semibold text-fg-muted transition-colors hover:border-border-strong hover:text-fg"
+            >
+              <X size={13} /> Clear all
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterSelect value={tier} onChange={setTier} label="Health">
+            <option value="all">All health</option>
+            {healthTiers.map((t) => <option key={t} value={t}>{t}</option>)}
+          </FilterSelect>
+          <FilterSelect value={csm} onChange={setCsm} label="CSM">
+            <option value="all">All CSMs</option>
+            {csms.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </FilterSelect>
+          <FilterMultiSelect label="Status" allLabel="All statuses" options={STATUS_OPTIONS} selected={statusFilter} onChange={setStatusFilter} />
+          <FilterSelect value={renewal} onChange={(v) => setRenewal(v as RenewalFilter)} label="Renewal">
+            <option value="all">Any renewal date</option>
+            <option value="overdue">Overdue</option>
+            <option value="this_quarter">This quarter</option>
+            <option value="next_quarter">Next quarter</option>
+            <option value="next_30">Next 30 days</option>
+            <option value="next_90">Next 90 days</option>
+            <option value="custom">Custom range…</option>
+          </FilterSelect>
+          {renewal === "custom" && (
+            <span className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                aria-label="Renewal from"
+                className="rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] text-fg-muted outline-none transition-colors focus:border-sirius-200"
+              />
+              <span className="caption">to</span>
+              <input
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                aria-label="Renewal to"
+                className="rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] text-fg-muted outline-none transition-colors focus:border-sirius-200"
+              />
+            </span>
+          )}
+          <MoreFilters
+            activeCount={secondaryActive}
+            completenessFilter={completenessFilter} setCompletenessFilter={setCompletenessFilter}
+            channel={channel} setChannel={setChannel} channels={channels}
+            country={country} setCountry={setCountry} countries={countries}
+            accountTier={accountTier} setAccountTier={setAccountTier} accountTiers={accountTiers}
+          />
+        </div>
       </div>
 
       {/* Bulk action bar */}
@@ -430,11 +493,12 @@ export function ClientsTable({
       {/* Table */}
       <table className="w-full border-collapse text-left">
         <thead>
-          <tr className="border-b border-border bg-bg-subtle">
-            <th className="w-10 px-5 py-3">
+          <tr>
+            <th className="sticky top-0 z-10 w-10 border-b border-border bg-bg-subtle px-5 py-3">
               <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all" className="size-4 cursor-pointer accent-sirius" />
             </th>
             <Th onClick={() => toggleSort("name")} active={sortKey === "name"} dir={sortDir}>Client</Th>
+            <Th>Status</Th>
             <Th>CSM</Th>
             <Th onClick={() => toggleSort("arr")} active={sortKey === "arr"} dir={sortDir} align="right">ARR</Th>
             <Th onClick={() => toggleSort("renewal")} active={sortKey === "renewal"} dir={sortDir}>Renewal</Th>
@@ -461,7 +525,7 @@ export function ClientsTable({
           ))}
           {filtered.length === 0 && (
             <tr>
-              <td colSpan={7} className="px-5 py-16 text-center">
+              <td colSpan={8} className="px-5 py-16 text-center">
                 {clients.length === 0 ? (
                   <div className="flex flex-col items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-bg-muted"><Plus size={20} className="text-fg-subtle" /></div>
@@ -516,8 +580,9 @@ const ClientRow = memo(function ClientRow({
   completeness?: { severity: "red" | "yellow" | "none"; missingRed: { key: string; label: string }[]; missingYellow: { key: string; label: string }[] };
 }) {
   const dtr = daysToRenewal(c.renewalDate);
-  const renewalSoon = dtr != null && dtr >= 0 && dtr <= 90;
-  const renewalOverdue = dtr != null && dtr < 0 && c.status !== "churned";
+  const rc = renewalCountdown(dtr, c.status === "churned");
+  const mv = arrMovement(c);
+  const subtitle = c.domain || [c.country, c.industry].filter(Boolean).join(" · ") || null;
   // A controlled <select> whose value matches no <option> renders as
   // "Unassigned". So always include the currently-assigned owner as an
   // option (even if they've left the team or the options list is empty) —
@@ -536,11 +601,18 @@ const ClientRow = memo(function ClientRow({
         <input type="checkbox" checked={isSelected} onChange={() => onToggle(c.id)} aria-label={`Select ${c.name}`} className="size-4 cursor-pointer accent-sirius" />
       </Td>
       <Td>
-        <span className="inline-flex items-center gap-1.5">
-          <Link href={`/clients/${c.id}`} className="font-body text-sm font-semibold text-fg group-hover:text-sirius">{c.name}</Link>
-          <RowCompletenessBadge completeness={completeness} />
-        </span>
+        <div className="flex items-center gap-3">
+          <ClientAvatar name={c.name} logoUrl={c.logoUrl} />
+          <div className="min-w-0">
+            <span className="flex items-center gap-1.5">
+              <Link href={`/clients/${c.id}`} className="font-body text-sm font-semibold text-fg group-hover:text-sirius">{c.name}</Link>
+              <RowCompletenessBadge completeness={completeness} />
+            </span>
+            {subtitle && <span className="block max-w-[220px] truncate font-body text-[12px] text-fg-subtle">{subtitle}</span>}
+          </div>
+        </div>
       </Td>
+      <Td><StatusPill status={c.status} /></Td>
       <Td>
         {canAssignOwners ? (
           <span className="flex items-center gap-1.5">
@@ -560,15 +632,25 @@ const ClientRow = memo(function ClientRow({
         )}
       </Td>
       <Td align="right">
-        <span className="tabular font-body text-sm font-semibold text-fg">{formatCurrency(c.arr, c.currency, { compact: true })}</span>
-      </Td>
-      <Td>
-        <span className="inline-flex items-center gap-1.5">
-          <span className={cn("tabular font-body text-[13px]", renewalSoon ? "font-semibold text-[#8A6A0A]" : "text-fg-muted")}>{formatDate(c.renewalDate)}</span>
-          {renewalOverdue && <Badge tone="nova">Overdue renewal</Badge>}
+        <span className="inline-flex items-center justify-end gap-1.5">
+          <span className="tabular font-body text-sm font-semibold text-fg">{formatCurrency(c.arr, c.currency, { compact: true })}</span>
+          {mv && (
+            <span
+              title={`${mv.dir === "up" ? "Expansion" : "Downgrade"} of ${formatCurrency(Math.abs(mv.delta), c.currency, { compact: true })} vs the prior period`}
+              className={cn("inline-flex items-center gap-0.5 font-body text-[11px] font-semibold", mv.dir === "up" ? "text-[#1F9D63]" : "text-[#B23A57]")}
+            >
+              {mv.dir === "up" ? <ArrowUp size={11} /> : <ArrowDown size={11} />}{mv.pct}%
+            </span>
+          )}
         </span>
       </Td>
-      <Td>{c.status === "churned" ? <Badge tone="neutral">Churned</Badge> : <HealthPill health={c.health} compact />}</Td>
+      <Td>
+        <div className="flex flex-col leading-tight">
+          <span className="tabular font-body text-[13px] text-fg-muted">{formatDate(c.renewalDate)}</span>
+          {rc && <span className={cn("font-body text-[11.5px] font-semibold", rc.tone)}>{rc.text}</span>}
+        </div>
+      </Td>
+      <Td>{c.status === "churned" ? <span className="font-body text-[13px] text-fg-subtle">—</span> : <HealthPill health={c.health} compact />}</Td>
       <Td align="right">
         <Link href={`/clients/${c.id}`} className="grid size-7 place-items-center rounded-md text-fg-subtle transition-colors hover:bg-bg-muted hover:text-sirius">
           <ChevronRight size={16} />
@@ -647,7 +729,7 @@ function RowCompletenessBadge({ completeness }: { completeness?: { severity: "re
 function Th({ children, onClick, active, dir, align = "left" }: { children?: React.ReactNode; onClick?: () => void; active?: boolean; dir?: SortDir; align?: "left" | "right" }) {
   return (
     <th
-      className={cn("select-none px-5 py-3 font-body text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted", align === "right" && "text-right", onClick && "cursor-pointer hover:text-fg")}
+      className={cn("sticky top-0 z-10 select-none border-b border-border bg-bg-subtle px-5 py-3 font-body text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted", align === "right" && "text-right", onClick && "cursor-pointer hover:text-fg")}
       onClick={onClick}
     >
       <span className={cn("inline-flex items-center gap-1", align === "right" && "flex-row-reverse")}>
@@ -663,15 +745,93 @@ function Td({ children, align = "left" }: { children?: React.ReactNode; align?: 
 }
 
 function FilterSelect({ value, onChange, label, children }: { value: string; onChange: (v: string) => void; label: string; children: React.ReactNode }) {
+  const active = value !== "all" && value !== "";
   return (
     <select
       aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] font-semibold text-fg-muted outline-none transition-colors hover:text-fg focus:border-sirius-200"
+      className={cn(
+        "rounded-sm border px-3 py-2.5 font-body text-[13px] font-semibold outline-none transition-colors focus:border-sirius-200",
+        active ? "border-sirius/40 bg-accent-soft text-fg" : "border-border bg-surface text-fg-muted hover:text-fg",
+      )}
     >
       {children}
     </select>
+  );
+}
+
+/** A labelled full-width select for inside the "More filters" panel. */
+function PanelSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (v: string) => void; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-sm border border-border bg-surface px-2.5 py-2 font-body text-[13px] text-fg outline-none focus:border-sirius-200"
+      >
+        {children}
+      </select>
+    </label>
+  );
+}
+
+/** The less-used filters (profile completeness, channel, country, account tier)
+ *  tucked into a popover so the main filter row stays uncluttered; a count
+ *  badge shows how many are active without opening it. */
+function MoreFilters({
+  activeCount,
+  completenessFilter, setCompletenessFilter,
+  channel, setChannel, channels,
+  country, setCountry, countries,
+  accountTier, setAccountTier, accountTiers,
+}: {
+  activeCount: number;
+  completenessFilter: string; setCompletenessFilter: (v: "all" | "none" | "yellow" | "red") => void;
+  channel: string; setChannel: (v: string) => void; channels: string[];
+  country: string; setCountry: (v: string) => void; countries: string[];
+  accountTier: string; setAccountTier: (v: string) => void; accountTiers: string[];
+}) {
+  return (
+    <PopMenu
+      menuWidth={244}
+      trigger={() => (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-sm border px-3 py-2.5 font-body text-[13px] font-semibold transition-colors",
+            activeCount > 0 ? "border-sirius/40 bg-accent-soft text-fg" : "border-border bg-surface text-fg-muted hover:text-fg",
+          )}
+        >
+          <SlidersHorizontal size={13} /> More filters
+          {activeCount > 0 && <span className="grid size-4 place-items-center rounded-full bg-sirius text-[10px] font-bold text-white">{activeCount}</span>}
+          <ChevronDown size={13} className="text-fg-subtle" />
+        </span>
+      )}
+    >
+      {() => (
+        <div className="flex w-[244px] flex-col gap-3 p-3">
+          <PanelSelect label="Profile completeness" value={completenessFilter} onChange={(v) => setCompletenessFilter(v as "all" | "none" | "yellow" | "red")}>
+            <option value="all">All profiles</option>
+            <option value="none">Complete</option>
+            <option value="yellow">Partial complete</option>
+            <option value="red">Incomplete</option>
+          </PanelSelect>
+          <PanelSelect label="Acquisition channel" value={channel} onChange={setChannel}>
+            <option value="all">All channels</option>
+            {channels.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
+          </PanelSelect>
+          <PanelSelect label="Country" value={country} onChange={setCountry}>
+            <option value="all">All countries</option>
+            {countries.map((co) => <option key={co} value={co}>{co}</option>)}
+          </PanelSelect>
+          <PanelSelect label="Tier" value={accountTier} onChange={setAccountTier}>
+            <option value="all">All tiers</option>
+            {accountTiers.map((t) => <option key={t} value={t}>{t}</option>)}
+          </PanelSelect>
+        </div>
+      )}
+    </PopMenu>
   );
 }
 
@@ -705,7 +865,10 @@ function FilterMultiSelect<T extends string>({
       trigger={() => (
         <span
           aria-label={label}
-          className="inline-flex items-center gap-1.5 rounded-sm border border-border bg-surface px-3 py-2.5 font-body text-[13px] font-semibold text-fg-muted transition-colors hover:text-fg"
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-sm border px-3 py-2.5 font-body text-[13px] font-semibold transition-colors",
+            selected.size > 0 ? "border-sirius/40 bg-accent-soft text-fg" : "border-border bg-surface text-fg-muted hover:text-fg",
+          )}
         >
           <span className="text-fg-subtle">{label}:</span> {summary}
           <ChevronDown size={13} className="text-fg-subtle" />
