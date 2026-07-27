@@ -20,6 +20,7 @@ import type {
 } from "./types";
 import type { Client, Notification } from "@/lib/types";
 import { getClients, getAppUsers, getMyNotifications, getMyClientActions, getPortfolioSummary } from "@/lib/data";
+import { hasDatabase } from "@/lib/config";
 import { getCurrentUserEmail, getCurrentUserRole, isAdminOrSuper } from "@/lib/auth";
 import { teamForRole, DEFAULT_ROLE_LABELS, type Role } from "@/lib/roles";
 import { getAllProjectBoards } from "@/lib/repo/projects";
@@ -77,8 +78,13 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
     getClients(), getAppUsers(), getMyNotifications(50), getMyClientActions(), getPortfolioSummary(),
   ]);
 
-  // No real clients visible (no DB / empty) → illustrative mock so the page still demos.
-  if (clients.length === 0) return buildMockSnapshot();
+  // The frozen demo snapshot (mock.ts, hardcoded to a fixed TODAY_ISO) is for
+  // sample/dev mode ONLY — with no database there's nothing real to show. In
+  // LIVE mode an empty result is real information (the viewer has no accounts in
+  // scope, or a read failed), so fall through to the normal builder, which
+  // returns an honest, today-dated empty snapshot. Otherwise the page would
+  // render the same stale demo content every single day. See freshness note.
+  if (clients.length === 0 && !hasDatabase()) return buildMockSnapshot();
 
   const today = todayIso();
   const viewerEmail = lc(email) || "viewer";
