@@ -4,31 +4,31 @@
    Task detail drawer — what a task click opens.
 
    Until now a task had no detail view at all: the row could only be completed,
-   and clicking it opened the linked CLIENT PROFILE, which is a different
-   object entirely. Notes, due date, priority and assignee were all writable at
-   creation and then permanently invisible.
+   and clicking it opened the linked CLIENT PROFILE, a different object
+   entirely. Notes, due date, priority and assignee were writable at creation
+   and then permanently invisible.
 
-   Read-first with inline edit: every field shows its value and becomes an
-   input on click, saving on blur/change. No modal-inside-a-drawer, no separate
-   "edit mode" — the drawer IS the editor.
+   Deliberately built from the SAME controls as AddTaskModal (components/today/
+   task-ui) — the assignee popover with avatars, the priority dot list, the
+   field labels and input styles — so creating a task and editing one feel like
+   one feature rather than two. Read-first with inline edit: each field shows
+   its value and saves on change/blur; there is no separate "edit mode".
    ========================================================================= */
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Trash2, Loader2, AlertTriangle, ExternalLink } from "lucide-react";
+import { Check, Trash2, Loader2, AlertTriangle, ChevronDown, CalendarDays, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Drawer } from "./Drawer";
 import { useToday } from "./TodayContext";
 import { getTasks, getAccount, getUsers, getViewer, getToday } from "@/lib/today/repo";
-import { DEFAULT_CATEGORIES, DEFAULT_CATEGORY_IDS, dueLabel, formatDate } from "@/lib/today/format";
+import { DEFAULT_CATEGORIES, DEFAULT_CATEGORY_IDS, formatDate } from "@/lib/today/format";
+import type { TaskPriority } from "@/lib/today/types";
+import {
+  Avatar, AssigneeList, FieldLabel, Popover, PriorityPicker,
+  inputCls, selectCls, triggerCls,
+} from "./task-ui";
 import { updateTaskAction, toggleTaskAction, deleteTaskAction } from "@/app/(app)/today/task-actions";
-
-const PRIORITIES = [
-  { value: "urgent", label: "Urgent", color: "#B23A57" },
-  { value: "high", label: "High", color: "#C2610E" },
-  { value: "normal", label: "Normal", color: "#6E6E6E" },
-  { value: "low", label: "Low", color: "#9A9A9A" },
-];
 
 export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () => void }) {
   const router = useRouter();
@@ -43,7 +43,7 @@ export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () =>
   const [title, setTitle] = useState(task?.title ?? "");
   const [notes, setNotes] = useState(task?.notes ?? "");
   const [due, setDue] = useState(task?.dueDate?.slice(0, 10) ?? "");
-  const [priority, setPriority] = useState(task?.priority ?? "normal");
+  const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? "normal");
   const [category, setCategory] = useState<string>(task?.category ?? "derisking");
   const [assignee, setAssignee] = useState(task?.ownerEmail ?? viewer.userId);
   const [saving, setSaving] = useState(false);
@@ -52,7 +52,7 @@ export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () =>
 
   if (!task) {
     return (
-      <Drawer title="Task" onClose={onClose} width="md">
+      <Drawer title="Task" onClose={onClose} width="lg">
         <p className="px-1 py-6 font-body text-[13px] text-fg-muted">This task is no longer on your board.</p>
       </Drawer>
     );
@@ -60,8 +60,9 @@ export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () =>
 
   const done = (taskStatus[task.id] ?? task.status) === "done";
   const account = task.accountId ? getAccount(task.accountId) : null;
-  const dueInfo = due ? dueLabel(due, getToday()) : null;
-  const categories = [...new Set([...DEFAULT_CATEGORY_IDS, ...(category ? [category] : [])])];
+  const assigneeUser = people.find((u) => u.id === assignee);
+  const categories = [...new Set([...DEFAULT_CATEGORY_IDS, category].filter(Boolean))];
+  const catLabel = (id: string) => DEFAULT_CATEGORIES.find((c) => c.id === id)?.label ?? id;
 
   async function save(patch: Parameters<typeof updateTaskAction>[1]) {
     setSaving(true); setError(null);
@@ -88,120 +89,135 @@ export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () =>
 
   return (
     <Drawer
-      width="md"
+      width="lg"
       eyebrow="Task"
       title={
         <span className="flex items-start gap-2.5">
           <button onClick={toggleDone} aria-label={done ? "Mark not done" : "Complete task"}
             className={cn("mt-1 grid size-4 shrink-0 place-items-center rounded border transition-colors",
-              done ? "border-[#1F9D63] bg-[#1F9D63] text-white" : "border-border-strong hover:border-sirius")}>
+              done ? "border-success bg-success text-white" : "border-border-strong hover:border-sirius")}>
             {done && <Check size={11} />}
           </button>
           <span className={cn(done && "text-fg-subtle line-through")}>{title || task.title}</span>
         </span>
       }
-      subtitle={done ? "Completed" : dueInfo ? dueInfo.text : "No due date"}
+      subtitle={done ? "Completed" : "Edit any field — changes save as you go."}
       onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="font-body text-[11.5px] text-fg-subtle">
-            {saving ? <span className="inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Saving…</span> : `Created ${formatDate(task.createdAt)}`}
+            {saving
+              ? <span className="inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Saving…</span>
+              : `Created ${formatDate(task.createdAt)}`}
           </span>
           {confirmDelete ? (
             <span className="flex items-center gap-2">
               <span className="font-body text-[12px] text-fg-muted">Delete this task?</span>
               <button onClick={() => setConfirmDelete(false)} className="rounded-lg border border-border px-2.5 py-1 font-body text-[12px] font-semibold text-fg-muted hover:text-fg">Cancel</button>
-              <button onClick={remove} className="rounded-lg bg-[#B23A57] px-2.5 py-1 font-body text-[12px] font-semibold text-white">Delete</button>
+              <button onClick={remove} className="rounded-lg bg-danger-fg px-2.5 py-1 font-body text-[12px] font-semibold text-white">Delete</button>
             </span>
           ) : (
-            <button onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 font-body text-[12px] font-semibold text-fg-muted transition-colors hover:text-[#B23A57]">
+            <button onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 font-body text-[12px] font-semibold text-fg-muted transition-colors hover:text-danger-fg">
               <Trash2 size={13} /> Delete
             </button>
           )}
         </div>
       }
     >
-      <div className="flex flex-col gap-4 py-1">
+      <div className="flex flex-col gap-4">
         {error && (
-          <div className="flex items-start gap-2 rounded-lg border border-[#B23A57]/30 bg-[#B23A57]/8 px-3 py-2 font-body text-[12.5px] text-[#B23A57]">
+          <div className="flex items-start gap-2 rounded-lg border border-danger-fg/30 bg-danger-bg px-3 py-2 font-body text-[12.5px] text-danger-fg">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />{error}
           </div>
         )}
 
-        <Field label="Title">
+        {/* 1 — Title, same weight as AddTaskModal's headline field */}
+        <label className="block">
+          <FieldLabel required>What needs to happen?</FieldLabel>
           <input value={title} onChange={(e) => setTitle(e.target.value)}
             onBlur={() => title.trim() && title !== task.title && save({ title })}
-            className={inputCls} />
-        </Field>
+            className="w-full rounded-lg border border-border bg-bg px-3 py-2.5 font-body text-[15px] font-semibold text-fg outline-none ring-sirius placeholder:font-normal placeholder:text-fg-subtle focus:ring-2" />
+        </label>
 
-        <Field label="Notes">
+        {/* 2 — Details */}
+        <label className="block">
+          <FieldLabel>Details</FieldLabel>
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
             onBlur={() => notes !== (task.notes ?? "") && save({ notes })}
-            rows={3} placeholder="What's the context or the outcome you need?"
+            rows={3} placeholder="Notes, links or context for whoever picks this up"
             className={cn(inputCls, "resize-y leading-relaxed")} />
-        </Field>
+        </label>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Due date">
-            <input type="date" value={due}
-              onChange={(e) => { setDue(e.target.value); void save({ dueDate: e.target.value || null }); }}
-              className={inputCls} />
-          </Field>
-          <Field label="Priority">
-            <select value={priority}
-              onChange={(e) => { setPriority(e.target.value as typeof priority); void save({ priority: e.target.value }); }}
-              className={inputCls}>
-              {PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </select>
-          </Field>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Focus area">
-            {/* Changing this MOVES the task between focus areas — the only way
-                to do that, since areas are derived from task categories. */}
-            <select value={category}
-              onChange={(e) => { setCategory(e.target.value); void save({ category: e.target.value }); }}
-              className={inputCls}>
-              {categories.map((id) => (
-                <option key={id} value={id}>{DEFAULT_CATEGORIES.find((c) => c.id === id)?.label ?? id}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Assignee">
-            <select value={assignee}
-              onChange={(e) => { setAssignee(e.target.value); void save({ assigneeEmail: e.target.value }); }}
-              className={inputCls}>
-              {people.map((u) => <option key={u.id} value={u.id}>{u.name}{u.id === viewer.userId ? " (you)" : ""}</option>)}
-            </select>
-          </Field>
-        </div>
-
-        <Field label="Account">
+        {/* 3 — Linked to */}
+        <div className="flex flex-col gap-2 border-t border-border-subtle pt-4">
+          <span className="font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Linked to</span>
           {account ? (
             <button onClick={() => openAccount(account.id)}
-              className="inline-flex items-center gap-1.5 font-body text-[13px] font-semibold text-sirius hover:underline">
-              {account.name} <ExternalLink size={12} />
+              className="flex items-center justify-between gap-2 rounded-lg border border-border bg-bg px-3 py-2 text-left transition-colors hover:border-sirius">
+              <span className="truncate font-body text-[13px] font-medium text-fg">{account.name}</span>
+              <ExternalLink size={13} className="shrink-0 text-fg-subtle" />
             </button>
           ) : (
-            <span className="font-body text-[13px] text-fg-subtle">Not linked to an account</span>
+            <span className="rounded-lg border border-dashed border-border px-3 py-2 font-body text-[12.5px] text-fg-subtle">No account linked</span>
           )}
-        </Field>
+        </div>
+
+        {/* 4 — Assignee + Priority, mirroring AddTaskModal's pairing */}
+        <div className="grid grid-cols-2 gap-3 border-t border-border-subtle pt-4">
+          <label className="block">
+            <FieldLabel>Assignee</FieldLabel>
+            <Popover width="w-72" trigger={(o) => (
+              <span className={cn(triggerCls, o && "ring-2 ring-sirius")}>
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Avatar name={assigneeUser?.name ?? "You"} />
+                  <span className="truncate font-body text-[13px] font-medium text-fg">
+                    {assigneeUser?.name ?? "You"}{assignee === viewer.userId && <span className="text-fg-subtle"> · You</span>}
+                  </span>
+                </span>
+                <ChevronDown size={14} className="shrink-0 text-fg-subtle" />
+              </span>
+            )}>
+              {(close) => (
+                <AssigneeList people={people} viewerId={viewer.userId} onPick={(id) => {
+                  setAssignee(id); close(); void save({ assigneeEmail: id });
+                }} />
+              )}
+            </Popover>
+          </label>
+
+          <label className="block">
+            <FieldLabel>Priority</FieldLabel>
+            <PriorityPicker value={priority} onChange={(p) => { setPriority(p); void save({ priority: p }); }} />
+          </label>
+        </div>
+
+        {/* 5 — Due date + Focus area */}
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <FieldLabel hint="optional">Due date</FieldLabel>
+            <div className="relative">
+              <CalendarDays size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
+              <input type="date" value={due}
+                onChange={(e) => { setDue(e.target.value); void save({ dueDate: e.target.value || null }); }}
+                className={cn(inputCls, "pl-9")} />
+            </div>
+          </label>
+
+          <label className="block">
+            {/* Changing this MOVES the task between focus areas — the only way to
+                do that, since areas are derived from task categories. */}
+            <FieldLabel>Focus area</FieldLabel>
+            <div className="relative">
+              <select value={category}
+                onChange={(e) => { setCategory(e.target.value); void save({ category: e.target.value }); }}
+                className={cn(selectCls, "capitalize")}>
+                {categories.map((id) => <option key={id} value={id}>{catLabel(id)}</option>)}
+              </select>
+              <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
+            </div>
+          </label>
+        </div>
       </div>
     </Drawer>
   );
 }
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-const inputCls = cn(
-  "w-full rounded-[10px] border border-border-strong bg-bg px-3 py-2 font-body text-[13px] text-fg placeholder:text-fg-subtle",
-  "outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/20",
-);

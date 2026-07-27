@@ -8,7 +8,7 @@
    The section title adapts to scope: Do today / Team priorities / Focus now. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Info, ArrowRight, Flag, AlertTriangle, ChevronDown, MoreHorizontal, Eye, BellOff, Building2, Plus } from "lucide-react";
+import { Info, Flag, AlertTriangle, ChevronDown, MoreHorizontal, Eye, BellOff, Building2, Plus } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { Priority, PortfolioScope } from "@/lib/today/types";
 import { getPriorities, getSignalsForPriority, getFocusRelated, getAccount, getUser, getToday } from "@/lib/today/repo";
@@ -127,7 +127,6 @@ export function TopPriorities({ id }: { id?: string }) {
             const rel = getFocusRelated(p.accountId);
             const isRev = reviewed.has(p.id);
             const verb = PRIORITY_CTA_LABEL[p.primaryCta] ?? "Take action";
-            const soft = level.tone === "info" || level.tone === "neutral";
             const arrLine = `${formatMoney(p.valueAtStake)}${p.valueKind === "expansion" ? " potential" : " ARR"}${p.timing ? ` · ${p.timing}` : ""}`;
 
             return (
@@ -154,13 +153,18 @@ export function TopPriorities({ id }: { id?: string }) {
                   </div>
                 </div>
 
-                <div className="relative flex shrink-0 flex-col items-end gap-1.5">
+                {/* Actions sit SIDE BY SIDE and stay quiet: a solid blue block on
+                    every row made none of them stand out, and stacking the
+                    overflow underneath left it orphaned in its own box. Outlined
+                    by default, filling Sirius on hover, so weight is earned on
+                    interaction rather than spent on all five rows at once. */}
+                <div className="relative flex shrink-0 items-center gap-1.5">
                   <button onClick={() => openAddTask({ accountId: p.accountId, title: p.recommendedAction, ...(p.signalIds[0] ? { sourceType: "signal" as const, sourceId: p.signalIds[0] } : {}) })}
                     title={`${p.recommendedAction} — opens a prefilled task to review`}
-                    className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-3 py-1.5 font-body text-[12px] font-semibold", soft ? "bg-accent-soft text-sirius hover:bg-sirius hover:text-white" : "bg-sirius text-white hover:opacity-90")}>
-                    {verb} <ArrowRight size={12} />
+                    className="inline-flex items-center whitespace-nowrap rounded-lg border border-border bg-surface px-3 py-1.5 font-body text-[12px] font-semibold text-sirius transition-colors hover:border-sirius hover:bg-sirius hover:text-white">
+                    {verb}
                   </button>
-                  <button onClick={() => setMenuFor((m) => (m === p.id ? null : p.id))} aria-label="More actions" className="grid size-7 place-items-center rounded-lg border border-border text-fg-subtle hover:text-fg"><MoreHorizontal size={14} /></button>
+                  <button onClick={() => setMenuFor((m) => (m === p.id ? null : p.id))} aria-label="More actions" className="grid size-7 place-items-center rounded-lg text-fg-subtle transition-colors hover:bg-bg-muted hover:text-fg"><MoreHorizontal size={14} /></button>
                   {menuFor === p.id && (
                     <RowMenu
                       onClose={() => setMenuFor(null)}
