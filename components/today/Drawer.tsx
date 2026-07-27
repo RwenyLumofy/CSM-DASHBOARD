@@ -29,14 +29,23 @@ export function Drawer({ title, subtitle, eyebrow, onClose, children, footer, wi
   // null until the client mounts (avoids SSR width mismatch); then px width.
   const [w, setW] = useState<number | null>(null);
   const dragging = useRef(false);
+  // Latest onClose, read by the Esc handler without making the focus effect
+  // below depend on it.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
+  // Focus handling is mount/unmount ONLY: move focus into the drawer on open,
+  // restore it to the previously-focused element on close. This must NOT depend
+  // on `onClose` — callers often pass an inline handler recreated every render
+  // (e.g. AddTaskModal's requestClose), so an [onClose] dep would re-run this on
+  // every keystroke and yank focus to the close button mid-typing.
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCloseRef.current(); };
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("keydown", onKey); prev?.focus?.(); };
-  }, [onClose]);
+  }, []);
 
   useEffect(() => { if (resizable) setW((cur) => cur ?? DEFAULT_PX[width]); }, [resizable, width]);
 
