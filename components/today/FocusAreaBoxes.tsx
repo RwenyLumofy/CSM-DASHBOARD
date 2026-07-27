@@ -40,7 +40,22 @@ export function FocusAreaBoxes() {
   const { scope, openAccount, openAddTask, localTasks } = useToday();
   const today = getToday();
   const tasks = useMemo(() => [...localTasks, ...getTasks()], [localTasks]);
-  const { lanes } = getBoard(scope, tasks, DEFAULT_CATEGORY_IDS);
+  // Focus areas = the built-in five PLUS any the user created. A custom area is
+  // not stored anywhere — it exists as the `category` on its tasks — so it has
+  // to be derived here. This used to pass DEFAULT_CATEGORY_IDS only, which made
+  // a user-created focus area (and every task filed under it) permanently
+  // invisible even though the task saved fine: you could create something the
+  // board could never show.
+  const customCats = useMemo(() => {
+    const ids = [...new Set(tasks.map((t) => t.category))].filter((id) => id && !DEFAULT_CATEGORY_IDS.includes(id));
+    return ids.map((id) => ({ id, label: id, icon: "list", isDefault: false }));
+  }, [tasks]);
+  const visibleCats = useMemo(
+    // Projects live in the right rail (their own pane), not this grid.
+    () => [...DEFAULT_CATEGORIES.filter((c) => c.id !== "projects"), ...customCats],
+    [customCats],
+  );
+  const { lanes } = getBoard(scope, tasks, [...DEFAULT_CATEGORY_IDS, ...customCats.map((c) => c.id)]);
   const laneByKey = new Map(lanes.map((l) => [l.key, l]));
   // "View all" expands the card in place (no dedicated focus-area route exists).
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -54,8 +69,7 @@ export function FocusAreaBoxes() {
       </div>
 
       <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        {/* Projects live in the right rail (their own pane), not this grid. */}
-        {DEFAULT_CATEGORIES.filter((cat) => cat.id !== "projects").map((cat) => {
+        {visibleCats.map((cat) => {
           const items = laneByKey.get(cat.id)?.items ?? [];
           const count = items.length;
           const tone = CATEGORY_ACCENT[cat.id] ?? "neutral";
