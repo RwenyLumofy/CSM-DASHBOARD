@@ -38,7 +38,7 @@ function statusOf(item: LaneItem, today: string): string {
 }
 
 export function FocusAreaBoxes() {
-  const { scope, openAccount, openAddTask, localTasks, taskStatus, setTaskStatus } = useToday();
+  const { scope, openAccount, openAddTask, openTask, localTasks, taskStatus, setTaskStatus } = useToday();
   const today = getToday();
   // taskStatus holds optimistic done/open toggles, so a ticked box stays ticked
   // without waiting for a server round-trip (same pattern as TodayBoard).
@@ -135,9 +135,10 @@ export function FocusAreaBoxes() {
                             >
                               {done && <Check size={9} />}
                             </button>
-                            <span className={cn("min-w-0 flex-1 truncate font-body text-[12px]", done ? "text-fg-subtle line-through" : "text-fg")} title={item.title}>
+                            <button onClick={() => openTask(item.taskId!)} title={item.title}
+                              className={cn("min-w-0 flex-1 truncate text-left font-body text-[12px] hover:text-sirius hover:underline", done ? "text-fg-subtle line-through" : "text-fg")}>
                               {item.title}
-                            </span>
+                            </button>
                             {/* The account stays reachable — as its own control, not the whole row. */}
                             {item.accountId && item.subtitle && (
                               <button onClick={() => openAccount(item.accountId!)} title={`Open ${item.subtitle}`}

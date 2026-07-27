@@ -24,6 +24,7 @@ import { UserProfileDrawer } from "./UserProfileDrawer";
 import { SignalPageDrawer } from "./SignalPageDrawer";
 import { AskSignalDrawer } from "./AskSignalDrawer";
 import { AddTaskModal } from "./AddTaskModal";
+import { TaskDrawer } from "./TaskDrawer";
 import { PulseDueBanner } from "./PulseDueBanner";
 
 export function TodayWorkspace({ snapshot, pulseDue }: { snapshot: TodaySnapshot; pulseDue?: PulseDueSummary }) {
@@ -77,6 +78,7 @@ function Inner({ pulseDue }: { pulseDue?: PulseDueSummary }) {
       {overlay.user && <UserProfileDrawer userId={overlay.user} onClose={closeOverlays} />}
       {overlay.page && <SignalPageDrawer pageId={overlay.page} onClose={closeOverlays} />}
       {overlay.askSignal && <AskSignalDrawer prefill={overlay.askSignal.prefill} onClose={closeOverlays} />}
+      {overlay.task && <TaskDrawer taskId={overlay.task} onClose={closeOverlays} />}
       {overlay.addTask && <AddTaskModal prefill={overlay.addTask} onClose={closeOverlays} onCreated={(title) => show(`Task created — ${title}`, "ok")} />}
       {toast}
     </div>

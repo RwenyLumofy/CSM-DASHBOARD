@@ -15,6 +15,7 @@ export type TodayAnalyticsEvent =
   | "priority_opened"
   | "signal_evidence_viewed"
   | "account_drawer_opened"
+  | "task_opened"
   | "action_created"
   | "action_completed"
   | "action_outcome_recorded"

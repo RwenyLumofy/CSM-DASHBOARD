@@ -32,6 +32,8 @@ interface OverlayState {
   page: string | null;
   askSignal: { prefill?: string } | null;
   addTask: AddTaskPrefill | null;
+  /** Task detail drawer — the task's id. */
+  task: string | null;
 }
 
 interface TodayCtx {
@@ -50,6 +52,7 @@ interface TodayCtx {
   openPage: (id: string) => void;
   openAskSignal: (prefill?: string) => void;
   openAddTask: (prefill?: AddTaskPrefill) => void;
+  openTask: (id: string) => void;
   closeOverlays: () => void;
 
   /** Board tasks added this session + per-task status overrides (optimistic). */
@@ -66,7 +69,7 @@ export function TodayProvider({ children }: { children: ReactNode }) {
   const [scope, setScopeState] = useState<PortfolioScope>(() => (getViewer().canSeeAll ? "company" : "my_portfolio"));
   const [date, setDateState] = useState<string | null>(null);
   const [ownerFilter, setOwnerFilterState] = useState<string | null>(null);
-  const [overlay, setOverlay] = useState<OverlayState>({ account: null, user: null, page: null, askSignal: null, addTask: null });
+  const [overlay, setOverlay] = useState<OverlayState>({ account: null, user: null, page: null, askSignal: null, addTask: null, task: null });
   const [localTasks, setLocalTasks] = useState<TodayTask[]>([]);
   const [taskStatus, setTaskStatusState] = useState<Record<string, "open" | "done">>({});
   const addTask = useCallback((t: TodayTask) => { setLocalTasks((prev) => [t, ...prev]); track("action_created", { category: t.category }); }, []);
@@ -89,7 +92,7 @@ export function TodayProvider({ children }: { children: ReactNode }) {
     if (d) track("historical_mode_entered", { date: d });
   }, []);
 
-  const BASE: OverlayState = { account: null, user: null, page: null, askSignal: null, addTask: null };
+  const BASE: OverlayState = { account: null, user: null, page: null, askSignal: null, addTask: null, task: null };
   const closeOverlays = useCallback(() => setOverlay({ ...BASE }), []);
 
   const openAccount = useCallback((id: string, tab: AccountDrawerTab = "overview") => {
@@ -110,11 +113,15 @@ export function TodayProvider({ children }: { children: ReactNode }) {
   const openAddTask = useCallback((prefill?: AddTaskPrefill) => {
     setOverlay({ ...BASE, addTask: prefill ?? {} });
   }, []);
+  const openTask = useCallback((id: string) => {
+    setOverlay({ ...BASE, task: id });
+    track("task_opened", { taskId: id });
+  }, []);
 
   const value = useMemo<TodayCtx>(() => ({
-    scope, setScope, date, setDate, ownerFilter, setOwnerFilter, overlay, openAccount, openUser, openPage, openAskSignal, openAddTask, closeOverlays,
+    scope, setScope, date, setDate, ownerFilter, setOwnerFilter, overlay, openAccount, openUser, openPage, openAskSignal, openAddTask, openTask, closeOverlays,
     localTasks, addTask, taskStatus, setTaskStatus,
-  }), [scope, setScope, date, setDate, ownerFilter, setOwnerFilter, overlay, openAccount, openUser, openPage, openAskSignal, openAddTask, closeOverlays, localTasks, addTask, taskStatus, setTaskStatus]);
+  }), [scope, setScope, date, setDate, ownerFilter, setOwnerFilter, overlay, openAccount, openUser, openPage, openAskSignal, openAddTask, openTask, closeOverlays, localTasks, addTask, taskStatus, setTaskStatus]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

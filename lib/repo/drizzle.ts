@@ -1641,6 +1641,36 @@ export async function deleteTodayTaskDb(id: string, ownerEmail: string): Promise
   await db.delete(schema.todayTasks).where(and(eq(schema.todayTasks.id, id), eq(schema.todayTasks.ownerEmail, ownerEmail.toLowerCase())));
 }
 
+/**
+ * Edit a task's own fields. Scoped to the current owner for the same reason as
+ * status/delete: you can only change a task that's on your board. Reassigning
+ * (changing ownerEmail) is handled by the caller, which checks admin rights
+ * first — otherwise this would be a way to push work onto someone else.
+ *
+ * Only the keys present in `patch` are written, so a caller editing just the
+ * due date can't blank the notes.
+ */
+export async function updateTodayTaskDb(
+  id: string,
+  ownerEmail: string,
+  patch: {
+    title?: string; category?: string; notes?: string | null; dueDate?: string | null;
+    priority?: string; accountId?: string | null; ownerEmail?: string;
+  },
+): Promise<void> {
+  const db = getDb();
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (patch.title !== undefined) set.title = patch.title;
+  if (patch.category !== undefined) set.category = patch.category;
+  if (patch.notes !== undefined) set.notes = patch.notes;
+  if (patch.dueDate !== undefined) set.dueDate = patch.dueDate ? new Date(patch.dueDate) : null;
+  if (patch.priority !== undefined) set.priority = patch.priority;
+  if (patch.accountId !== undefined) set.accountId = patch.accountId;
+  if (patch.ownerEmail !== undefined) set.ownerEmail = patch.ownerEmail.toLowerCase();
+  await db.update(schema.todayTasks).set(set)
+    .where(and(eq(schema.todayTasks.id, id), eq(schema.todayTasks.ownerEmail, ownerEmail.toLowerCase())));
+}
+
 /* ----------------------------------------------------------------- */
 
 export async function clientExists(id: string): Promise<boolean> {

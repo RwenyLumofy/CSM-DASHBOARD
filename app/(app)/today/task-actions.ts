@@ -72,6 +72,48 @@ export async function toggleTaskAction(id: string, status: "open" | "done"): Pro
   }
 }
 
+/** Edit a task from its detail drawer. Reassigning to someone ELSE is
+ *  admin-only — same rule as creation, enforced here rather than in the UI. */
+export async function updateTaskAction(id: string, patch: {
+  title?: string; category?: string; notes?: string | null; dueDate?: string | null;
+  priority?: string; accountId?: string | null; assigneeEmail?: string | null;
+}): Promise<TaskResult> {
+  const email = await getCurrentUserEmail();
+  if (!email) return { ok: false, error: "Not signed in." };
+  if (!hasDatabase()) return { ok: false, error: "No database configured." };
+
+  const clean: Parameters<typeof import("@/lib/repo/drizzle").updateTodayTaskDb>[2] = {};
+  if (patch.title !== undefined) {
+    const t = patch.title.trim();
+    if (!t) return { ok: false, error: "Enter a task title." };
+    clean.title = t;
+  }
+  if (patch.category !== undefined) {
+    const c = patch.category.trim().slice(0, 60);
+    if (!c) return { ok: false, error: "Name the focus area." };
+    clean.category = c;
+  }
+  if (patch.notes !== undefined) clean.notes = patch.notes?.trim() ? patch.notes.trim().slice(0, 2000) : null;
+  if (patch.dueDate !== undefined) clean.dueDate = patch.dueDate || null;
+  if (patch.priority !== undefined && PRIORITIES.includes(patch.priority as Priority)) clean.priority = patch.priority;
+  if (patch.accountId !== undefined) clean.accountId = patch.accountId || null;
+
+  const requested = patch.assigneeEmail?.trim().toLowerCase();
+  if (requested && requested !== email) {
+    const role = await getCurrentUserRole();
+    if (!editsAllClients(role)) return { ok: false, error: "Only an admin can reassign a task to someone else." };
+    clean.ownerEmail = requested;
+  }
+
+  try {
+    const { updateTodayTaskDb } = await import("@/lib/repo/drizzle");
+    await updateTodayTaskDb(id, email, clean);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function deleteTaskAction(id: string): Promise<TaskResult> {
   const email = await getCurrentUserEmail();
   if (!email || !hasDatabase()) return { ok: false, error: "Unavailable." };
