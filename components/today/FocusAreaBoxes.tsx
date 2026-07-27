@@ -7,12 +7,13 @@
    Quiet areas dim; a final tile adds a custom focus area. */
 
 import { useMemo, useState } from "react";
-import { Shield, Flag, KanbanSquare, TrendingUp, Users, Plus, ChevronDown, type LucideIcon } from "lucide-react";
+import { Shield, Flag, KanbanSquare, TrendingUp, Users, Plus, ChevronDown, Check, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { LaneItem } from "@/lib/today/types";
 import { getBoard, getTasks, getToday } from "@/lib/today/repo";
 import { DEFAULT_CATEGORIES, DEFAULT_CATEGORY_IDS, CATEGORY_ACCENT, FOCUS_COUNT_NOUN, formatDate } from "@/lib/today/format";
 import { useToday } from "./TodayContext";
+import { toggleTaskAction } from "@/app/(app)/today/task-actions";
 
 const ICONS: Record<string, LucideIcon> = { shield: Shield, flag: Flag, kanban: KanbanSquare, "trending-up": TrendingUp, users: Users };
 const TILE: Record<string, string> = {
@@ -37,9 +38,14 @@ function statusOf(item: LaneItem, today: string): string {
 }
 
 export function FocusAreaBoxes() {
-  const { scope, openAccount, openAddTask, localTasks } = useToday();
+  const { scope, openAccount, openAddTask, localTasks, taskStatus, setTaskStatus } = useToday();
   const today = getToday();
-  const tasks = useMemo(() => [...localTasks, ...getTasks()], [localTasks]);
+  // taskStatus holds optimistic done/open toggles, so a ticked box stays ticked
+  // without waiting for a server round-trip (same pattern as TodayBoard).
+  const tasks = useMemo(
+    () => [...localTasks, ...getTasks()].map((t) => ({ ...t, status: taskStatus[t.id] ?? t.status })),
+    [localTasks, taskStatus],
+  );
   // Focus areas = the built-in five PLUS any the user created. A custom area is
   // not stored anywhere — it exists as the `category` on its tasks — so it has
   // to be derived here. This used to pass DEFAULT_CATEGORY_IDS only, which made
@@ -102,6 +108,48 @@ export function FocusAreaBoxes() {
                 <ul className="border-t border-border-subtle">
                   {rows.map((item) => {
                     const s = statusOf(item, today);
+                    // A lane holds two different things and they must not behave
+                    // alike: SEEDS are derived from an account (open it), TASKS
+                    // are the user's own work (complete it). Treating both as
+                    // "open the account" made a task click land on the client
+                    // profile, and left an account-less task rendered `disabled`
+                    // — visible but dead. See TaskRow in TodayBoard for the
+                    // original intent.
+                    if (item.source === "task" && item.taskId) {
+                      const done = !!item.done;
+                      const toggle = () => {
+                        const next = done ? "open" : "done";
+                        setTaskStatus(item.taskId!, next);
+                        void toggleTaskAction(item.taskId!, next);
+                      };
+                      return (
+                        <li key={item.id} className="border-b border-border-subtle last:border-0">
+                          <div className="flex items-center gap-2 px-3 py-1.5 transition-colors hover:bg-bg-muted/50">
+                            <button
+                              onClick={toggle}
+                              aria-label={done ? `Mark "${item.title}" not done` : `Complete "${item.title}"`}
+                              className={cn(
+                                "grid size-3.5 shrink-0 place-items-center rounded border transition-colors",
+                                done ? "border-[#1F9D63] bg-[#1F9D63] text-white" : "border-border-strong hover:border-sirius",
+                              )}
+                            >
+                              {done && <Check size={9} />}
+                            </button>
+                            <span className={cn("min-w-0 flex-1 truncate font-body text-[12px]", done ? "text-fg-subtle line-through" : "text-fg")} title={item.title}>
+                              {item.title}
+                            </span>
+                            {/* The account stays reachable — as its own control, not the whole row. */}
+                            {item.accountId && item.subtitle && (
+                              <button onClick={() => openAccount(item.accountId!)} title={`Open ${item.subtitle}`}
+                                className="max-w-[68px] shrink-0 truncate font-body text-[10.5px] text-fg-subtle hover:text-sirius hover:underline">
+                                {item.subtitle}
+                              </button>
+                            )}
+                            {s && <span className={cn("shrink-0 font-body text-[10.5px]", s === "overdue" ? "font-semibold text-danger-fg" : s === "due today" ? "font-semibold text-warning-fg" : "text-fg-subtle")}>{s}</span>}
+                          </div>
+                        </li>
+                      );
+                    }
                     return (
                       <li key={item.id} className="border-b border-border-subtle last:border-0">
                         <button onClick={() => item.accountId && openAccount(item.accountId)} disabled={!item.accountId} title={item.title}
