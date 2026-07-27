@@ -915,9 +915,15 @@ export async function getTeamMembers(team?: Team): Promise<TeamMember[]> {
   const users = await getAppUsers();
   const out: TeamMember[] = [];
   for (const u of users) {
-    if (permissionTier(u.role) !== "operator") continue; // only operators are assignable owners
-    // Legacy granular roles keep their fixed team; a flat operator has no team,
-    // so they're eligible for whichever slot is being filled (defaults to csm).
+    // Operators are the CSM/implementation roster. Admins are included too:
+    // some admins (team leads) also own accounts and act as CSMs, so they must
+    // appear in the owner/CSM lists — otherwise an admin-CSM silently vanishes
+    // from the clients-page CSM filter and owner pickers. Super-admins and
+    // guests stay out of the assignable roster.
+    const tier = permissionTier(u.role);
+    if (tier !== "operator" && tier !== "admin") continue;
+    // Legacy granular roles keep their fixed team; a flat operator/admin has no
+    // team, so they're eligible for whichever slot is being filled (defaults to csm).
     const fixed = teamForRole(u.role);
     if (team && fixed && fixed !== team) continue;
     const t: Team = fixed ?? team ?? "csm";
