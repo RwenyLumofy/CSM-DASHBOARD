@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowDownRight, ArrowUpRight, MoonStar, Sparkles, TrendingDown, XCircle } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, MoonStar, Sparkles, TrendingDown, UserMinus, XCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { DateTag } from "@/components/reports/DateTag";
@@ -64,6 +64,10 @@ const KIND: Record<MovementKind, { label: string; icon: typeof XCircle; tone: st
     label: "Went dormant", icon: MoonStar, tone: "text-danger-fg bg-danger-bg", dot: "bg-danger",
     def: "Had monthly active users last month, zero this month. No revenue change yet.",
   },
+  usage_low_adoption: {
+    label: "Barely adopted", icon: UserMinus, tone: "text-warning-fg bg-warning-bg", dot: "bg-warning",
+    def: "Fewer than 40% of licensed seats are active (on 3+ seats). A chronic state rather than a change — the account was never really taken up. No revenue change yet.",
+  },
   usage_declined: {
     label: "Usage falling", icon: TrendingDown, tone: "text-warning-fg bg-warning-bg", dot: "bg-warning",
     def: "Monthly actives down 25% or more vs last month, on a base of at least 10 — below that, a percentage is noise (2 users becoming 1 is “down 50%”). No revenue change yet.",
@@ -114,8 +118,8 @@ const GROUPS: { key: GroupKey; label: string; kinds: MovementKind[]; def: string
     def: "Money that has actually moved this period, straight off the ARR ledger — the same source as the waterfall, so the two always agree.",
   },
   {
-    key: "warning", label: "Early warnings", kinds: ["usage_dormant", "usage_declined"], head: "text-warning-fg",
-    def: "Usage has moved; revenue hasn't — yet. These are the accounts still worth a call.",
+    key: "warning", label: "Early warnings", kinds: ["usage_dormant", "usage_declined", "usage_low_adoption"], head: "text-warning-fg",
+    def: "Usage says something is wrong; revenue hasn't moved — yet. Same rules Today's focus areas use, so both surfaces name the same accounts.",
   },
 ];
 

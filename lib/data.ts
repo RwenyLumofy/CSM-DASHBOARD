@@ -27,13 +27,17 @@ import type {
   TimelineEvent,
 } from "@/lib/types";
 import type { UsageMonthRow } from "@/lib/usage/types";
-import {
-  SAMPLE_PLAYBOOKS,
-  sampleAppendArrEvent,
-  sampleImportClients,
-  tasksForClient,
-} from "@/lib/sample/data";
-import { SAMPLE_CSMS } from "@/lib/sample/csms";
+// Sample/demo data is no longer used as a fallback anywhere. When the DB is
+// not configured the app shows a "No database configured." notice instead of
+// inventing records (see app/(app)/layout.tsx). Kept commented rather than
+// deleted so the seed sets in lib/sample/ stay easy to re-enable.
+// import {
+//   SAMPLE_PLAYBOOKS,
+//   sampleAppendArrEvent,
+//   sampleImportClients,
+//   tasksForClient,
+// } from "@/lib/sample/data";
+// import { SAMPLE_CSMS } from "@/lib/sample/csms";
 import { DEFAULT_CHURN_TAXONOMY, normalizeChurnTaxonomy, type ChurnTaxonomy } from "@/lib/metrics/churn-taxonomy";
 import { buildPortfolioSummary } from "@/lib/metrics/portfolio";
 import { computeRetention, downgrades } from "@/lib/metrics/retention";
@@ -281,6 +285,15 @@ const usageHistoryCache = cache(async (): Promise<UsageMonthRow[]> => {
   }
 });
 
+/** Monthly usage history (request-cached). Exposed so Today can evaluate the
+ *  SAME usage-risk rules Insights uses (lib/metrics/usage-risk) instead of its
+ *  own adoption-only check — the two surfaces were naming different at-risk
+ *  accounts. Shares the cache, so calling it alongside getExecutiveReport in one
+ *  request costs a single query. */
+export async function getUsageHistory(): Promise<UsageMonthRow[]> {
+  return usageHistoryCache();
+}
+
 /* ---------- ARR ledger / contacts / attachments (per client) ----------- */
 
 export async function getArrEventsForClient(clientId: string): Promise<ArrEvent[]> {
@@ -526,33 +539,38 @@ export async function recordArrEvent(input: ArrEventInput): Promise<ArrEvent> {
     createdAt: new Date().toISOString(),
   };
 
-  if (hasDatabase()) {
-    await appendArrEvent(event);
-  } else {
-    sampleAppendArrEvent(event);
-  }
+  if (!hasDatabase()) throw new Error("No database configured.");
+  await appendArrEvent(event);
+  // } else {
+  //   sampleAppendArrEvent(event);
+  // }
   return event;
 }
 
 /* ---------- Bulk import (existing clients via Excel/CSV) ---------------- */
 
 export async function persistImport(payload: { clients: Client[]; baselineEvents: ArrEvent[] }): Promise<number> {
-  if (hasDatabase()) {
-    await importClientsDb(payload);
-  } else {
-    sampleImportClients(payload);
-  }
+  if (!hasDatabase()) throw new Error("No database configured.");
+  await importClientsDb(payload);
+  // } else {
+  //   sampleImportClients(payload);
+  // }
   return payload.clients.length;
 }
 
 /* ---------- Playbooks / tasks / timeline -------------------------------- */
 
+/** NOTE: the `playbooks` / `playbook_tasks` tables exist in the schema but were
+ *  never wired up here — these two only ever returned the sample seed. With the
+ *  fallback removed they return empty until a real repo read is added. */
 export async function getPlaybooks(): Promise<Playbook[]> {
-  return SAMPLE_PLAYBOOKS;
+  // return SAMPLE_PLAYBOOKS;
+  return [];
 }
 
 export async function getTasksForClient(clientId: string): Promise<PlaybookTask[]> {
-  return tasksForClient(clientId);
+  // return tasksForClient(clientId);
+  return [];
 }
 
 export async function getOpenTasks(): Promise<PlaybookTask[]> {
@@ -592,7 +610,8 @@ export async function getUpcomingRenewals(days = 90): Promise<Client[]> {
     .sort((a, b) => new Date(a.renewalDate!).getTime() - new Date(b.renewalDate!).getTime());
 }
 
-/** All active CSM users from the csm_users table (falls back to SAMPLE_CSMS if DB empty). */
+/** All active CSM users from the csm_users table. Empty when the DB is empty or
+ *  unconfigured — no SAMPLE_CSMS fallback. */
 export const getCsmUsers = cache(async (): Promise<Csm[]> => {
   if (hasDatabase() && dbHealthy()) {
     try {
@@ -605,7 +624,8 @@ export const getCsmUsers = cache(async (): Promise<Csm[]> => {
       console.warn("[data] getCsmUsers failed:", err);
     }
   }
-  return Object.values(SAMPLE_CSMS);
+  // return Object.values(SAMPLE_CSMS);
+  return [];
 });
 
 /** Distinct CSMs for the filter dropdown — reads from csm_users table. */
@@ -915,9 +935,15 @@ export async function getTeamMembers(team?: Team): Promise<TeamMember[]> {
   const users = await getAppUsers();
   const out: TeamMember[] = [];
   for (const u of users) {
-    if (permissionTier(u.role) !== "operator") continue; // only operators are assignable owners
-    // Legacy granular roles keep their fixed team; a flat operator has no team,
-    // so they're eligible for whichever slot is being filled (defaults to csm).
+    // Operators are the CSM/implementation roster. Admins are included too:
+    // some admins (team leads) also own accounts and act as CSMs, so they must
+    // appear in the owner/CSM lists — otherwise an admin-CSM silently vanishes
+    // from the clients-page CSM filter and owner pickers. Super-admins and
+    // guests stay out of the assignable roster.
+    const tier = permissionTier(u.role);
+    if (tier !== "operator" && tier !== "admin") continue;
+    // Legacy granular roles keep their fixed team; a flat operator/admin has no
+    // team, so they're eligible for whichever slot is being filled (defaults to csm).
     const fixed = teamForRole(u.role);
     if (team && fixed && fixed !== team) continue;
     const t: Team = fixed ?? team ?? "csm";

@@ -27,6 +27,7 @@
 
 import type { ArrEvent, Client } from "@/lib/types";
 import type { UsageMonthRow } from "@/lib/usage/types";
+import { usageRisks, type UsageRiskKind } from "@/lib/metrics/usage-risk";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 
 /* ------------------------------------------------------------ month helpers */
@@ -149,7 +150,11 @@ export function usageMovementByClient(
 
 /* --------------------------------------------------------------- movements */
 
-export type MovementKind = "churned" | "downgraded" | "expanded" | "new" | "usage_declined" | "usage_dormant";
+const RISK_TO_KIND: Record<UsageRiskKind, MovementKind> = {
+  dormant: "usage_dormant", declined: "usage_declined", low_adoption: "usage_low_adoption",
+};
+
+export type MovementKind = "churned" | "downgraded" | "expanded" | "new" | "usage_declined" | "usage_dormant" | "usage_low_adoption";
 
 export interface Movement {
   client: Client;
@@ -212,12 +217,15 @@ export function movements(
   // hasn't moved (yet). This is the half of the picture the ledger can't see.
   for (const client of clients) {
     if (claimed.has(client.id) || client.status === "churned") continue;
-    const u = usage.get(client.id);
-    if (!u) continue;
-    if (u.direction === "dormant" && (u.previous ?? 0) > 0) {
-      out.push({ client, kind: "usage_dormant", arrDelta: 0, arrAtStake: client.arr, usage: u, date: null, note: `Went dormant — ${u.previous} → 0 monthly actives` });
-    } else if (u.direction === "declined" && u.pctChange != null && u.pctChange <= -0.25) {
-      out.push({ client, kind: "usage_declined", arrDelta: 0, arrAtStake: client.arr, usage: u, date: null, note: `Usage down ${Math.round(Math.abs(u.pctChange) * 100)}% — ${u.previous} → ${u.current}` });
+    // No history row is fine: the adoption rule needs only the current snapshot,
+    // so an account with no usage history can still surface as low adoption.
+    const u = usage.get(client.id) ?? null;
+    // Thresholds and wording come from lib/metrics/usage-risk — the single
+    // definition Today's focus areas now read too, so the two surfaces can't
+    // report different at-risk books. This also gains low-adoption accounts,
+    // which Today flagged and Insights previously ignored entirely.
+    for (const risk of usageRisks(client.usage, u)) {
+      out.push({ client, kind: RISK_TO_KIND[risk.kind], arrDelta: 0, arrAtStake: client.arr, usage: u, date: null, note: risk.note });
     }
   }
 

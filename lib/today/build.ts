@@ -19,7 +19,9 @@ import type {
   LaneItem, LaneKey, LaneItemTone, TodayTask,
 } from "./types";
 import type { Client, Notification } from "@/lib/types";
-import { getClients, getAppUsers, getMyNotifications, getMyClientActions, getPortfolioSummary } from "@/lib/data";
+import { getClients, getAppUsers, getMyNotifications, getMyClientActions, getPortfolioSummary, getUsageHistory } from "@/lib/data";
+import { lastCompleteMonth, usageMovementByClient } from "@/lib/metrics/movement";
+import { usageRisks } from "@/lib/metrics/usage-risk";
 import { hasDatabase } from "@/lib/config";
 import { getCurrentUserEmail, getCurrentUserRole, isAdminOrSuper } from "@/lib/auth";
 import { teamForRole, DEFAULT_ROLE_LABELS, type Role } from "@/lib/roles";
@@ -74,10 +76,16 @@ function freshnessFrom(updatedAt: string | null, ref: string): DataFreshness {
 /* ------------------------------------------------------------ builder */
 
 export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
-  const [role, email, canSeeAll, clients, appUsers, notifications, myActions, portfolio] = await Promise.all([
+  const [role, email, canSeeAll, clients, appUsers, notifications, myActions, portfolio, usageHistory] = await Promise.all([
     getCurrentUserRole(), getCurrentUserEmail(), isAdminOrSuper(),
     getClients(), getAppUsers(), getMyNotifications(50), getMyClientActions(), getPortfolioSummary(),
+    // Monthly usage history — needed for the month-over-month half of the shared
+    // usage-risk rules. Request-cached, so this is one query.
+    getUsageHistory(),
   ]);
+  // Same window Insights uses for early warnings: the last COMPLETE month vs the
+  // one before. Usage history is monthly, so it can't be finer than that.
+  const usageMoves = usageMovementByClient(usageHistory, lastCompleteMonth());
 
   // The frozen demo snapshot (mock.ts, hardcoded to a fixed TODAY_ISO) is for
   // sample/dev mode ONLY — with no database there's nothing real to show. In
@@ -189,10 +197,27 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
     if (dContact !== null && dContact >= 30) {
       addSignal({ id: `sig_${c.id}_contact`, accountId: c.id, type: `No engagement in ${dContact} days`, category: "relationship", direction: "negative", severity: dContact >= 60 ? "high" : "medium", confidence: "medium", detectedAt: detected, source: "Engagement", evidence: [{ id: `ev_${c.id}_c`, label: `Last product activity or conversation ${dContact} days ago`, observedAt: detected, source: "Engagement" }], commercialImpact: c.arr, recommendedAction: "Schedule a check-in with the account", status: "active", dataFreshness: fresh });
     }
-    // Adoption depth (power-user coverage).
-    if (c.usage?.seats && c.usage.seats >= 3 && c.usage.activeUsers / c.usage.seats < 0.4) {
-      const pct = Math.round((c.usage.activeUsers / c.usage.seats) * 100);
-      addSignal({ id: `sig_${c.id}_adopt`, accountId: c.id, type: `Low licence adoption (${pct}%)`, category: "adoption", direction: "negative", severity: "medium", confidence: "medium", detectedAt: detected, source: "Product telemetry", evidence: [{ id: `ev_${c.id}_a`, label: `${c.usage.activeUsers} of ${c.usage.seats} seats active`, observedAt: detected, source: "Product telemetry" }], commercialImpact: c.arr, recommendedAction: "Run an adoption play with the champion", status: "active", dataFreshness: fresh });
+    // Usage risk, from the SAME rules Insights' "Early warnings" uses
+    // (lib/metrics/usage-risk). This used to be an adoption-rate check only, so
+    // Today never saw a month-over-month collapse: an account down 40% MoM but
+    // still at 80% adoption was an early warning on Insights and invisible here.
+    // Both surfaces now read one definition, with one set of thresholds and the
+    // same wording.
+    for (const risk of usageRisks(c.usage, usageMoves.get(c.id))) {
+      addSignal({
+        id: `sig_${c.id}_usage_${risk.kind}`, accountId: c.id, type: risk.note,
+        category: "adoption", direction: "negative",
+        severity: risk.severity, confidence: "medium", detectedAt: detected,
+        source: "Product telemetry",
+        evidence: [{ id: `ev_${c.id}_${risk.kind}`, label: risk.note, observedAt: detected, source: "Product telemetry" }],
+        commercialImpact: c.arr,
+        recommendedAction: risk.kind === "dormant"
+          ? "Re-engage before this becomes a churn conversation"
+          : risk.kind === "declined"
+            ? "Find out what changed and stabilise usage"
+            : "Run an adoption play with the champion",
+        status: "active", dataFreshness: fresh,
+      });
     }
   }
   const signalsByAccount = new Map<string, Signal[]>();
