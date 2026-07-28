@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { assignCsm, updateClientDetails } from "@/lib/data";
-import { canSeeClient, canEditClient, isAdminOrSuper, getCurrentUserRole } from "@/lib/auth";
+import { canSeeClient, canEditClient, isSuperAdmin, getCurrentUserRole } from "@/lib/auth";
 import { permissionTier } from "@/lib/roles";
 import { withDbTimeout } from "@/lib/db/client";
 
@@ -69,8 +69,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // profile Owners card are the canonical paths. Gate any csm/implementation
     // owner change here so legacy inline pickers can't bypass it.
     const ownerChange = "csmId" in body || "implementationOwnerEmail" in body;
-    if (ownerChange && !(await isAdminOrSuper())) {
-      return NextResponse.json({ ok: false, error: "Admin access required to reassign owners." }, { status: 403 });
+    if (ownerChange && !(await isSuperAdmin())) {
+      return NextResponse.json({ ok: false, error: "Super-admin access required to reassign owners." }, { status: 403 });
     }
 
     // Lightweight CSM-only path (the inline assign button).

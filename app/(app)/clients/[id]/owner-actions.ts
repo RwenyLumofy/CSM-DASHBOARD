@@ -4,7 +4,7 @@
    Writing with source 'manual' marks it as a human decision, and any open
    "needs admin" action item for that client+team is resolved. */
 
-import { isAdminOrSuper } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/auth";
 import { assignCsmOwner, assignImplementationOwner } from "@/lib/data";
 import { hasDatabase } from "@/lib/config";
 
@@ -14,7 +14,12 @@ export interface OwnerActionResult {
 }
 
 async function guard(): Promise<OwnerActionResult | null> {
-  if (!(await isAdminOrSuper())) return { ok: false, error: "Super-admin access required." };
+  // isSuperAdmin, not isAdminOrSuper: the header comment, this error message and
+  // the UI gate (ClientHeaderCard's canEdit={superAdmin}) all said super-admin,
+  // while the check itself admitted plain admins. An admin therefore never saw
+  // the Assign button but could still reassign any account by calling this
+  // action directly — the looser of two disagreeing gates is the one that counts.
+  if (!(await isSuperAdmin())) return { ok: false, error: "Super-admin access required." };
   if (!hasDatabase()) return { ok: false, error: "No database configured." };
   return null;
 }
