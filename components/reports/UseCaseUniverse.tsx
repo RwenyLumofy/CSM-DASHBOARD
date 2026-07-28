@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ROLE_LABEL, STAKEHOLDER_ROLES, type StakeholderRole } from "@/lib/stakeholders/profile";
-import type { UseCaseEntry, UseCaseOverride } from "@/lib/use-case-library";
+import { MODULES, type UseCaseEntry, type UseCaseOverride, type Module } from "@/lib/use-case-library";
 import type { AdoptionSummary } from "@/lib/use-case-adoption";
 import { saveUseCaseEntryAction, resetUseCaseEntryAction } from "@/app/(app)/use-cases/actions";
 import { TaxonomyManager } from "@/components/reports/TaxonomyManager";
@@ -66,7 +66,8 @@ function Bullets({ title, items }: { title: string; items: string[] }) {
 /** An empty container to start writing into — nothing pre-filled, so no
  *  invented text can be saved by accident. */
 const blankEntry = (id: string): UseCaseEntry => ({
-  id, definition: "", inPractice: "", examples: [], evidence: [], pitfall: "", stakeholderRoles: [],
+  id, goal: "", soundsLike: [], delivers: [], confusedWith: [], watchFor: [],
+  modules: [], stakeholderRoles: [], sourceUrl: null,
 });
 
 function EditField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -108,7 +109,9 @@ export function UseCaseUniverse({ library, adoption, canEdit, overrides, allEntr
       if (!q) return true;
       const r = adoptionById.get(id);
       const e = byId.get(id);
-      return `${r?.option.label ?? ""} ${r?.option.summary ?? ""} ${e?.definition ?? ""} ${e?.inPractice ?? ""}`
+      // Searching the client's own phrasing is the point of soundsLike — a CSM
+      // types what they heard on the call, not the product name.
+      return `${r?.option.label ?? ""} ${r?.option.summary ?? ""} ${e?.goal ?? ""} ${(e?.soundsLike ?? []).join(" ")} ${(e?.delivers ?? []).join(" ")}`
         .toLowerCase().includes(q);
     };
     return groups
@@ -141,9 +144,9 @@ export function UseCaseUniverse({ library, adoption, canEdit, overrides, allEntr
     if (!draft) return;
     setBusy(true); setSaveError(null);
     const r = await saveUseCaseEntryAction(draft.id, {
-      definition: draft.definition, inPractice: draft.inPractice,
-      examples: draft.examples, evidence: draft.evidence,
-      pitfall: draft.pitfall, stakeholderRoles: draft.stakeholderRoles,
+      goal: draft.goal, soundsLike: draft.soundsLike, delivers: draft.delivers,
+      confusedWith: draft.confusedWith, watchFor: draft.watchFor,
+      modules: draft.modules, stakeholderRoles: draft.stakeholderRoles, sourceUrl: draft.sourceUrl,
     });
     setBusy(false);
     if (!r.ok) { setSaveError(r.error ?? "Couldn't save."); return; }
@@ -266,7 +269,7 @@ export function UseCaseUniverse({ library, adoption, canEdit, overrides, allEntr
 
               {!editing && (
                 <p className="max-w-[62ch] font-body text-[16px] leading-[1.62] text-fg">
-                  {entry?.definition || selected.option.summary}
+                  {entry?.goal || selected.option.summary}
                 </p>
               )}
 
@@ -290,28 +293,85 @@ export function UseCaseUniverse({ library, adoption, canEdit, overrides, allEntr
                 <p className="font-body text-[12.5px] text-fg-subtle">
                   The name and categories come from the taxonomy — change those under <b className="font-semibold text-fg-muted">Manage</b>.
                 </p>
-                <EditField label="Definition" hint="One sentence: what the client is trying to achieve.">
-                  <textarea rows={2} className={fieldCls} value={draft.definition}
-                    onChange={(e) => setDraft({ ...draft, definition: e.target.value })} />
+                <EditField label="The goal" hint="One sentence: what the client is trying to achieve.">
+                  <textarea rows={2} className={fieldCls} value={draft.goal}
+                    onChange={(e) => setDraft({ ...draft, goal: e.target.value })} />
                 </EditField>
-                <EditField label="What it looks like" hint="What it actually looks like inside an account.">
-                  <textarea rows={3} className={fieldCls} value={draft.inPractice}
-                    onChange={(e) => setDraft({ ...draft, inPractice: e.target.value })} />
+
+                <EditField label="You'll hear it as" hint="The client's own words, one per line. This is how a CSM matches a call to a use case.">
+                  <textarea rows={Math.max(3, draft.soundsLike.length + 1)} className={fieldCls}
+                    placeholder={"every manager onboards differently\nit takes months before they're useful"}
+                    value={draft.soundsLike.join("\n")}
+                    onChange={(e) => setDraft({ ...draft, soundsLike: e.target.value.split("\n") })} />
                 </EditField>
-                <EditField label="Examples" hint="One per line.">
-                  <textarea rows={Math.max(3, draft.examples.length + 1)} className={fieldCls}
-                    value={draft.examples.join("\n")}
-                    onChange={(e) => setDraft({ ...draft, examples: e.target.value.split("\n") })} />
+
+                <EditField label="What we deliver" hint="The artefacts, one per line — what you could point at in the account.">
+                  <textarea rows={Math.max(3, draft.delivers.length + 1)} className={fieldCls}
+                    placeholder={"onboarding pathway\nprobation goals\nrole-to-competency matrix"}
+                    value={draft.delivers.join("\n")}
+                    onChange={(e) => setDraft({ ...draft, delivers: e.target.value.split("\n") })} />
                 </EditField>
-                <EditField label="Evidence it's working" hint="One per line — what you would actually observe.">
-                  <textarea rows={Math.max(3, draft.evidence.length + 1)} className={fieldCls}
-                    value={draft.evidence.join("\n")}
-                    onChange={(e) => setDraft({ ...draft, evidence: e.target.value.split("\n") })} />
+
+                <fieldset className="flex flex-col gap-2">
+                  <legend className="font-body text-[12px] font-semibold text-fg">Often confused with</legend>
+                  <span className="-mt-1 font-body text-[11.5px] text-fg-subtle">
+                    Name the neighbour and how to tell them apart. This is what stops one use case absorbing everything.
+                  </span>
+                  {draft.confusedWith.map((c, i) => (
+                    <div key={i} className="flex flex-wrap items-start gap-2">
+                      <select className={cn(fieldCls, "max-w-[220px] flex-1")} value={c.id}
+                        onChange={(e) => setDraft({
+                          ...draft,
+                          confusedWith: draft.confusedWith.map((x, j) => j === i ? { ...x, id: e.target.value } : x),
+                        })}>
+                        {allEntries.filter((u) => !u.retired && u.id !== draft.id)
+                          .map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+                      </select>
+                      <input className={cn(fieldCls, "flex-[2]")} placeholder="how to tell them apart"
+                        value={c.distinction}
+                        onChange={(e) => setDraft({
+                          ...draft,
+                          confusedWith: draft.confusedWith.map((x, j) => j === i ? { ...x, distinction: e.target.value } : x),
+                        })} />
+                      <button type="button" aria-label="Remove"
+                        onClick={() => setDraft({ ...draft, confusedWith: draft.confusedWith.filter((_, j) => j !== i) })}
+                        className="rounded-lg border border-border p-2 text-fg-subtle hover:text-[#B23A57]"><X size={12} /></button>
+                    </div>
+                  ))}
+                  <button type="button"
+                    onClick={() => {
+                      const first = allEntries.find((u) => !u.retired && u.id !== draft.id
+                        && !draft.confusedWith.some((c) => c.id === u.id));
+                      if (first) setDraft({ ...draft, confusedWith: [...draft.confusedWith, { id: first.id, distinction: "" }] });
+                    }}
+                    className="self-start rounded-lg border border-border px-2.5 py-1 font-body text-[12px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+                    + Add one
+                  </button>
+                </fieldset>
+
+                <EditField label="Signs to watch" hint="Observable, one per line — things you'd notice without a measurement programme.">
+                  <textarea rows={Math.max(2, draft.watchFor.length + 1)} className={fieldCls}
+                    value={draft.watchFor.join("\n")}
+                    onChange={(e) => setDraft({ ...draft, watchFor: e.target.value.split("\n") })} />
                 </EditField>
-                <EditField label="How it usually fails">
-                  <textarea rows={2} className={fieldCls} value={draft.pitfall}
-                    onChange={(e) => setDraft({ ...draft, pitfall: e.target.value })} />
-                </EditField>
+
+                <fieldset className="flex flex-col gap-1.5">
+                  <legend className="font-body text-[12px] font-semibold text-fg">Modules</legend>
+                  <div className="flex flex-wrap gap-1.5">
+                    {MODULES.map((m) => {
+                      const on = draft.modules.includes(m);
+                      return (
+                        <button key={m} type="button" aria-pressed={on}
+                          onClick={() => setDraft({ ...draft, modules: on ? draft.modules.filter((x) => x !== m) : [...draft.modules, m as Module] })}
+                          className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-body text-[12px] transition-colors",
+                            on ? "border-sirius bg-accent-soft font-medium text-sirius" : "border-border text-fg-muted hover:border-sirius hover:text-sirius")}>
+                          {on && <Check size={10} strokeWidth={3} />} {m}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+
                 <fieldset className="flex flex-col gap-1.5">
                   <legend className="font-body text-[12px] font-semibold text-fg">Who usually owns it</legend>
                   <div className="flex flex-wrap gap-1.5">
@@ -332,6 +392,12 @@ export function UseCaseUniverse({ library, adoption, canEdit, overrides, allEntr
                     })}
                   </div>
                 </fieldset>
+
+                <EditField label="Source" hint="The Notion page, so the fuller material is always one click away.">
+                  <input className={fieldCls} placeholder="https://notion.so/…" value={draft.sourceUrl ?? ""}
+                    onChange={(e) => setDraft({ ...draft, sourceUrl: e.target.value || null })} />
+                </EditField>
+
                 <div className="flex flex-wrap items-center gap-2">
                   <button type="submit" disabled={busy}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-sirius px-3.5 py-2 font-body text-[13px] font-semibold text-white disabled:opacity-50">
@@ -360,29 +426,52 @@ export function UseCaseUniverse({ library, adoption, canEdit, overrides, allEntr
                   </p>
                 ) : (
                   <>
-                    {entry.inPractice && (
+                    {entry.soundsLike.length > 0 && (
                       <section className="flex flex-col gap-1.5">
-                        <Head>What it looks like</Head>
-                        <p className="font-body text-[13.5px] leading-relaxed text-fg-muted">{entry.inPractice}</p>
+                        <Head>You&rsquo;ll hear it as</Head>
+                        <ul className="flex flex-col gap-1">
+                          {entry.soundsLike.map((t, i) => (
+                            <li key={i} className="font-body text-[13.5px] italic leading-relaxed text-fg-muted">&ldquo;{t}&rdquo;</li>
+                          ))}
+                        </ul>
                       </section>
                     )}
 
-                    <Bullets title="Examples" items={entry.examples} />
-                    <Bullets title="Evidence it&rsquo;s working" items={entry.evidence} />
+                    <Bullets title="What we deliver" items={entry.delivers} />
 
-                    {entry.pitfall && (
+                    {entry.confusedWith.length > 0 && (
                       <section className="flex flex-col gap-1.5">
-                        <Head>How it usually fails</Head>
-                        <p className="font-body text-[13.5px] leading-relaxed text-fg-muted">{entry.pitfall}</p>
+                        <Head>Often confused with</Head>
+                        <ul className="flex flex-col gap-1.5">
+                          {entry.confusedWith.map((c) => {
+                            const other = allEntries.find((u) => u.id === c.id);
+                            if (!other) return null;
+                            return (
+                              <li key={c.id} className="font-body text-[13.5px] leading-relaxed text-fg-muted">
+                                <button onClick={() => setSelectedId(c.id)}
+                                  className="font-semibold text-sirius underline decoration-dotted underline-offset-2">
+                                  {other.label}
+                                </button>
+                                {c.distinction && <> — {c.distinction}</>}
+                              </li>
+                            );
+                          })}
+                        </ul>
                       </section>
                     )}
 
-                    {entry.stakeholderRoles.length > 0 && (
-                      <section className="flex flex-col gap-1.5">
-                        <Head>Who usually owns it</Head>
-                        <p className="font-body text-[13.5px] text-fg-muted">
-                          {entry.stakeholderRoles.map((r) => ROLE_LABEL[r]).join(" · ")}
-                        </p>
+                    <Bullets title="Signs to watch" items={entry.watchFor} />
+
+                    {(entry.modules.length > 0 || entry.stakeholderRoles.length > 0 || entry.sourceUrl) && (
+                      <section className="flex flex-col gap-1 border-t border-border-subtle pt-4 font-body text-[12.5px] text-fg-subtle">
+                        {entry.modules.length > 0 && <p>Runs on {entry.modules.join(" · ")}</p>}
+                        {entry.stakeholderRoles.length > 0 && (
+                          <p>Usually owned by {entry.stakeholderRoles.map((r) => ROLE_LABEL[r]).join(" · ")}</p>
+                        )}
+                        {entry.sourceUrl && (
+                          <p><a href={entry.sourceUrl} target="_blank" rel="noreferrer"
+                            className="text-sirius underline decoration-dotted underline-offset-2">Full page in Notion</a></p>
+                        )}
                       </section>
                     )}
                   </>

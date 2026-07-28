@@ -123,11 +123,11 @@ test("malformed input never throws", () => {
 
 /* ---- nothing is shipped as authored content ---------------------------- */
 
-import { USE_CASE_LIBRARY, mergeLibrary, isCustomised } from "./use-case-library";
+import { USE_CASE_LIBRARY, mergeLibrary, isCustomised, completeness } from "./use-case-library";
 
 test("no use-case description ships with the product", () => {
   assert.equal(USE_CASE_LIBRARY.length, 0,
-    "descriptions must come from the team, not from the codebase — an invented one reads as doctrine");
+    "descriptions must come from the team, not the codebase — an invented one reads as doctrine");
 });
 
 test("with nothing written, there is nothing to show", () => {
@@ -136,19 +136,47 @@ test("with nothing written, there is nothing to show", () => {
 });
 
 test("only what the team wrote comes back", () => {
-  const out = mergeLibrary({ tna: { definition: "Ours.", examples: ["A", "B"] } });
+  const out = mergeLibrary({ tna: { goal: "Ours.", soundsLike: ["we don't know what to train"] } });
   assert.equal(out.length, 1);
-  assert.equal(out[0].id, "tna");
-  assert.equal(out[0].definition, "Ours.");
-  assert.deepEqual(out[0].examples, ["A", "B"]);
-  assert.equal(out[0].pitfall, "", "an unwritten field stays empty rather than being filled in");
+  assert.equal(out[0].goal, "Ours.");
+  assert.deepEqual(out[0].soundsLike, ["we don't know what to train"]);
+  assert.deepEqual(out[0].delivers, [], "an unwritten field stays empty rather than being filled in");
 });
 
-test("an override holding only audit fields is not content", () => {
+test("an override holding only audit fields is not a description", () => {
   assert.deepEqual(mergeLibrary({ tna: { updatedAt: "2026-07-28", updatedBy: "a@b.com" } }), []);
   assert.equal(isCustomised("tna", { tna: { updatedAt: "x", updatedBy: "y" } }), false);
 });
 
-test("blank strings do not count as a description", () => {
-  assert.deepEqual(mergeLibrary({ tna: { definition: "   ", pitfall: "" } }), []);
+test("metadata alone is not a description either", () => {
+  assert.deepEqual(mergeLibrary({ tna: { modules: ["Perform"], sourceUrl: "https://notion.so/x" } }), [],
+    "a module tag tells a CSM nothing on its own");
+});
+
+test("blank strings and empty lines do not count", () => {
+  assert.deepEqual(mergeLibrary({ tna: { goal: "   ", soundsLike: ["", "  "] } }), []);
+});
+
+test("a confusedWith entry without an id is dropped", () => {
+  const out = mergeLibrary({
+    tna: { goal: "x", confusedWith: [{ id: "", distinction: "y" }, { id: "feedback_360", distinction: "z" }] },
+  });
+  assert.deepEqual(out[0].confusedWith.map((c) => c.id), ["feedback_360"]);
+});
+
+test("an unknown module is filtered out", () => {
+  const out = mergeLibrary({ tna: { goal: "x", modules: ["Perform", "Nonsense"] as never } });
+  assert.deepEqual(out[0].modules, ["Perform"]);
+});
+
+test("completeness counts the five written fields, not metadata", () => {
+  assert.equal(completeness(undefined), 0);
+  const one = mergeLibrary({ tna: { goal: "x" } })[0];
+  assert.equal(completeness(one), 1 / 5);
+  const all = mergeLibrary({ tna: {
+    goal: "x", soundsLike: ["a"], delivers: ["b"], watchFor: ["c"],
+    confusedWith: [{ id: "feedback_360", distinction: "d" }],
+    modules: ["Perform"], sourceUrl: "https://notion.so/x",
+  } })[0];
+  assert.equal(completeness(all), 1);
 });
