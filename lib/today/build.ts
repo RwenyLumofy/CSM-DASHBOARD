@@ -248,7 +248,14 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
     const acts = [...(actionsByClient.get(c.id) ?? [])].sort((a, b) => prioRank[a.priority] - prioRank[b.priority]);
     const dContact = daysSinceContact(c);
     const sigCount = signalsByAccount.get(c.id)?.length ?? 0;
+    // Usage risk was absent from this score entirely, which is why Today and
+    // Insights disagreed about who needs attention: an account that went from 8
+    // monthly actives to 0 scored nothing here if its health was fine and its
+    // renewal far off, so it sat at the top of Insights' early warnings and
+    // nowhere on Today. Worst risk first (see usageRisks).
+    const uRisk = usageRisks(c.usage, usageMoves.get(c.id))[0] ?? null;
     let score = 0;
+    if (uRisk) score += uRisk.severity === "high" ? 25 : 10;
     if (dRenew !== null) score += dRenew < 0 ? 50 : dRenew <= 14 ? 40 : dRenew <= 30 ? 30 : dRenew <= 90 ? 15 : 0;
     if (health < 40) score += 30; else if (health < 55) score += 20; else if (health < 70) score += 8;
     if (fresh.level === "stale") score += 12;
@@ -256,10 +263,10 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
     score += acts.reduce((s, a) => s + (a.priority === "high" ? 15 : a.priority === "medium" ? 8 : 4), 0);
     if (dContact !== null && dContact >= 60) score += 15; else if (dContact !== null && dContact >= 30) score += 8;
     score += Math.min(15, c.arr / 12_000);
-    return { c, dRenew, fresh, health, acts, dContact, sigCount, score };
+    return { c, dRenew, fresh, health, acts, dContact, sigCount, score, uRisk };
   }).filter((x) => x.sigCount > 0 || x.score >= 10).sort((a, b) => b.score - a.score).slice(0, 8);
 
-  const priorityRows: Priority[] = scored.map(({ c, dRenew, fresh, health, acts, dContact, score }, i) => {
+  const priorityRows: Priority[] = scored.map(({ c, dRenew, fresh, health, acts, dContact, score, uRisk }, i) => {
     const overdue = dRenew !== null && dRenew < 0;
     const expanding = c.arr > c.previousArr && c.previousArr > 0 && health >= 60;
     const top = acts[0];
@@ -272,6 +279,16 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
     else if (fresh.level === "stale") { state = "investigate"; reason = "Health data is stale — risk can't be trusted."; recommendedAction = "Investigate the data connection"; }
     else if (top && (top.category === "stakeholders" || top.category === "sentiment")) { state = "stabilise"; reason = top.title; recommendedAction = topMeta!.rec; }
     else if (health < 55 || (top && top.category === "health")) { state = "stabilise"; reason = top?.title ?? `Health at ${health} needs stabilising.`; recommendedAction = topMeta?.rec ?? "Stabilise declining health"; }
+    // Before the generic branches: without this, a dormant account with healthy
+    // scores fell all the way through to "maintain" and was labelled "Steady --
+    // confirm stakeholder coverage and value" while nobody was using the product.
+    else if (uRisk) {
+      state = "activate";
+      reason = uRisk.note;
+      recommendedAction = uRisk.kind === "dormant" ? "Re-engage before this becomes a churn conversation"
+        : uRisk.kind === "declined" ? "Find out what changed and recover usage"
+        : "Drive adoption of the licences already paid for";
+    }
     else if (top && (top.category === "usage" || top.category === "incomplete_profile")) { state = "activate"; reason = top.title; recommendedAction = topMeta!.rec; }
     else if (staleContact) { state = "stabilise"; reason = `No engagement in ${dContact} days — reconnect before it drifts.`; recommendedAction = "Schedule a check-in with the account"; }
     else if (expanding) { state = "grow"; reason = "Growing ARR with healthy adoption — expansion candidate."; recommendedAction = "Qualify an expansion opportunity"; }
@@ -283,6 +300,7 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
     if (dRenew !== null && dRenew <= 90) drivers.push({ label: overdue ? `Overdue ${Math.abs(dRenew)}d` : `Renews in ${dRenew}d`, weight: "primary" });
     drivers.push({ label: `${expanding ? "Expansion" : "ARR"} ${formatMoney(expanding ? Math.round((c.arr - c.previousArr) * 1.5) : c.arr)}`, weight: "primary" });
     if (health < 70) drivers.push({ label: `Health ${health}`, weight: "secondary" });
+    if (uRisk) drivers.push({ label: uRisk.kind === "dormant" ? "Dormant" : uRisk.kind === "declined" ? "Usage falling" : "Low adoption", weight: uRisk.severity === "high" ? "primary" : "secondary" });
     if (acts.length) drivers.push({ label: `${acts.length} open signal${acts.length === 1 ? "" : "s"}`, weight: "secondary" });
     if (staleContact) drivers.push({ label: `No contact ${dContact}d`, weight: "secondary" });
     if (fresh.level === "stale") drivers.push({ label: "Data stale", weight: "secondary" });
