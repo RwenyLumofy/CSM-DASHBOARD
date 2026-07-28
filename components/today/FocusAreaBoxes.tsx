@@ -172,8 +172,12 @@ export function FocusAreaBoxes() {
                               category: cat.id as LaneKey,
                               title: seedTaskTitle,
                               ...(item.accountId ? { accountId: item.accountId } : {}),
-                              ...(item.source === "signal" || item.source === "commitment"
-                                ? { sourceType: item.source, sourceId: item.id }
+                              // Only claim provenance when there's a real signal or
+                              // commitment to point at — storing the lane's own id
+                              // wrote a dangling source_id and silently suppressed
+                              // the "created from" chip.
+                              ...((item.source === "signal" || item.source === "commitment") && item.sourceRefId
+                                ? { sourceType: item.source, sourceId: item.sourceRefId }
                                 : {}),
                             })}
                             title="Create a task from this"

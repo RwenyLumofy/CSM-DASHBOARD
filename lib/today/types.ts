@@ -437,6 +437,12 @@ export interface LaneItem {
   projectId?: string;
   tone: LaneItemTone;
   dueDate?: string | null;
+  /** The id of the signal/commitment this row was derived FROM, when there is
+   *  one. `id` is a lane-scoped display key (`dr_`, `es_`, `sk_`, `ex_`) and for
+   *  priority-derived rows it wraps an ACCOUNT id, so it can never resolve back
+   *  to a signal — which is why the provenance chip never appeared and tasks
+   *  were saved with a source_id pointing at nothing. */
+  sourceRefId?: string;
   taskId?: string; // when source === "task"
   done?: boolean;
   priority?: TaskPriority; // task display
