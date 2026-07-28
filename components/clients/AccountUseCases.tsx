@@ -14,8 +14,12 @@
    signal. Merging them into a single chip list — which is what the rollup did —
    destroys both facts.
 
-   The picker groups 26 options into 5 themes and adds search, because the
-   previous experience was one flat ungrouped multi-select. */
+   The picker follows the published taxonomy: 23 use cases across 6 categories,
+   with search and each option's own one-line summary, because the previous
+   experience was 26 flat ungrouped labels with no explanation — and you cannot
+   choose confidently between "Job-Role-Specific Training" and "Technical Skills
+   Training" from the names alone. Three use cases are cross-listed and appear
+   under both their categories, as the deck itself shows them. */
 
 import { useMemo, useState } from "react";
 import { Check, ChevronDown, Loader2, Search, Target, AlertTriangle, Sparkles } from "lucide-react";
@@ -49,7 +53,8 @@ export function AccountUseCases({ clientId, accountUseCases, dealUseCases, canEd
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set(["learning"]));
+  // Enablement first — it's where the two whole-account use cases live.
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set(["enablement"]));
 
   const dirty = useMemo(
     () => JSON.stringify([...selected].sort()) !== JSON.stringify([...cmp.confirmed].sort()),
@@ -65,7 +70,14 @@ export function AccountUseCases({ clientId, accountUseCases, dealUseCases, canEd
   }
 
   const q = query.trim().toLowerCase();
-  const matches = (id: string) => !q || useCaseLabel(id).toLowerCase().includes(q);
+  // Search the summary too: someone looking for "onboarding" should find
+  // Employee Onboarding, and someone typing "KPI" should reach Performance
+  // Management through its description.
+  const matches = (id: string) => {
+    if (!q) return true;
+    const u = USE_CASE_BY_ID.get(id);
+    return `${u?.label ?? id} ${u?.summary ?? ""}`.toLowerCase().includes(q);
+  };
 
   return (
     <section className="rounded-xl border border-border p-4" aria-labelledby="uc-h">
@@ -151,7 +163,9 @@ export function AccountUseCases({ clientId, accountUseCases, dealUseCases, canEd
 
           <div className="flex flex-col gap-1.5">
             {USE_CASE_GROUPS.map((g) => {
-              const items = USE_CASES.filter((u) => u.group === g.id && matches(u.id));
+              // groups is plural: a cross-listed use case (360 Feedback,
+              // Certification Prep, TNA) legitimately appears under two headings.
+              const items = USE_CASES.filter((u) => u.groups.includes(g.id) && matches(u.id));
               if (items.length === 0) return null;
               // Search auto-expands, otherwise groups behave as the user left them.
               const open = q.length > 0 || openGroups.has(g.id);
@@ -188,8 +202,17 @@ export function AccountUseCases({ clientId, accountUseCases, dealUseCases, canEd
                                 on ? "border-sirius bg-sirius text-white" : "border-border")}>
                                 {on && <Check size={11} strokeWidth={3} />}
                               </span>
-                              <span className="flex-1">{u.label}</span>
-                              {u.provisional && <span className="font-body text-[10.5px] text-fg-subtle">provisional</span>}
+                              <span className="flex-1">
+                                <span className="block">{u.label}</span>
+                                {/* The deck's own one-liner, so the choice is
+                                    informed at the moment it's made. */}
+                                <span className="block font-body text-[11px] text-fg-subtle">{u.summary}</span>
+                              </span>
+                              {u.groups.length > 1 && (
+                                <span className="shrink-0 font-body text-[10.5px] text-fg-subtle">also in {u.groups.length - 1} other</span>
+                              )}
+                              {u.unresolved && <span className="shrink-0 font-body text-[10.5px] text-[#8A6D12]">unlisted</span>}
+                              {u.provisional && <span className="shrink-0 font-body text-[10.5px] text-fg-subtle">provisional</span>}
                             </button>
                           </li>
                         );

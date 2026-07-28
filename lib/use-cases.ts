@@ -1,160 +1,188 @@
 /* =========================================================================
-   Use cases — what the client actually bought the platform to achieve.
+   Use cases — the published Lumofy taxonomy.
 
-   THE PROBLEM THIS FIXES
+   SOURCE OF TRUTH is "Lumofy Use Cases by Category": 23 use cases across 6
+   categories. Not the HubSpot `use_cases` picklist, which predates it and has
+   drifted badly — 11 of the 23 cannot be selected in HubSpot at all (nobody
+   can record AI Readiness or Digital Transformation on a deal), and two
+   HubSpot options collapse into one published use case.
 
-   Use cases only ever existed on the DEAL (client_deals.use_cases, a jsonb
-   array fed from HubSpot's `use_cases` multi-select). The account-level view,
-   `use_cases_rollup`, is a derived union of the tracked deals and is READ-ONLY
-   — so a CSM who learns in month four that the account is really doing
-   succession planning has nowhere to say so. The only writable copy is a field
-   sales filled in before the account existed.
+   THREE THINGS THIS FILE GETS RIGHT THAT THE PREVIOUS MODEL DID NOT
 
-   The picklist itself has problems visible in the live data:
+   1. A use case can belong to SEVERAL categories. 360° Feedback, Certification
+      Preparation and TNA each sit in two — that's 26 category slots over 23
+      distinct use cases. Modelling one group per use case loses the deck's own
+      cross-references.
 
-     "Talenet Assesments"   a typo, in the option list AND on a real deal
-     "Unclear"              a use-case option meaning "we don't know"
-     26 flat options        one ungrouped multi-select, no search
+   2. Live HubSpot values are aliased onto canonical ids on READ. No migration,
+      nothing rewritten, and every historical value stays resolvable.
 
-   WHAT THIS MODULE DOES
-
-   - Groups the 26 options into 5 themes, so choosing is a two-step decision
-     ("what kind of thing?" then "which one?") rather than scanning a wall.
-   - Maps misspellings and drifted labels onto canonical ids via ALIASES, so
-     existing data keeps working with no migration and no data loss. Nothing is
-     rewritten in place; normalisation happens on read, the same approach
-     normalizeStakeholderMappings already uses.
-   - Keeps "Unclear" and "Other" as real, selectable values but marks them
-     `provisional`. They ARE the honest answer early on; the point is to be
-     able to SEE that an account is still unclear, which a flat list cannot.
-   - Separates the sales-declared use cases (deal, HubSpot's) from the
-     CS-confirmed ones (account, ours). Both are kept. When they disagree, that
-     disagreement is itself worth showing.
+   3. A value with real usage and no canonical home is NOT silently folded away.
+      Qiwa Disclosure is on 8 deals — the second most-used value in the whole
+      book — and appears nowhere in the published 23. Quietly mapping it to
+      Compliance Training would erase a distinct regulatory obligation and make
+      the discrepancy invisible. It's carried in UNRESOLVED instead, so it keeps
+      working and stays visible as a taxonomy decision somebody has to make.
    ========================================================================= */
 
-export type UseCaseGroup = "learning" | "capability" | "talent" | "compliance" | "platform";
+export type UseCaseGroup =
+  | "enablement" | "readiness" | "capability" | "performance" | "assessment" | "engagement";
 
 export interface UseCaseOption {
-  /** Stable id. Never rendered; never changes once shipped. */
   id: string;
   label: string;
-  group: UseCaseGroup;
-  /** True for "we don't know yet" answers. Selectable, but reportable as
-   *  unresolved rather than silently counted as a real use case. */
+  /** Short line from the deck. */
+  summary: string;
+  /** Every category this belongs to — several, for the cross-listed ones. */
+  groups: UseCaseGroup[];
+  /** True for values that carry real data but sit outside the published 23. */
+  unresolved?: boolean;
+  /** True for "we haven't established this yet" answers. */
   provisional?: boolean;
 }
 
 export const USE_CASE_GROUPS: { id: UseCaseGroup; label: string; blurb: string }[] = [
-  { id: "learning", label: "Learning & enablement", blurb: "Getting people the knowledge to do the job." },
-  { id: "capability", label: "Capability building", blurb: "Growing skills and leadership over time." },
-  { id: "talent", label: "Talent & performance", blurb: "Assessing, developing and moving people." },
-  { id: "compliance", label: "Compliance & regulatory", blurb: "Obligations that must be evidenced." },
-  { id: "platform", label: "Platform & consolidation", blurb: "Why Lumofy rather than the status quo." },
+  { id: "enablement", label: "Enablement", blurb: "Consolidate and activate L&D at scale" },
+  { id: "readiness", label: "Readiness & Transformation", blurb: "Prepare the workforce for what's next" },
+  { id: "capability", label: "Capability Building", blurb: "Build the skills the business needs" },
+  { id: "performance", label: "Performance Management", blurb: "Connect goals, KPIs, and growth" },
+  { id: "assessment", label: "Assessment", blurb: "Measure capability with evidence" },
+  { id: "engagement", label: "Engagement", blurb: "Build connection, belonging, and motivation" },
 ];
 
-/** The canonical list. `label` matches the HubSpot option text where one
- *  exists, so a value round-trips unchanged — except where HubSpot's text is
- *  misspelled, which ALIASES handles instead of propagating the error. */
+/** The published 23, in deck order, plus the unresolved tail. */
 export const USE_CASES: UseCaseOption[] = [
-  { id: "onboarding_new_joiner", label: "Onboarding new joiners", group: "learning" },
-  { id: "product_knowledge", label: "Product knowledge", group: "learning" },
-  { id: "service_knowledge", label: "Service knowledge", group: "learning" },
-  { id: "functional_knowledge", label: "Functional knowledge", group: "learning" },
-  { id: "job_related_skills", label: "Building job-related skills", group: "learning" },
-  { id: "internal_knowledge_base", label: "Internal knowledge base development", group: "learning" },
+  // ── Enablement (2)
+  { id: "talent_strategy_activation", label: "End-to-End Talent Strategy Activation", summary: "Align talent initiatives with organizational goals.", groups: ["enablement"] },
+  { id: "centralized_learning_academy", label: "Centralized Learning Academy", summary: "Consolidate all programs, content, and reporting.", groups: ["enablement"] },
 
-  { id: "leadership_capabilities", label: "Building leadership capabilities", group: "capability" },
-  { id: "upskilling_reskilling", label: "Upskilling / reskilling", group: "capability" },
-  { id: "succession_development", label: "Preparing for a new role (succession)", group: "capability" },
-  { id: "certification_prep", label: "Preparation for certification", group: "capability" },
-  { id: "top_performer_sharing", label: "Sharing experience of top performers", group: "capability" },
-  { id: "sme_sharing", label: "Sharing experience of an SME", group: "capability" },
-  { id: "graduate_development", label: "Graduate development programme", group: "capability" },
+  // ── Readiness & Transformation (9)
+  { id: "employee_onboarding", label: "Employee Onboarding", summary: "Streamline onboarding across teams.", groups: ["readiness"] },
+  { id: "compliance_training", label: "Compliance Training", summary: "Meet evolving regulatory needs.", groups: ["readiness"] },
+  { id: "certification_prep", label: "Certification Preparation", summary: "Support industry certification readiness.", groups: ["readiness", "capability"] },
+  { id: "gdp", label: "Graduate Development Program (GDP)", summary: "Develop graduates into ready professionals.", groups: ["readiness"] },
+  { id: "succession_hipo", label: "Succession Development (HiPo)", summary: "Prepare successors for future leadership roles.", groups: ["readiness"] },
+  { id: "career_transition", label: "Career Transition Readiness", summary: "Prepare employees to succeed in their next role.", groups: ["readiness"] },
+  { id: "hiring_role_assessments", label: "Hiring & Role-Based Assessments", summary: "Improve talent decisions across job roles.", groups: ["readiness"] },
+  { id: "ai_readiness", label: "AI Readiness", summary: "Build understanding and readiness for AI integration.", groups: ["readiness"] },
+  { id: "digital_transformation", label: "Digital Transformation", summary: "Prepare workforce for digital maturity and adoption.", groups: ["readiness"] },
 
-  { id: "performance_management", label: "Performance management", group: "talent" },
-  { id: "competency_framework", label: "Competency framework development", group: "talent" },
-  { id: "feedback_360", label: "360-degree feedback", group: "talent" },
-  { id: "engagement_surveys", label: "Engagement surveys", group: "talent" },
-  { id: "hiring_selection", label: "Hiring & selection", group: "talent" },
-  { id: "talent_assessments", label: "Talent assessments", group: "talent" },
-  { id: "idp", label: "Individual development plans (IDPs)", group: "talent" },
-  { id: "tna", label: "Training needs analysis (TNA)", group: "talent" },
+  // ── Capability Building (6 — certification_prep is cross-listed above)
+  { id: "upskilling_reskilling", label: "Upskilling & Reskilling", summary: "Build future-ready capabilities across roles.", groups: ["capability"] },
+  { id: "technical_skills", label: "Technical Skills Training", summary: "Build functional and role-specific capabilities.", groups: ["capability"] },
+  { id: "job_role_specific", label: "Job-Role-Specific Training", summary: "Build the skills employees need to perform.", groups: ["capability"] },
+  { id: "leadership_development", label: "Leadership Development", summary: "Strengthen leadership behaviors and decision-making.", groups: ["capability"] },
+  { id: "products_services_knowledge", label: "Products & Services Knowledge Enablement", summary: "Deepen understanding of company offerings.", groups: ["capability"] },
 
-  { id: "compliance_regulatory", label: "Compliance & regulatory requirements", group: "compliance" },
-  { id: "qiwa_disclosure", label: "Qiwa disclosure", group: "compliance" },
+  // ── Performance Management (5)
+  { id: "performance_management", label: "Performance Management", summary: "Align goals with KPIs.", groups: ["performance"] },
+  { id: "competency_framework", label: "Competency Framework Development", summary: "Define clear role expectations.", groups: ["performance"] },
+  { id: "idp", label: "Individual Development Plans (IDPs)", summary: "Define personalized development actions.", groups: ["performance"] },
+  { id: "feedback_360", label: "360° Feedback", summary: "Get insight from peers and managers.", groups: ["performance", "assessment"] },
+  { id: "tna", label: "Training Needs Analysis (TNA)", summary: "Discover skill gaps to guide learning.", groups: ["performance", "assessment"] },
 
-  { id: "centralise_lnd", label: "Centralising L&D on one platform", group: "platform" },
+  // ── Assessment (3 — feedback_360 and tna cross-listed above)
+  { id: "internal_assessment_hub", label: "Building Internal Assessment Hub", summary: "Centralize talent assessments across the org.", groups: ["assessment"] },
 
-  { id: "unclear", label: "Not yet established", group: "platform", provisional: true },
-  { id: "other", label: "Other", group: "platform", provisional: true },
+  // ── Engagement (1)
+  { id: "culture_engagement", label: "Culture & Engagement", summary: "Foster connection, belonging, and motivation.", groups: ["engagement"] },
+
+  /* ── Outside the published 23 ────────────────────────────────────────────
+     Real values with real deal data and no canonical home. Kept selectable so
+     nothing breaks and no history becomes unreadable, and flagged so the
+     discrepancy stays visible rather than being resolved by silent guesswork. */
+  { id: "qiwa_disclosure", label: "Qiwa Disclosure", summary: "Saudi Qiwa training-disclosure obligations.", groups: ["readiness"], unresolved: true },
+  { id: "internal_knowledge_base", label: "Internal Knowledge Base Development", summary: "Capture institutional knowledge internally.", groups: ["enablement"], unresolved: true },
+  { id: "expertise_sharing", label: "Expertise Sharing (top performers / SMEs)", summary: "Turn what the best people know into shared content.", groups: ["capability"], unresolved: true },
+
+  { id: "unclear", label: "Not yet established", summary: "Nobody has yet recorded what this account is trying to achieve.", groups: ["enablement"], provisional: true },
+  { id: "other", label: "Other", summary: "A genuine use case the taxonomy does not yet cover.", groups: ["enablement"], provisional: true },
 ];
 
 export const USE_CASE_BY_ID = new Map(USE_CASES.map((u) => [u.id, u]));
 
-/**
- * Incoming label (HubSpot text, or a previously-stored value) → canonical id.
- *
- * "Talenet Assesments" is HubSpot's actual option text, misspelled twice. It is
- * mapped rather than corrected at source because we do not own that picklist —
- * and even once it is fixed there, deals already carrying the old string must
- * keep resolving. Same reasoning for every other entry: this table only ever
- * grows, and no historical value is allowed to become unreadable.
- */
-const ALIASES: Record<string, string> = {
-  "talenet assesments": "talent_assessments",
-  "talent assesments": "talent_assessments",
-  "talent assessments": "talent_assessments",
-  "onboarding new joiner": "onboarding_new_joiner",
-  "preparing for a new role (succession development)": "succession_development",
-  "building leadership capabilities": "leadership_capabilities",
-  "preparation for certification": "certification_prep",
-  "building job-related skills": "job_related_skills",
-  "compliance and regulatory requirements": "compliance_regulatory",
-  "product knowledge": "product_knowledge",
-  "service knowledge": "service_knowledge",
-  "functional knowledge": "functional_knowledge",
-  "sharing experience of top performers": "top_performer_sharing",
-  "sharing experience of a subject matter expert (sme)": "sme_sharing",
-  "qiwa disclosure": "qiwa_disclosure",
-  "upskilling / reskilling": "upskilling_reskilling",
-  "upskilling/reskilling": "upskilling_reskilling",
-  "centralizing l&d under one digital platform": "centralise_lnd",
-  "centralising l&d under one digital platform": "centralise_lnd",
-  "training needs analysis (tna)": "tna",
-  "performance management": "performance_management",
-  "competency framework development": "competency_framework",
-  "360 degree feedback": "feedback_360",
-  "360-degree feedback": "feedback_360",
-  "engagement surveys": "engagement_surveys",
-  "graduate development program (gdp)": "graduate_development",
-  "graduate development programme": "graduate_development",
-  "hiring & selection": "hiring_selection",
-  "hiring and selection": "hiring_selection",
-  "internal knowledge base development": "internal_knowledge_base",
-  "individual development plans (idps)": "idp",
-  "unclear": "unclear",
-  "not yet established": "unclear",
-  "other": "other",
-};
+/** Use cases in a category, honouring cross-listing. */
+export const useCasesInGroup = (g: UseCaseGroup): UseCaseOption[] =>
+  USE_CASES.filter((u) => u.groups.includes(g));
 
 /**
- * Resolve any stored or synced value to a canonical id.
+ * Incoming label (HubSpot text, or a previously-stored id) → canonical id.
  *
- * Returns null for something we genuinely don't recognise — callers surface
- * that as an unmapped value rather than dropping it, because silently
- * discarding a use case somebody typed is worse than showing it as unknown.
+ * Two things worth knowing:
+ *  - "Talenet Assesments" is HubSpot's own option text, misspelled twice. It is
+ *    mapped rather than corrected at source because we don't own that picklist,
+ *    and deals already carrying the string must keep resolving even after it's
+ *    fixed there.
+ *  - Product Knowledge and Service Knowledge are separate in HubSpot and a
+ *    SINGLE use case in the published taxonomy. Both map to the same id, which
+ *    is why 11 deal-uses collapse to one entry.
  */
+const ALIASES: Record<string, string> = {
+  // live HubSpot values
+  "building job-related skills": "job_role_specific",
+  "qiwa disclosure": "qiwa_disclosure",
+  "centralizing l&d under one digital platform": "centralized_learning_academy",
+  "centralising l&d under one digital platform": "centralized_learning_academy",
+  "building leadership capabilities": "leadership_development",
+  "upskilling / reskilling": "upskilling_reskilling",
+  "upskilling/reskilling": "upskilling_reskilling",
+  "upskilling & reskilling": "upskilling_reskilling",
+  "product knowledge": "products_services_knowledge",
+  "service knowledge": "products_services_knowledge",
+  "compliance and regulatory requirements": "compliance_training",
+  "compliance training": "compliance_training",
+  "unclear": "unclear",
+  "not yet established": "unclear",
+  "functional knowledge": "technical_skills",
+  "technical skills training": "technical_skills",
+  "preparing for a new role (succession development)": "succession_hipo",
+  "succession development (hipo)": "succession_hipo",
+  "training needs analysis (tna)": "tna",
+  "internal knowledge base development": "internal_knowledge_base",
+  "onboarding new joiner": "employee_onboarding",
+  "employee onboarding": "employee_onboarding",
+  "other": "other",
+  "preparation for certification": "certification_prep",
+  "certification preparation": "certification_prep",
+  "sharing experience of top performers": "expertise_sharing",
+  "sharing experience of a subject matter expert (sme)": "expertise_sharing",
+  "talenet assesments": "internal_assessment_hub",
+  "talent assesments": "internal_assessment_hub",
+  "talent assessments": "internal_assessment_hub",
+  // deck labels not yet in HubSpot
+  "end-to-end talent strategy activation": "talent_strategy_activation",
+  "centralized learning academy": "centralized_learning_academy",
+  "graduate development program (gdp)": "gdp",
+  "graduate development programme": "gdp",
+  "career transition readiness": "career_transition",
+  "hiring & role-based assessments": "hiring_role_assessments",
+  "hiring & selection": "hiring_role_assessments",
+  "hiring and selection": "hiring_role_assessments",
+  "ai readiness": "ai_readiness",
+  "digital transformation": "digital_transformation",
+  "job-role-specific training": "job_role_specific",
+  "leadership development": "leadership_development",
+  "products & services knowledge enablement": "products_services_knowledge",
+  "performance management": "performance_management",
+  "competency framework development": "competency_framework",
+  "individual development plans (idps)": "idp",
+  "360° feedback": "feedback_360",
+  "360 degree feedback": "feedback_360",
+  "360-degree feedback": "feedback_360",
+  "building internal assessment hub": "internal_assessment_hub",
+  "culture & engagement": "culture_engagement",
+  "engagement surveys": "culture_engagement",
+};
+
 export function resolveUseCase(raw: string): string | null {
   const key = raw.trim().toLowerCase();
   if (!key) return null;
   if (ALIASES[key]) return ALIASES[key];
   if (USE_CASE_BY_ID.has(key)) return key;
-  const byLabel = USE_CASES.find((u) => u.label.toLowerCase() === key);
-  return byLabel?.id ?? null;
+  return USE_CASES.find((u) => u.label.toLowerCase() === key)?.id ?? null;
 }
 
 export interface ResolvedUseCases {
-  /** Canonical ids, de-duplicated, in taxonomy order. */
   ids: string[];
   /** Values we couldn't map — shown, never silently dropped. */
   unmapped: string[];
@@ -176,23 +204,17 @@ export function normalizeUseCases(raw: unknown): ResolvedUseCases {
 
 export const useCaseLabel = (id: string): string => USE_CASE_BY_ID.get(id)?.label ?? id;
 
-/** True when the account has only provisional answers — "Unclear"/"Other" and
- *  nothing else. Distinct from having none at all, and worth acting on
- *  differently: one is unanswered, the other is answered "we don't know". */
+/** Answered "we don't know" — distinct from never having been asked. */
 export function isProvisionalOnly(ids: string[]): boolean {
   return ids.length > 0 && ids.every((id) => USE_CASE_BY_ID.get(id)?.provisional);
 }
 
-/** Where the account's confirmed use cases are stored (client.properties). */
+/** Selected use cases that sit outside the published 23. */
+export const unresolvedSelections = (ids: string[]): UseCaseOption[] =>
+  ids.map((id) => USE_CASE_BY_ID.get(id)).filter((u): u is UseCaseOption => !!u?.unresolved);
+
 export const ACCOUNT_USE_CASES_KEY = "account_use_cases";
 
-/**
- * What sales declared (deals) vs what CS confirmed (account), and the delta.
- *
- * The delta is the interesting part: a use case sales sold that CS never
- * confirmed is a promise nobody has validated, and one CS added that was never
- * sold is expansion signal. Both are invisible while the two lists are merged.
- */
 export interface UseCaseComparison {
   confirmed: string[];
   declared: string[];
