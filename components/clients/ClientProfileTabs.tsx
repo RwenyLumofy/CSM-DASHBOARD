@@ -108,11 +108,14 @@ import type {
   SupportTicket,
 } from "@/lib/types";
 import { normalizeStakeholderMappings, type StakeholderMapping } from "@/lib/stakeholders";
+import { normalizeStakeholderProfiles, normalizeStakeholderLinks, PROFILES_KEY, LINKS_KEY } from "@/lib/stakeholders/profile";
+import { StakeholdersTab } from "@/components/clients/stakeholders/StakeholdersTab";
 import { ActionFeed } from "@/components/actions/ActionFeed";
 import { NotesTab } from "@/components/clients/notes/NotesTab";
 import type { Note } from "@/lib/notes/types";
 
 type TabKey =
+  | "stakeholders"
   | "general"
   | "usage"
   | "communication"
@@ -148,16 +151,37 @@ interface Props {
   projectImplementers: Member[];
   projectCanManage: boolean;
   projectDbEnabled: boolean;
+  /** Write gate for the Stakeholders tab — canEditClient, resolved on the
+   *  server. The mutations enforce it again; this only decides what to render. */
+  canEditClient: boolean;
+  /** Assignable Lumofy owners for a stakeholder relationship. */
+  teamEmails: { email: string; name: string | null }[];
+  /** Server-resolved date, so the coverage rules can't drift with the
+   *  viewer's clock or time zone. */
+  today: string;
 }
 
 export function ClientProfileTabs(props: Props) {
-  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthConfig } = props;
+  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthConfig, canEditClient, teamEmails, today } = props;
   const [active, setActive] = useState<TabKey>("general");
+
+  const stakeholderProfiles = useMemo(
+    () => normalizeStakeholderProfiles((client.properties as Record<string, unknown> | undefined)?.[PROFILES_KEY]),
+    [client.properties],
+  );
+  const stakeholderLinks = useMemo(
+    () => normalizeStakeholderLinks(
+      (client.properties as Record<string, unknown> | undefined)?.[LINKS_KEY],
+      new Set(stakeholderProfiles.map((p) => p.id)),
+    ),
+    [client.properties, stakeholderProfiles],
+  );
 
   const commCount = contacts.length + emails.length + meetings.length;
 
   const TABS: { key: TabKey; label: string; icon: typeof Building2; count?: number }[] = [
     { key: "general", label: "General information", icon: Building2 },
+    { key: "stakeholders", label: "Stakeholders", icon: Users, count: stakeholderProfiles.length || undefined },
     { key: "communication", label: "Communication", icon: MessagesSquare, count: commCount || undefined },
     { key: "attachments", label: "Attachments", icon: Paperclip, count: attachments.length || undefined },
     { key: "usage", label: "Usage", icon: BarChart3 },
@@ -203,6 +227,18 @@ export function ClientProfileTabs(props: Props) {
       {/* ── Active panel ─────────────────────────────────────────────── */}
       <div className="min-w-0 flex flex-col gap-5">
         {active === "general" && <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} />}
+        {active === "stakeholders" && (
+          <StakeholdersTab
+            clientId={client.id}
+            initialProfiles={stakeholderProfiles}
+            initialLinks={stakeholderLinks}
+            contacts={contacts}
+            canEdit={canEditClient}
+            teamEmails={teamEmails}
+            renewalDate={client.renewalDate ?? null}
+            today={today}
+          />
+        )}
         {active === "usage" && <UsageTab clientId={client.id} />}
         {active === "communication" && <CommunicationTab clientId={client.id} contacts={contacts} emails={emails} meetings={meetings} stakeholderMappings={normalizeStakeholderMappings(client.properties?.stakeholder_mappings)} />}
         {active === "attachments" && <AttachmentsTab clientId={client.id} attachments={attachments} deals={deals} supabaseUrl={supabaseUrl} />}

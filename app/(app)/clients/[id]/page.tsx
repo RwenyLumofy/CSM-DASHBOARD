@@ -20,7 +20,7 @@ import {
 } from "@/lib/data";
 import { getAccountHealth, getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
 import { normalizePulse } from "@/lib/health/pulse";
-import { getCurrentUserRole, isSuperAdmin, isAdminOrSuper } from "@/lib/auth";
+import { getCurrentUserRole, isSuperAdmin, isAdminOrSuper, canEditClient } from "@/lib/auth";
 import { permissionRole } from "@/lib/roles";
 import { getProjectBoard, getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getNotesForClient } from "@/lib/notes/data";
@@ -44,6 +44,10 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const { id } = await params;
   const client = await getClientForProfile(id);
   if (!client) notFound();
+
+  // Resolved server-side; the stakeholder mutations enforce it again, so this
+  // only decides what the Stakeholders tab renders.
+  const mayEditClient = await canEditClient(client);
 
   const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, accountHealth, pulseDimensions, pulseTiers] =
     await Promise.all([
@@ -192,6 +196,9 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         projects={projects}
         projectConfig={projectConfig}
         projectTemplates={projectTemplates.map((t) => ({ id: t.id, name: t.name }))}
+        canEditClient={mayEditClient}
+        teamEmails={[...csmMembers, ...implMembers].map((m) => ({ email: m.email, name: m.name }))}
+        today={new Date().toISOString().slice(0, 10)}
         projectCsms={projectMembers(csmMembers)}
         projectImplementers={projectMembers(implMembers)}
         projectCanManage={role !== null}
