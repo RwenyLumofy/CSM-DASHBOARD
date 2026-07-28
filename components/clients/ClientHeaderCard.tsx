@@ -167,7 +167,19 @@ function OwnerCell({
               </span>
             </span>
           ) : (
-            <span className="font-body text-[13px] text-fg-subtle">Unassigned</span>
+            /* "Unassigned" is the obvious thing to click, so make it the target
+               too — previously it was inert text and the only affordance was the
+               small pill at the far right edge, which reads as decoration. */
+            canEdit ? (
+              <button
+                onClick={() => setEditing(true)}
+                className="rounded-md px-1 py-0.5 -mx-1 text-left font-body text-[13px] text-fg-subtle underline decoration-dotted underline-offset-4 transition-colors hover:bg-accent-soft/60 hover:text-sirius"
+              >
+                Unassigned
+              </button>
+            ) : (
+              <span className="font-body text-[13px] text-fg-subtle">Unassigned</span>
+            )
           )}
           {canEdit && (
             <button
