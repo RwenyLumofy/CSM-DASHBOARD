@@ -1313,6 +1313,95 @@ export async function setClientPropertyDb(clientId: string, key: string, value: 
   `);
 }
 
+/* -------------------------------------------------------------------------
+   Stakeholder profiles / links — element-level writes inside a JSONB ARRAY.
+
+   setClientPropertyDb replaces a whole key atomically, which is fine when one
+   writer owns the value (cs_pulse, cs_health). It is NOT enough here: two CSMs
+   editing two different stakeholders on the same account would each read the
+   array, change their own element, and write the whole array back — the second
+   write silently discarding the first person's edit. That is the exact
+   lost-update this file was already fixed for once; doing it in JS again would
+   reintroduce it one layer up.
+
+   So the array surgery happens in Postgres: a single UPDATE rebuilds the array
+   with the target element removed and the new one appended. Concurrent edits to
+   DIFFERENT stakeholders now both survive, because neither statement ever holds
+   a stale copy of the other's element.
+   ------------------------------------------------------------------------- */
+
+/** Insert-or-replace one element of a JSONB array keyed by its `id`. */
+async function upsertJsonbArrayElementDb(
+  clientId: string, key: string, elementId: string, element: unknown,
+): Promise<void> {
+  const db = getDb();
+  await db.execute(sql`
+    UPDATE clients
+       SET properties = COALESCE(properties, '{}'::jsonb) || jsonb_build_object(
+             ${key}::text,
+             COALESCE(
+               (SELECT jsonb_agg(e)
+                  FROM jsonb_array_elements(
+                         CASE WHEN jsonb_typeof(COALESCE(properties, '{}'::jsonb) -> ${key}) = 'array'
+                              THEN COALESCE(properties, '{}'::jsonb) -> ${key}
+                              ELSE '[]'::jsonb END) AS e
+                 WHERE e ->> 'id' IS DISTINCT FROM ${elementId}),
+               '[]'::jsonb
+             ) || jsonb_build_array(${JSON.stringify(element)}::jsonb)
+           ),
+           updated_at = now()
+     WHERE id = ${clientId}
+  `);
+}
+
+/** Remove elements from a JSONB array by id. `alsoMatch` additionally drops
+ *  elements whose `fromId`/`toId` equal the id — deleting a stakeholder must
+ *  take their relationship edges with them, in the same statement. */
+async function deleteJsonbArrayElementsDb(
+  clientId: string, key: string, elementId: string, alsoMatchEndpoints = false,
+): Promise<void> {
+  const db = getDb();
+  await db.execute(sql`
+    UPDATE clients
+       SET properties = COALESCE(properties, '{}'::jsonb) || jsonb_build_object(
+             ${key}::text,
+             COALESCE(
+               (SELECT jsonb_agg(e)
+                  FROM jsonb_array_elements(
+                         CASE WHEN jsonb_typeof(COALESCE(properties, '{}'::jsonb) -> ${key}) = 'array'
+                              THEN COALESCE(properties, '{}'::jsonb) -> ${key}
+                              ELSE '[]'::jsonb END) AS e
+                 WHERE e ->> 'id' IS DISTINCT FROM ${elementId}
+                   AND (${!alsoMatchEndpoints}::boolean
+                        OR (e ->> 'fromId' IS DISTINCT FROM ${elementId}
+                            AND e ->> 'toId' IS DISTINCT FROM ${elementId}))),
+               '[]'::jsonb
+             )
+           ),
+           updated_at = now()
+     WHERE id = ${clientId}
+  `);
+}
+
+export async function upsertStakeholderProfileDb(clientId: string, profile: { id: string } & Record<string, unknown>): Promise<void> {
+  await upsertJsonbArrayElementDb(clientId, "stakeholder_profiles", profile.id, profile);
+}
+
+/** Deletes the stakeholder AND every relationship edge touching them, so the
+ *  map can never render an edge to a person who no longer exists. */
+export async function deleteStakeholderProfileDb(clientId: string, profileId: string): Promise<void> {
+  await deleteJsonbArrayElementsDb(clientId, "stakeholder_profiles", profileId);
+  await deleteJsonbArrayElementsDb(clientId, "stakeholder_links", profileId, true);
+}
+
+export async function upsertStakeholderLinkDb(clientId: string, link: { id: string } & Record<string, unknown>): Promise<void> {
+  await upsertJsonbArrayElementDb(clientId, "stakeholder_links", link.id, link);
+}
+
+export async function deleteStakeholderLinkDb(clientId: string, linkId: string): Promise<void> {
+  await deleteJsonbArrayElementsDb(clientId, "stakeholder_links", linkId);
+}
+
 /**
  * Merge SEVERAL keys into a client's `properties` at once, atomically, and
  * optionally union values into the `__field_overrides` array in the same

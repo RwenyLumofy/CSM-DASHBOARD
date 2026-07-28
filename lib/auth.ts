@@ -194,6 +194,29 @@ export async function canEditClient(client: Client | null): Promise<boolean> {
   return scopeAdmits(client, scope, email);
 }
 
+/**
+ * Write gate for a client id, for use by server actions.
+ *
+ * Exists because the profile's server actions had all converged on the same
+ * mistake: they guarded with getClientById(), which applies canSeeClient — a
+ * READ gate. That admits `guest`, the explicitly read-only tier, to every
+ * mutation behind it (contacts, notes, ARR events, health recalculation), and
+ * for a scoped operator it only ever asked "can you see this", never "is it
+ * yours". Returning a message rather than throwing keeps the existing
+ * `{ ok, error }` action contract intact.
+ *
+ * @returns null when the caller may write, or a reason when they may not.
+ */
+export async function denyClientWrite(clientId: string): Promise<string | null> {
+  const { getClientById } = await import("@/lib/data");
+  const client = await getClientById(clientId);
+  // Null means "absent OR not visible" — deliberately indistinguishable, so an
+  // id-guesser can't use this endpoint to enumerate accounts.
+  if (!client) return "Not found, or you don't have access to this account.";
+  if (!(await canEditClient(client))) return "You don't have permission to edit this account.";
+  return null;
+}
+
 /** Restrict a client list to what the current user may see, honouring scope
  *  (all / assigned / selected). */
 export async function scopeClientsToUser(clients: Client[]): Promise<Client[]> {

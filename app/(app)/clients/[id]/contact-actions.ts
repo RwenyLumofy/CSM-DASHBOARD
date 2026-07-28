@@ -1,10 +1,15 @@
 "use server";
 
-/* Manual contact entry from the client profile — any user who can view the
-   client may add one. These never carry a hubspotContactId, so a later
-   HubSpot sync never touches, overwrites, or removes them. */
+/* Manual contact entry from the client profile. These never carry a
+   hubspotContactId, so a later HubSpot sync never touches, overwrites, or
+   removes them.
 
-import { getClientById, addManualContact, removeManualContact } from "@/lib/data";
+   The guard used to be "any user who can VIEW the client", which let the
+   read-only `guest` tier add and delete contacts. Writes now require
+   canEditClient (see denyClientWrite). */
+
+import { addManualContact, removeManualContact } from "@/lib/data";
+import { denyClientWrite } from "@/lib/auth";
 import type { Contact } from "@/lib/types";
 
 export interface ContactActionResult {
@@ -13,9 +18,8 @@ export interface ContactActionResult {
 }
 
 async function guard(clientId: string): Promise<ContactActionResult | null> {
-  const client = await getClientById(clientId);
-  if (!client) return { ok: false, error: "Not found or you don't have access to this account." };
-  return null;
+  const denied = await denyClientWrite(clientId);
+  return denied ? { ok: false, error: denied } : null;
 }
 
 export async function addContactAction(
