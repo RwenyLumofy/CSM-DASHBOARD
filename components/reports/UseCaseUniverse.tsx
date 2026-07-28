@@ -18,13 +18,41 @@
    part most easily misread, so counts inflated by picker behaviour rather than
    demand say so on the row itself instead of being presented as a ranking. */
 
-import { useMemo, useState } from "react";
-import { Search, Info, AlertTriangle, TrendingUp, Users2, ChevronRight, Layers } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Search, Info, AlertTriangle, TrendingUp, Users2, ChevronRight, Layers, Pencil, Loader2, RotateCcw, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { USE_CASE_GROUPS, type UseCaseGroup } from "@/lib/use-cases";
-import { ROLE_LABEL } from "@/lib/stakeholders/profile";
-import type { UseCaseEntry } from "@/lib/use-case-library";
+import { ROLE_LABEL, STAKEHOLDER_ROLES, type StakeholderRole } from "@/lib/stakeholders/profile";
+import type { UseCaseEntry, UseCaseOverride } from "@/lib/use-case-library";
 import type { AdoptionSummary, UseCaseAdoption } from "@/lib/use-case-adoption";
+import { saveUseCaseEntryAction, resetUseCaseEntryAction } from "@/app/(app)/use-cases/actions";
+
+const fieldCls =
+  "w-full rounded-lg border border-border bg-bg px-2.5 py-2 font-body text-[12.5px] leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-sirius focus:ring-2 focus:ring-sirius/15";
+
+function EditLabel({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <span className="mb-1 block">
+      <span className="block font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">{children}</span>
+      {hint && <span className="block font-body text-[11px] text-fg-subtle">{hint}</span>}
+    </span>
+  );
+}
+
+/* One textarea per list, one item per line. A repeater with add/remove buttons
+   is more clicks for the same result, and pasting three bullets from a doc is
+   the common case. */
+function ListField({ label, hint, value, onChange }: {
+  label: string; hint?: string; value: string[]; onChange: (v: string[]) => void;
+}) {
+  return (
+    <label className="block">
+      <EditLabel hint={hint}>{label}</EditLabel>
+      <textarea rows={Math.max(3, value.length + 1)} className={fieldCls}
+        value={value.join("\n")} onChange={(e) => onChange(e.target.value.split("\n"))} />
+    </label>
+  );
+}
 
 const money = (n: number) =>
   n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${Math.round(n / 1_000)}k` : `$${Math.round(n)}`;
@@ -56,10 +84,20 @@ function Bullets({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-export function UseCaseUniverse({ library, adoption }: { library: UseCaseEntry[]; adoption: AdoptionSummary }) {
+export function UseCaseUniverse({ library, adoption, canEdit, overrides }: {
+  library: UseCaseEntry[];
+  adoption: AdoptionSummary;
+  canEdit: boolean;
+  /** Which entries the team has already edited away from the baseline. */
+  overrides: Record<string, UseCaseOverride>;
+}) {
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<UseCaseGroup | "all">("all");
   const [selectedId, setSelectedId] = useState<string>(adoption.rows[0]?.option.id ?? "");
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<UseCaseEntry | null>(null);
 
   const byId = useMemo(() => new Map(library.map((e) => [e.id, e])), [library]);
   const adoptionById = useMemo(() => new Map(adoption.rows.map((r) => [r.option.id, r])), [adoption.rows]);
@@ -76,6 +114,37 @@ export function UseCaseUniverse({ library, adoption }: { library: UseCaseEntry[]
 
   const selected = adoptionById.get(selectedId);
   const entry = byId.get(selectedId);
+
+  // Switching use case abandons any open edit — otherwise a half-typed
+  // definition would silently follow you onto the next entry and overwrite it.
+  useEffect(() => { setEditing(false); setDraft(null); setSaveError(null); }, [selectedId]);
+
+  const customised = !!overrides[selectedId] &&
+    Object.keys(overrides[selectedId]).some((k) => k !== "updatedAt" && k !== "updatedBy");
+
+  async function save() {
+    if (!draft) return;
+    setBusy(true); setSaveError(null);
+    const r = await saveUseCaseEntryAction(draft.id, {
+      definition: draft.definition, inPractice: draft.inPractice,
+      examples: draft.examples, evidence: draft.evidence,
+      pitfall: draft.pitfall, stakeholderRoles: draft.stakeholderRoles,
+    });
+    setBusy(false);
+    if (!r.ok) { setSaveError(r.error ?? "Couldn't save."); return; }
+    // The server revalidates /use-cases; reload so the merged copy is what we
+    // render, rather than trusting a local guess at the merge result.
+    window.location.reload();
+  }
+
+  async function resetToBaseline() {
+    if (!window.confirm("Discard your team's wording and restore the shipped definition?")) return;
+    setBusy(true); setSaveError(null);
+    const r = await resetUseCaseEntryAction(selectedId);
+    setBusy(false);
+    if (!r.ok) { setSaveError(r.error ?? "Couldn't reset."); return; }
+    window.location.reload();
+  }
 
   const published = adoption.rows.filter((r) => !r.option.unresolved && !r.option.provisional);
   const inUse = published.filter((r) => r.confirmed.length + r.declaredOnly.length > 0).length;
@@ -180,8 +249,24 @@ export function UseCaseUniverse({ library, adoption }: { library: UseCaseEntry[]
                   </span>
                 )}
               </div>
-              <h2 className="mt-1.5 font-display text-[19px] font-semibold text-fg">{selected.option.label}</h2>
-              <p className="mt-1 font-body text-[13px] leading-relaxed text-fg-muted">{entry.definition}</p>
+              <div className="mt-1.5 flex flex-wrap items-start justify-between gap-2">
+                <h2 className="font-display text-[19px] font-semibold text-fg">{selected.option.label}</h2>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {customised && (
+                    <span title="Edited by your team; the shipped baseline is still recoverable"
+                      className="rounded-full border border-sirius/30 bg-accent-soft px-2 py-0.5 font-body text-[10.5px] font-semibold text-sirius">
+                      edited by your team
+                    </span>
+                  )}
+                  {canEdit && !editing && (
+                    <button onClick={() => { setDraft({ ...entry }); setEditing(true); }}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 font-body text-[11.5px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+                      <Pencil size={11} /> Edit
+                    </button>
+                  )}
+                </div>
+              </div>
+              {!editing && <p className="mt-1 font-body text-[13px] leading-relaxed text-fg-muted">{entry.definition}</p>}
             </header>
 
             {selected.option.unresolved && (
@@ -204,20 +289,99 @@ export function UseCaseUniverse({ library, adoption }: { library: UseCaseEntry[]
               </p>
             )}
 
-            <div>
-              <h4 className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">What it looks like</h4>
-              <p className="mt-1.5 font-body text-[12.5px] leading-relaxed text-fg-muted">{entry.inPractice}</p>
-            </div>
+            {editing && draft ? (
+              <form className="flex flex-col gap-3 rounded-xl border border-sirius/30 bg-accent-soft/20 p-3"
+                onSubmit={(e) => { e.preventDefault(); void save(); }}>
+                <p className="font-body text-[11.5px] text-fg-muted">
+                  Editing the definition only — the name and categories come from the published taxonomy and
+                  can&rsquo;t change here, because accounts are already recorded against them.
+                </p>
 
-            <Bullets title="Examples" items={entry.examples} />
-            <Bullets title="Evidence it's working" items={entry.evidence} />
+                <label className="block">
+                  <EditLabel hint="One sentence: what the client is trying to achieve.">Definition</EditLabel>
+                  <textarea rows={2} className={fieldCls} value={draft.definition}
+                    onChange={(e) => setDraft({ ...draft, definition: e.target.value })} />
+                </label>
 
-            <div>
-              <h4 className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">How it usually fails</h4>
-              <p className="mt-1.5 font-body text-[12.5px] leading-relaxed text-fg-muted">{entry.pitfall}</p>
-            </div>
+                <label className="block">
+                  <EditLabel hint="What it actually looks like inside an account.">What it looks like</EditLabel>
+                  <textarea rows={3} className={fieldCls} value={draft.inPractice}
+                    onChange={(e) => setDraft({ ...draft, inPractice: e.target.value })} />
+                </label>
 
-            {entry.stakeholderRoles.length > 0 && (
+                <ListField label="Examples" hint="One per line. Recognisable activities that tell this apart from neighbouring use cases."
+                  value={draft.examples} onChange={(v) => setDraft({ ...draft, examples: v })} />
+
+                <ListField label="Evidence it's working" hint="One per line. What you would actually observe."
+                  value={draft.evidence} onChange={(v) => setDraft({ ...draft, evidence: v })} />
+
+                <label className="block">
+                  <EditLabel hint="The way this one usually goes wrong.">How it usually fails</EditLabel>
+                  <textarea rows={2} className={fieldCls} value={draft.pitfall}
+                    onChange={(e) => setDraft({ ...draft, pitfall: e.target.value })} />
+                </label>
+
+                <fieldset>
+                  <legend className="mb-1 font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
+                    Who usually owns it
+                  </legend>
+                  <div className="flex flex-wrap gap-1.5">
+                    {STAKEHOLDER_ROLES.map((role) => {
+                      const on = draft.stakeholderRoles.includes(role);
+                      return (
+                        <button key={role} type="button" aria-pressed={on}
+                          onClick={() => setDraft({
+                            ...draft,
+                            stakeholderRoles: on
+                              ? draft.stakeholderRoles.filter((r) => r !== role)
+                              : [...draft.stakeholderRoles, role as StakeholderRole],
+                          })}
+                          className={cn("rounded-full border px-2.5 py-1 font-body text-[11.5px] font-medium transition-colors",
+                            on ? "border-sirius bg-accent-soft text-sirius" : "border-border text-fg-muted hover:border-sirius hover:text-sirius")}>
+                          {ROLE_LABEL[role]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+
+                {saveError && <p role="alert" className="font-body text-[12px] text-[#B23A57]">{saveError}</p>}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="submit" disabled={busy}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-sirius px-3 py-1.5 font-body text-[12.5px] font-semibold text-white disabled:opacity-50">
+                    {busy && <Loader2 size={12} className="animate-spin" />} Save definition
+                  </button>
+                  <button type="button" onClick={() => { setEditing(false); setDraft(null); setSaveError(null); }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 font-body text-[12.5px] font-medium text-fg-muted hover:text-fg">
+                    <X size={12} /> Cancel
+                  </button>
+                  {customised && (
+                    <button type="button" onClick={resetToBaseline} disabled={busy}
+                      className="ml-auto inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 font-body text-[12px] font-medium text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+                      <RotateCcw size={12} /> Restore shipped wording
+                    </button>
+                  )}
+                </div>
+              </form>
+            ) : (
+              <>
+                <div>
+                  <h4 className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">What it looks like</h4>
+                  <p className="mt-1.5 font-body text-[12.5px] leading-relaxed text-fg-muted">{entry.inPractice}</p>
+                </div>
+
+                <Bullets title="Examples" items={entry.examples} />
+                <Bullets title="Evidence it's working" items={entry.evidence} />
+
+                <div>
+                  <h4 className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">How it usually fails</h4>
+                  <p className="mt-1.5 font-body text-[12.5px] leading-relaxed text-fg-muted">{entry.pitfall}</p>
+                </div>
+              </>
+            )}
+
+            {!editing && entry.stakeholderRoles.length > 0 && (
               <div>
                 <h4 className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
                   Who usually owns it

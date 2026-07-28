@@ -25,7 +25,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Activity, HeartPulse, ClipboardList, TrendingDown, Compass, type LucideIcon } from "lucide-react";
+import { Activity, HeartPulse, ClipboardList, TrendingDown, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 export interface InsightsTab {
@@ -39,7 +39,6 @@ export const INSIGHTS_TABS: InsightsTab[] = [
   { href: "/reports/health", label: "Health", icon: HeartPulse },
   { href: "/reports/pulse", label: "Pulse", icon: ClipboardList },
   { href: "/reports/churn", label: "Churn", icon: TrendingDown },
-  { href: "/reports/use-cases", label: "Use Cases", icon: Compass },
 ];
 
 export function InsightsNav() {
