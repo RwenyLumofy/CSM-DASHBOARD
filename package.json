@@ -12,7 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "test": "node --import tsx --test lib/health/*.test.ts lib/stakeholders/*.test.ts"
+    "test": "node --import tsx --test lib/health/*.test.ts lib/stakeholders/*.test.ts lib/*.test.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.12.0",

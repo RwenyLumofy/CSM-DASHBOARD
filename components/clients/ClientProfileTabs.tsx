@@ -110,6 +110,10 @@ import type {
 import { normalizeStakeholderMappings, type StakeholderMapping } from "@/lib/stakeholders";
 import { normalizeStakeholderProfiles, normalizeStakeholderLinks, PROFILES_KEY, LINKS_KEY } from "@/lib/stakeholders/profile";
 import { StakeholdersTab } from "@/components/clients/stakeholders/StakeholdersTab";
+import { AccountUseCases } from "@/components/clients/AccountUseCases";
+import { AccountReminders, type AccountReminder } from "@/components/clients/AccountReminders";
+import { computeUseCasesRollup } from "@/lib/deal-overrides";
+import { ACCOUNT_USE_CASES_KEY } from "@/lib/use-cases";
 import { ActionFeed } from "@/components/actions/ActionFeed";
 import { NotesTab } from "@/components/clients/notes/NotesTab";
 import type { Note } from "@/lib/notes/types";
@@ -156,13 +160,15 @@ interface Props {
   canEditClient: boolean;
   /** Assignable Lumofy owners for a stakeholder relationship. */
   teamEmails: { email: string; name: string | null }[];
+  /** Account-scoped reminders — today_tasks in the "reminder" focus area. */
+  reminders: AccountReminder[];
   /** Server-resolved date, so the coverage rules can't drift with the
    *  viewer's clock or time zone. */
   today: string;
 }
 
 export function ClientProfileTabs(props: Props) {
-  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthConfig, canEditClient, teamEmails, today } = props;
+  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthConfig, canEditClient, teamEmails, today, reminders } = props;
   const [active, setActive] = useState<TabKey>("general");
 
   const stakeholderProfiles = useMemo(
@@ -226,7 +232,26 @@ export function ClientProfileTabs(props: Props) {
 
       {/* ── Active panel ─────────────────────────────────────────────── */}
       <div className="min-w-0 flex flex-col gap-5">
-        {active === "general" && <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} />}
+        {active === "general" && (
+          <>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <AccountUseCases
+                clientId={client.id}
+                accountUseCases={((client.properties as Record<string, unknown> | undefined)?.[ACCOUNT_USE_CASES_KEY] as { ids?: unknown } | undefined)?.ids}
+                dealUseCases={computeUseCasesRollup(deals.filter((d) => d.tracked !== false))}
+                canEdit={canEditClient}
+              />
+              <AccountReminders
+                clientId={client.id}
+                clientName={client.name}
+                initial={reminders}
+                canEdit={canEditClient}
+                today={today}
+              />
+            </div>
+            <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} />
+          </>
+        )}
         {active === "stakeholders" && (
           <StakeholdersTab
             clientId={client.id}
