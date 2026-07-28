@@ -46,6 +46,22 @@ function buildLaneSeeds(accounts: Account[], priorities: Priority[], signals: Si
   const RISK = new Set<OperationalState>(["rescue", "stabilise", "renew", "investigate"]);
   const derisking: LaneItem[] = [];
   for (const p of priorities) if (RISK.has(p.state)) derisking.push({ id: `dr_${p.accountId}`, source: "signal", title: name(p.accountId), subtitle: p.reason, accountId: p.accountId, tone: STATE_TONE[p.state], dueDate: p.dueDate ?? null });
+  // Adoption/usage risk had NOWHERE to land: the lanes only consumed delivery,
+  // expansion and relationship signals, so a dormant or collapsing account was
+  // detected and then shown on no board — and therefore couldn't be turned into
+  // a task either. One row per account (an account already surfaced by its
+  // priority isn't listed twice), so this ADDS the accounts the priority rules
+  // missed rather than duplicating the ones they caught.
+  const seededAccounts = new Set(derisking.map((i) => i.accountId));
+  for (const s of signals) {
+    if (s.category !== "adoption" || s.direction !== "negative") continue;
+    if (!s.accountId || seededAccounts.has(s.accountId)) continue;
+    seededAccounts.add(s.accountId);
+    derisking.push({
+      id: `dr_${s.id}`, source: "signal", title: name(s.accountId), subtitle: s.type,
+      accountId: s.accountId, tone: s.severity === "high" ? "danger" : "warning", dueDate: null,
+    });
+  }
   const escalations: LaneItem[] = [];
   for (const c of commitments) if (c.status === "overdue" || c.status === "escalation_required") escalations.push({ id: `es_${c.id}`, source: "commitment", title: `${name(c.accountId)} — ${c.title}`, subtitle: c.status === "overdue" ? "Overdue" : "Escalation required", accountId: c.accountId, tone: "danger", dueDate: c.dueDate });
   for (const s of signals) if (s.category === "delivery") escalations.push({ id: `es_${s.id}`, source: "signal", title: `${name(s.accountId)} — ${s.type}`, subtitle: "Delivery risk", accountId: s.accountId, tone: "danger" });

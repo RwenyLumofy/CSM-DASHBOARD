@@ -203,6 +203,10 @@ export const getAccountBand = (id: string): "healthy" | "watch" | "atrisk" | und
  *  defaults + any user-created ones). `tasks` is the effective task list
  *  (persisted + session-local, with status overrides). Auto-seeds are
  *  read-only; tasks render first + checkable. */
+/** Per-lane seed ceiling. Generous because the card shows 2 rows until
+ *  expanded — this bounds memory, not the visible list. */
+const SEED_LIMIT = 25;
+
 export function getBoard(scope: PortfolioScope, tasks: TodayTask[], categoryIds: string[]): { lanes: BoardLane[]; overview: StatusOverview } {
   const visible = visibleAccountIds(scope);
   const acc = mapOf(store.accounts);
@@ -217,7 +221,11 @@ export function getBoard(scope: PortfolioScope, tasks: TodayTask[], categoryIds:
     assigneeName: t.ownerEmail && t.ownerEmail !== me ? (usersById.get(t.ownerEmail)?.name ?? t.ownerEmail) : undefined,
   });
   const lanes: BoardLane[] = categoryIds.map((key) => {
-    const seeds = (store.laneSeeds[key] ?? []).filter((i) => !i.accountId || visible.has(i.accountId)).slice(0, 6);
+    // Cap raised from 6: the card only renders 2 rows until "View all", so the
+    // limit was hiding accounts rather than keeping the card small — and now that
+    // usage/adoption risk seeds this lane too, 6 silently dropped real signals a
+    // CSM needed to see (and could otherwise turn into a task).
+    const seeds = (store.laneSeeds[key] ?? []).filter((i) => !i.accountId || visible.has(i.accountId)).slice(0, SEED_LIMIT);
     // Account-linked tasks follow account visibility; standalone tasks only
     // show on the assignee's own board (they aren't scoped to a book).
     const laneTasks = tasks.filter((t) => t.category === key && (t.accountId ? visible.has(t.accountId) : t.ownerEmail === me));

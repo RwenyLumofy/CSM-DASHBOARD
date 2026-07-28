@@ -178,7 +178,11 @@ export function FocusAreaBoxes() {
                             })}
                             title="Create a task from this"
                             aria-label={`Create a task from ${item.title}`}
-                            className="grid size-5 shrink-0 place-items-center rounded text-fg-subtle opacity-0 transition-opacity hover:bg-accent-soft hover:text-sirius focus-visible:opacity-100 group-hover/seed:opacity-100">
+                            /* Visible at rest, not hover-only: an affordance nobody
+                               can find is the same as one that doesn't exist — the
+                               whole point of these rows is that a detected signal
+                               becomes a task. Quiet until hover, never invisible. */
+                            className="grid size-5 shrink-0 place-items-center rounded text-fg-subtle opacity-60 transition-all hover:bg-accent-soft hover:text-sirius hover:opacity-100 focus-visible:opacity-100 group-hover/seed:opacity-100">
                             <Plus size={12} />
                           </button>
                         </div>
