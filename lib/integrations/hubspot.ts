@@ -263,10 +263,27 @@ function sortPrimaryFirst(to: AssocTo[]): string[] {
   return [...to].sort((a, b) => Number(isPrimary(b)) - Number(isPrimary(a))).map((t) => String(t.toObjectId));
 }
 
-function num(v: string | null | undefined): number | null {
+/**
+ * Parse a HubSpot numeric property.
+ *
+ * A blank property and a MALFORMED one both used to return null, silently and
+ * identically — so a deal whose "Licenses" field held "1,000" or "50 users"
+ * (which happens when the HubSpot property is single-line text rather than a
+ * number, or someone formats the value by hand) landed in our database as
+ * "no licence count", indistinguishable from sales never filling it in. The
+ * account then shows INCOMPLETE PROFILE with no way to tell which of the two
+ * it is, or that anything was thrown away at all.
+ *
+ * Blank is still null and still silent — that's a real, expected state. A
+ * non-empty value we couldn't parse is now logged with the field and the
+ * offending text, so it's recoverable from the sync logs.
+ */
+function num(v: string | null | undefined, field?: string): number | null {
   if (v == null || v === "") return null;
   const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  if (Number.isFinite(n)) return n;
+  console.warn(`[hubspot] dropped unparseable number${field ? ` for ${field}` : ""}: ${JSON.stringify(v)}`);
+  return null;
 }
 
 /** HubSpot multi-select (checkbox/enumeration) values arrive ";"-separated. */
@@ -961,10 +978,10 @@ export class HubSpotClient {
         ownerEmail: ae?.email ?? null,
         hubspotUrl: `https://app.hubspot.com/contacts/${portal}/record/0-3/${dId}`,
         // Deal detail → combined into our contract/product/date props.
-        numberOfUsers: num(p.number_of_users),
-        pricePerUser: num(p.price_per_user),
-        complementaryLicenses: num(p.complementary_licenses),
-        contractDuration: num(p.contract_duration),
+        numberOfUsers: num(p.number_of_users, "number_of_users"),
+        pricePerUser: num(p.price_per_user, "price_per_user"),
+        complementaryLicenses: num(p.complementary_licenses, "complementary_licenses"),
+        contractDuration: num(p.contract_duration, "contract_duration"),
         products: splitMulti(p.modules),
         useCases: splitMulti(p.use_cases),
         contractStartDate: flexDate(p.contract_start_date),
@@ -973,9 +990,9 @@ export class HubSpotClient {
         implementationLevel: p.implementation_level?.trim() || null,
         // Global content library (deal-level, synced).
         globalLibraryPackage: splitMulti(p.global_libraries),
-        globalLibraryLicenses: num(p.global_libraries_licenses),
+        globalLibraryLicenses: num(p.global_libraries_licenses, "global_libraries_licenses"),
         // Custom AI course development credits (deal-level, synced).
-        aiCourseCredits: num(p.custom_ai_course_development_credits),
+        aiCourseCredits: num(p.custom_ai_course_development_credits, "custom_ai_course_development_credits"),
         // Sales → CSM handover brief (free text); empty until sales fills it in.
         accountBrief: p.use_case_brief?.trim() || null,
         // CS-pipeline stage -> Contracts & deals tab bucket. Direct/Indirect
@@ -1093,18 +1110,18 @@ export class HubSpotClient {
           ownerName: ae?.name ?? null,
           ownerEmail: ae?.email ?? null,
           hubspotUrl: `https://app.hubspot.com/contacts/${portal}/record/0-3/${dId}`,
-          numberOfUsers: num(p.number_of_users),
-          pricePerUser: num(p.price_per_user),
-          complementaryLicenses: num(p.complementary_licenses),
-          contractDuration: num(p.contract_duration),
+          numberOfUsers: num(p.number_of_users, "number_of_users"),
+          pricePerUser: num(p.price_per_user, "price_per_user"),
+          complementaryLicenses: num(p.complementary_licenses, "complementary_licenses"),
+          contractDuration: num(p.contract_duration, "contract_duration"),
           products: splitMulti(p.modules),
           useCases: splitMulti(p.use_cases),
           contractStartDate: flexDate(p.contract_start_date),
           supportLevel: p.support_level?.trim() || null,
           implementationLevel: p.implementation_level?.trim() || null,
           globalLibraryPackage: splitMulti(p.global_libraries),
-          globalLibraryLicenses: num(p.global_libraries_licenses),
-          aiCourseCredits: num(p.custom_ai_course_development_credits),
+          globalLibraryLicenses: num(p.global_libraries_licenses, "global_libraries_licenses"),
+          aiCourseCredits: num(p.custom_ai_course_development_credits, "custom_ai_course_development_credits"),
           accountBrief: p.use_case_brief?.trim() || null,
           category: cls.label === "cs" ? classifyCsCategory(p.dealstage) : "renewal",
           // A churned account has no active revenue — every historical deal is
