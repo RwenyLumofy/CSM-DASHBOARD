@@ -27,6 +27,7 @@ import { getAllProjectBoards } from "@/lib/repo/projects";
 import { getProjectConfig } from "@/lib/projects/data";
 import { isProjectComplete } from "@/lib/projects/config";
 import { getTodayTasksVisibleDb } from "@/lib/repo/drizzle";
+import { applyTriage, getTriageMap, priorityFingerprint } from "./triage";
 import { formatMoney } from "./format";
 import * as MOCK from "./mock";
 
@@ -217,7 +218,7 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
     return { c, dRenew, fresh, health, acts, dContact, sigCount, score };
   }).filter((x) => x.sigCount > 0 || x.score >= 10).sort((a, b) => b.score - a.score).slice(0, 8);
 
-  const priorities: Priority[] = scored.map(({ c, dRenew, fresh, health, acts, dContact, score }, i) => {
+  const priorityRows: Priority[] = scored.map(({ c, dRenew, fresh, health, acts, dContact, score }, i) => {
     const overdue = dRenew !== null && dRenew < 0;
     const expanding = c.arr > c.previousArr && c.previousArr > 0 && health >= 60;
     const top = acts[0];
@@ -255,6 +256,19 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
       secondaryCta: "review_account", _score: Math.round(score),
     };
   });
+
+  /* ---- apply the viewer's own triage decisions ----
+     Reviewed items stay (dimmed); snoozed ones are dropped before they reach
+     the client. A decision only holds while the priority looks the same — see
+     priorityFingerprint — so a genuinely new problem on an account the CSM
+     already reviewed resurfaces instead of staying buried. */
+  const triageMap = await getTriageMap(email);
+  const priorities: Priority[] = [];
+  for (const p of priorityRows) {
+    const verdict = applyTriage(triageMap[p.id], priorityFingerprint(p.state, p.reason), today);
+    if (verdict === "hidden") continue;
+    priorities.push({ ...p, triage: verdict, rank: priorities.length + 1 });
+  }
 
   /* ---- commitments (derived, at-risk only surface) ---- */
   const commitments: Commitment[] = [];

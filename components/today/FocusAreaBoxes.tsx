@@ -9,7 +9,7 @@
 import { useMemo, useState } from "react";
 import { Shield, Flag, KanbanSquare, TrendingUp, Users, Plus, ChevronDown, Check, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
-import type { LaneItem } from "@/lib/today/types";
+import type { LaneItem, LaneKey } from "@/lib/today/types";
 import { getBoard, getTasks, getToday } from "@/lib/today/repo";
 import { DEFAULT_CATEGORIES, DEFAULT_CATEGORY_IDS, CATEGORY_ACCENT, FOCUS_COUNT_NOUN, formatDate } from "@/lib/today/format";
 import { useToday } from "./TodayContext";
@@ -151,14 +151,37 @@ export function FocusAreaBoxes() {
                         </li>
                       );
                     }
+                    // A SEED is something the system noticed — read-only by
+                    // nature, and until now the only thing you could do with it
+                    // was open the account, then retype the work by hand. The
+                    // hover "+" turns it into a real task carrying its title,
+                    // account and origin, so acting on a signal is one click and
+                    // the task stays traceable back to what prompted it.
+                    const seedTaskTitle = item.subtitle ? `${item.title} — ${item.subtitle}` : item.title;
                     return (
-                      <li key={item.id} className="border-b border-border-subtle last:border-0">
-                        <button onClick={() => item.accountId && openAccount(item.accountId)} disabled={!item.accountId} title={item.title}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors enabled:hover:bg-bg-muted/50">
-                          <span className={cn("size-1.5 shrink-0 rounded-full", DOT[item.tone] ?? "bg-fg-subtle")} />
-                          <span className="min-w-0 flex-1 truncate font-body text-[12px] text-fg">{item.title}</span>
+                      <li key={item.id} className="group/seed border-b border-border-subtle last:border-0">
+                        <div className="flex items-center gap-2 px-3 py-1.5 transition-colors hover:bg-bg-muted/50">
+                          <button onClick={() => item.accountId && openAccount(item.accountId)} disabled={!item.accountId} title={item.accountId ? `Open ${item.title}` : item.title}
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                            <span className={cn("size-1.5 shrink-0 rounded-full", DOT[item.tone] ?? "bg-fg-subtle")} />
+                            <span className="min-w-0 flex-1 truncate font-body text-[12px] text-fg">{item.title}</span>
+                          </button>
                           {s && <span className={cn("shrink-0 font-body text-[10.5px]", s === "overdue" ? "font-semibold text-danger-fg" : s === "due today" ? "font-semibold text-warning-fg" : "text-fg-subtle")}>{s}</span>}
-                        </button>
+                          <button
+                            onClick={() => openAddTask({
+                              category: cat.id as LaneKey,
+                              title: seedTaskTitle,
+                              ...(item.accountId ? { accountId: item.accountId } : {}),
+                              ...(item.source === "signal" || item.source === "commitment"
+                                ? { sourceType: item.source, sourceId: item.id }
+                                : {}),
+                            })}
+                            title="Create a task from this"
+                            aria-label={`Create a task from ${item.title}`}
+                            className="grid size-5 shrink-0 place-items-center rounded text-fg-subtle opacity-0 transition-opacity hover:bg-accent-soft hover:text-sirius focus-visible:opacity-100 group-hover/seed:opacity-100">
+                            <Plus size={12} />
+                          </button>
+                        </div>
                       </li>
                     );
                   })}

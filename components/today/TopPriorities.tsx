@@ -8,12 +8,14 @@
    The section title adapts to scope: Do today / Team priorities / Focus now. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Info, Flag, AlertTriangle, ChevronDown, MoreHorizontal, Eye, BellOff, Building2, Plus } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { Priority, PortfolioScope } from "@/lib/today/types";
 import { getPriorities, getSignalsForPriority, getFocusRelated, getAccount, getUser, getToday } from "@/lib/today/repo";
 import { priorityLevel, priorityTypeFromTag, dataFlag, tagForSignalCategory, PRIORITY_CTA_LABEL, formatMoney, formatDate } from "@/lib/today/format";
 import { useToday as useTodayCtx } from "./TodayContext";
+import { setPriorityTriageAction } from "@/app/(app)/today/triage-actions";
 
 const RANKING_EXPLAINER = "Ranked by commercial exposure, urgency, signal severity, trend, open mitigation and data confidence. It organises work — it does not predict churn.";
 const HEADING: Record<PortfolioScope, string> = { my_portfolio: "Do today", my_team: "Team priorities", company: "Focus now" };
@@ -62,22 +64,27 @@ export function TopPriorities({ id }: { id?: string }) {
   const [sort, setSort] = useState<Sort>("recommended");
   const [filter, setFilter] = useState<Filter>("act");
   const [showAll, setShowAll] = useState(false);
-  const [reviewed, setReviewed] = useState<Set<string>>(new Set());
-  const [snoozed, setSnoozed] = useState<Set<string>>(new Set());
+  const router = useRouter();
+  // Optimistic overlays only. The durable decision is resolved server-side and
+  // arrives on p.triage ("reviewed") or is filtered out entirely ("snoozed") —
+  // these Sets just avoid a round-trip flash before the refresh lands. They
+  // used to BE the state, which is why Mark reviewed never survived a reload.
+  const [reviewedNow, setReviewedNow] = useState<Set<string>>(new Set());
+  const [snoozedNow, setSnoozedNow] = useState<Set<string>>(new Set());
   const [menuFor, setMenuFor] = useState<string | null>(null);
 
   const active = useMemo(() => {
-    let list = all.filter((p) => !snoozed.has(p.id));
+    let list = all.filter((p) => !snoozedNow.has(p.id));
     if (filter === "act") list = list.filter((p) => isActNow(p, today));
     else if (filter === "review") list = list.filter((p) => !isActNow(p, today));
     const arr = [...list];
     if (sort === "arr") arr.sort((a, b) => b.valueAtStake - a.valueAtStake);
     else if (sort === "urgent") arr.sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"));
     return arr;
-  }, [all, snoozed, sort, filter, today]);
+  }, [all, snoozedNow, sort, filter, today]);
 
   // Counts for the segmented control (independent of the active filter).
-  const notSnoozed = useMemo(() => all.filter((p) => !snoozed.has(p.id)), [all, snoozed]);
+  const notSnoozed = useMemo(() => all.filter((p) => !snoozedNow.has(p.id)), [all, snoozedNow]);
   const actCount = useMemo(() => notSnoozed.filter((p) => isActNow(p, today)).length, [notSnoozed, today]);
   const countFor = (f: Filter) => (f === "act" ? actCount : f === "review" ? notSnoozed.length - actCount : notSnoozed.length);
 
@@ -125,7 +132,7 @@ export function TopPriorities({ id }: { id?: string }) {
             const owner = getUser(p.suggestedActionOwnerId);
             const due = actionDue(p, today);
             const rel = getFocusRelated(p.accountId);
-            const isRev = reviewed.has(p.id);
+            const isRev = p.triage === "reviewed" || reviewedNow.has(p.id);
             const verb = PRIORITY_CTA_LABEL[p.primaryCta] ?? "Take action";
             const arrLine = `${formatMoney(p.valueAtStake)}${p.valueKind === "expansion" ? " potential" : " ARR"}${p.timing ? ` · ${p.timing}` : ""}`;
 
@@ -168,8 +175,16 @@ export function TopPriorities({ id }: { id?: string }) {
                   {menuFor === p.id && (
                     <RowMenu
                       onClose={() => setMenuFor(null)}
-                      onReviewed={() => act(() => setReviewed((s) => new Set(s).add(p.id)))}
-                      onSnooze={() => act(() => setSnoozed((s) => new Set(s).add(p.id)))}
+                      onReviewed={() => act(() => {
+                        setReviewedNow((s) => new Set(s).add(p.id));
+                        void setPriorityTriageAction({ priorityId: p.id, state: p.state, reason: p.reason, decision: "reviewed" })
+                          .then(() => router.refresh());
+                      })}
+                      onSnooze={() => act(() => {
+                        setSnoozedNow((s) => new Set(s).add(p.id));
+                        void setPriorityTriageAction({ priorityId: p.id, state: p.state, reason: p.reason, decision: "snoozed", untilDays: 7 })
+                          .then(() => router.refresh());
+                      })}
                       onOpen={() => act(() => openAccount(p.accountId))}
                       onAddTask={() => act(() => openAddTask({ accountId: p.accountId, title: p.recommendedAction }))}
                     />

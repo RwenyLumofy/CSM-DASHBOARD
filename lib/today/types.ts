@@ -219,6 +219,10 @@ export interface Priority {
   /** Opaque internal sort score — used ONLY for ordering, never shown as the
    *  primary explanation. */
   _score: number;
+  /** The viewer's own triage decision, resolved server-side against the
+   *  priority's CURRENT shape (see lib/today/triage.ts). "hidden" items are
+   *  filtered out before they reach the client. */
+  triage?: "reviewed" | "active";
 }
 
 export type PriorityCta =
