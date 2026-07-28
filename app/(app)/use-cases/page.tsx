@@ -3,6 +3,7 @@ import { getUseCaseAdoption } from "@/lib/use-case-adoption";
 import { mergeLibrary, LIBRARY_OVERRIDE_KEY } from "@/lib/use-case-library";
 import { hasDatabase } from "@/lib/config";
 import { isAdminOrSuper } from "@/lib/auth";
+import { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy, resolveGroups } from "@/lib/use-case-overlay";
 
 export const metadata = { title: "Use Case Universe · Lumofy Signals" };
 export const dynamic = "force-dynamic";
@@ -38,16 +39,32 @@ export default async function UseCaseUniversePage() {
     }
   })();
 
+  const taxonomy = await (async () => {
+    if (!hasDatabase()) return {};
+    try {
+      const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
+      return normalizeOverlay(await getWorkspaceConfigFromDb(TAXONOMY_KEY));
+    } catch { return {}; }
+  })();
+
   const [adoption, library, mayEdit] = [await getUseCaseAdoption(), mergeLibrary(overrides), await isAdminOrSuper()];
   return (
     <div className="flex flex-col gap-5 p-5 md:p-8">
       <header>
         <h1 className="h2">Use Case Universe</h1>
         <p className="mt-1 max-w-2xl font-body text-[13px] leading-relaxed text-fg-muted">
-          The 23 published use cases, what each one means, and which accounts are actually doing them.
+          The published use cases and their categories. Descriptions are yours to write.
         </p>
       </header>
-      <UseCaseUniverse library={library} adoption={adoption} canEdit={mayEdit} overrides={overrides ?? {}} />
+      <UseCaseUniverse
+        library={library}
+        adoption={adoption}
+        canEdit={mayEdit}
+        overrides={overrides ?? {}}
+        allEntries={resolveTaxonomy(taxonomy, true)}
+        groups={resolveGroups(taxonomy)}
+        taxonomy={taxonomy}
+      />
     </div>
   );
 }

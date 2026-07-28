@@ -121,47 +121,34 @@ test("malformed input never throws", () => {
   }
 });
 
-/* ---- the editorial library stays in step with the taxonomy -------------- */
+/* ---- nothing is shipped as authored content ---------------------------- */
 
-import { USE_CASE_LIBRARY, LIBRARY_BY_ID, mergeLibrary, isCustomised } from "./use-case-library";
+import { USE_CASE_LIBRARY, mergeLibrary, isCustomised } from "./use-case-library";
 
-test("every use case in the taxonomy has a library entry, and vice versa", () => {
-  for (const u of USE_CASES) {
-    assert.ok(LIBRARY_BY_ID.has(u.id), `${u.id} has no definition in the library`);
-  }
-  for (const e of USE_CASE_LIBRARY) {
-    assert.ok(USE_CASE_BY_ID.has(e.id), `library entry ${e.id} is not in the taxonomy`);
-  }
+test("no use-case description ships with the product", () => {
+  assert.equal(USE_CASE_LIBRARY.length, 0,
+    "descriptions must come from the team, not from the codebase — an invented one reads as doctrine");
 });
 
-test("no library entry is left as a stub", () => {
-  for (const e of USE_CASE_LIBRARY) {
-    assert.ok(e.definition.length > 20, `${e.id}: definition too thin`);
-    assert.ok(e.inPractice.length > 20, `${e.id}: inPractice too thin`);
-    assert.ok(e.examples.length > 0, `${e.id}: no examples`);
-    assert.ok(e.evidence.length > 0, `${e.id}: no evidence`);
-    assert.ok(e.pitfall.length > 20, `${e.id}: no pitfall`);
-  }
+test("with nothing written, there is nothing to show", () => {
+  assert.deepEqual(mergeLibrary(null), []);
+  assert.deepEqual(mergeLibrary({}), []);
 });
 
-test("a team override replaces only the field it touches", () => {
-  const merged = mergeLibrary({ tna: { pitfall: "Our own wording." } });
-  const tna = merged.find((e) => e.id === "tna")!;
-  const base = LIBRARY_BY_ID.get("tna")!;
-  assert.equal(tna.pitfall, "Our own wording.");
-  assert.equal(tna.definition, base.definition, "an untouched field must survive the edit");
-  assert.deepEqual(tna.examples, base.examples);
+test("only what the team wrote comes back", () => {
+  const out = mergeLibrary({ tna: { definition: "Ours.", examples: ["A", "B"] } });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].id, "tna");
+  assert.equal(out[0].definition, "Ours.");
+  assert.deepEqual(out[0].examples, ["A", "B"]);
+  assert.equal(out[0].pitfall, "", "an unwritten field stays empty rather than being filled in");
 });
 
-test("an empty override falls back to the baseline rather than blanking it", () => {
-  const merged = mergeLibrary({ tna: { definition: "   ", examples: [] } });
-  const tna = merged.find((e) => e.id === "tna")!;
-  assert.equal(tna.definition, LIBRARY_BY_ID.get("tna")!.definition);
-  assert.deepEqual(tna.examples, LIBRARY_BY_ID.get("tna")!.examples);
+test("an override holding only audit fields is not content", () => {
+  assert.deepEqual(mergeLibrary({ tna: { updatedAt: "2026-07-28", updatedBy: "a@b.com" } }), []);
+  assert.equal(isCustomised("tna", { tna: { updatedAt: "x", updatedBy: "y" } }), false);
 });
 
-test("customisation is detectable, and audit fields alone don't count", () => {
-  assert.equal(isCustomised("tna", { tna: { pitfall: "x" } }), true);
-  assert.equal(isCustomised("tna", { tna: { updatedAt: "2026-07-28", updatedBy: "a@b.com" } }), false);
-  assert.equal(isCustomised("tna", null), false);
+test("blank strings do not count as a description", () => {
+  assert.deepEqual(mergeLibrary({ tna: { definition: "   ", pitfall: "" } }), []);
 });
