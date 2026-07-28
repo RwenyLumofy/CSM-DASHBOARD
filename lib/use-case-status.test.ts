@@ -1,52 +1,28 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mergeLibrary } from "./use-case-library";
-import {
-  definitionStatus, publishBlockers, completenessLabel,
-  STATUS_LABEL, STATUS_HELP, STATUS_TONE, DEFINITION_STATUSES,
-} from "./use-case-status";
+import { definitionStatus, STATUS_LABEL, STATUS_HELP, STATUS_TONE, DEFINITION_STATUSES } from "./use-case-status";
 
 const entry = (o: Record<string, unknown>) => mergeLibrary({ x: o })[0];
 
-test("nothing written reads 'Needs definition', never 'Draft'", () => {
+test("status is derived from whether anything is written", () => {
   assert.equal(definitionStatus(undefined), "needs_definition");
-  assert.equal(definitionStatus(entry({ goal: "x" })), "draft");
+  assert.equal(definitionStatus(entry({ goal: "x" })), "described");
 });
 
-test("an explicitly set status wins over the derived one", () => {
-  assert.equal(definitionStatus(undefined, "published"), "published");
-  assert.equal(definitionStatus(entry({ goal: "x" }), "archived"), "archived");
+test("metadata alone does not count as described", () => {
+  // mergeLibrary drops metadata-only overrides, so nothing reaches the status.
+  assert.equal(definitionStatus(entry({ modules: ["Perform"] })), "needs_definition");
 });
 
-test("a nonsense stored status falls back to derivation rather than rendering blank", () => {
-  assert.equal(definitionStatus(undefined, "banana"), "needs_definition");
+test("there are two states, not a publishing workflow nobody maintains", () => {
+  assert.deepEqual([...DEFINITION_STATUSES], ["needs_definition", "described"]);
 });
 
-test("every status has a label, an explanation and a tone", () => {
+test("every state has a label, an explanation and a tone", () => {
   for (const s of DEFINITION_STATUSES) {
     assert.ok(STATUS_LABEL[s], `${s} has no label`);
     assert.ok(STATUS_HELP[s].length > 20, `${s} has no usable explanation`);
     assert.ok(STATUS_TONE[s], `${s} has no tone`);
   }
-});
-
-test("publish blockers name what is missing", () => {
-  assert.deepEqual(publishBlockers(undefined),
-    ["the goal", "how a client describes it", "what we deliver", "at least one module"]);
-  const full = entry({ goal: "g", soundsLike: ["s"], delivers: ["d"], modules: ["Perform"] });
-  assert.deepEqual(publishBlockers(full), []);
-});
-
-test("the completeness label always states the gap, never a bare percentage", () => {
-  const label = completenessLabel(entry({ goal: "g" }));
-  assert.match(label, /^Definition \d+% complete · missing /);
-  assert.ok(label.includes("what we deliver"));
-});
-
-test("a complete definition drops the 'missing' clause", () => {
-  const full = entry({
-    goal: "g", soundsLike: ["s"], delivers: ["d"], watchFor: ["w"],
-    confusedWith: [{ id: "tna", distinction: "x" }], modules: ["Perform"],
-  });
-  assert.equal(completenessLabel(full), "Definition 100% complete");
 });

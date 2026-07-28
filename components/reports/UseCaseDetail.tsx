@@ -7,10 +7,10 @@
    Tabs group the rest by the question being asked rather than by which table a
    field came from.
 
-   Overview and Accounts are built here. Delivery Blueprint and Evidence are
-   declared as tabs and say plainly that they are not built yet, rather than
-   being hidden: a CSM should know the shape of the thing they are filling in,
-   and an empty tab that announces itself is more honest than a missing one.
+   Two tabs: what it is, and where it is running. Blueprint and Evidence tabs
+   were here as placeholders announcing themselves unbuilt — scaffolding for a
+   spec rather than a product, costing a click and returning nothing. They come
+   back when there is something behind them.
 
    ARR IS ACCOUNT ARR throughout — the contract value of accounts carrying this
    use case, not revenue it produced. There is no attribution data, and the
@@ -24,7 +24,7 @@ import { ROLE_LABEL, STAKEHOLDER_ROLES, type StakeholderRole } from "@/lib/stake
 import { MODULES, type UseCaseEntry, type Module } from "@/lib/use-case-library";
 import type { ResolvedUseCase } from "@/lib/use-case-overlay";
 import type { AccountRef } from "@/lib/use-case-adoption";
-import { STATUS_LABEL, STATUS_TONE, STATUS_HELP, completenessLabel, type DefinitionStatus } from "@/lib/use-case-status";
+import { STATUS_LABEL, STATUS_TONE, STATUS_HELP, type DefinitionStatus } from "@/lib/use-case-status";
 import { saveUseCaseEntryAction } from "@/app/(app)/use-cases/actions";
 
 const money = (n: number) =>
@@ -33,11 +33,11 @@ const money = (n: number) =>
 const fieldCls =
   "w-full rounded-lg border border-border bg-bg px-3 py-2 font-body text-[13px] leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-sirius focus:ring-2 focus:ring-sirius/15";
 
+/* Two tabs, not four. A tab that only says "not built yet" is scaffolding for
+   a spec, not a product — it costs a click and returns nothing. */
 const TABS = [
   { id: "overview", label: "Overview" },
-  { id: "blueprint", label: "Delivery Blueprint" },
   { id: "accounts", label: "Accounts" },
-  { id: "evidence", label: "Evidence & Resources" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -76,17 +76,6 @@ const blank = (id: string): UseCaseEntry => ({
   id, goal: "", soundsLike: [], delivers: [], confusedWith: [], watchFor: [],
   modules: [], stakeholderRoles: [], sourceUrl: null,
 });
-
-/** A tab that exists in the model but isn't built. Named rather than hidden, so
- *  the shape of the record is visible and nobody assumes it is missing. */
-function NotBuiltYet({ title, blurb }: { title: string; blurb: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-border px-5 py-10 text-center">
-      <p className="font-body text-[13.5px] font-semibold text-fg">{title} isn&rsquo;t built yet</p>
-      <p className="mx-auto mt-1 max-w-md font-body text-[12.5px] leading-relaxed text-fg-muted">{blurb}</p>
-    </div>
-  );
-}
 
 export function UseCaseDetail({
   option, entry, allEntries, groups, status, canEdit, confirmed, declaredOnly, accountArr, updatedAt, updatedBy,
@@ -315,8 +304,6 @@ export function UseCaseDetail({
             </div>
           ) : (
             <>
-              <p className="font-body text-[12px] text-fg-subtle">{completenessLabel(entry)}</p>
-
               {entry.soundsLike.length > 0 && (
                 <section className="flex flex-col gap-1.5">
                   <Head>You&rsquo;ll hear it as</Head>
@@ -421,14 +408,6 @@ export function UseCaseDetail({
         )
       )}
 
-      {tab === "blueprint" && (
-        <NotBuiltYet title="Delivery Blueprint"
-          blurb="The reusable implementation framework — phases, activities, owners, inputs and outputs. Nothing in the repository models it yet, so it is declared here rather than faked." />
-      )}
-      {tab === "evidence" && (
-        <NotBuiltYet title="Evidence & Resources"
-          blurb="Client examples, case studies, templates and proposal language, each with a verification state. Attachments already exist per client; this needs its own store so a resource can belong to a use case rather than an account." />
-      )}
     </div>
   );
 }

@@ -24,7 +24,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Search, LayoutGrid, Table as TableIcon, X, Plus, SlidersHorizontal, ArrowRight, ChevronDown,
+  Search, LayoutGrid, Table as TableIcon, X, Plus, SlidersHorizontal, ArrowRight,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { AdoptionSummary } from "@/lib/use-case-adoption";
@@ -81,7 +81,6 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
   const [category, setCategory] = useState<string | null>(null);
   const [status, setStatus] = useState<DefinitionStatus | null>(null);
   const [adoptionFilter, setAdoptionFilter] = useState<"active" | "none" | null>(null);
-  const [moreOpen, setMoreOpen] = useState(false);
 
   // Restore the preferred view. Read after mount so the server and first client
   // render agree — reading localStorage during render hydrates mismatched.
@@ -110,7 +109,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
 
   const counts = useMemo(() => ({
     total: rows.length,
-    published: rows.filter((r) => r.status === "published").length,
+    described: rows.filter((r) => r.status === "described").length,
     needsDefinition: rows.filter((r) => r.status === "needs_definition").length,
     active: rows.filter((r) => r.accounts > 0).length,
   }), [rows]);
@@ -122,8 +121,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
         <p className="font-body text-[13px] text-fg-muted">
           <span className="tabular font-semibold text-fg">{counts.total}</span> use cases ·{" "}
           <span className="tabular font-semibold text-fg">{groups.length}</span> categories ·{" "}
-          <span className="tabular font-semibold text-fg">{counts.published}</span> published ·{" "}
-          <span className="tabular font-semibold text-fg">{counts.needsDefinition}</span> need a definition ·{" "}
+          <span className="tabular font-semibold text-fg">{counts.described}</span> described ·{" "}
           <span className="tabular font-semibold text-fg">{counts.active}</span> active on accounts
         </p>
         {canEdit && (
@@ -168,11 +166,6 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
           </select>
         </label>
 
-        <button onClick={() => setMoreOpen((o) => !o)} aria-expanded={moreOpen}
-          className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 font-body text-[12.5px] font-medium text-fg-muted transition-colors hover:text-fg">
-          More filters <ChevronDown size={12} className={cn("transition-transform", moreOpen && "rotate-180")} />
-        </button>
-
         <div role="tablist" aria-label="View" className="ml-auto flex rounded-lg border border-border p-0.5">
           {([["cards", LayoutGrid, "Cards"], ["table", TableIcon, "Table"]] as const).map(([k, Icon, label]) => (
             <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} title={label}
@@ -183,22 +176,6 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
           ))}
         </div>
       </div>
-
-      {moreOpen && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border-subtle bg-bg-muted/30 px-3 py-2.5">
-          <span className="font-body text-[11.5px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Adoption</span>
-          {([["active", "On at least one account"], ["none", "No accounts yet"]] as const).map(([k, l]) => (
-            <button key={k} onClick={() => setAdoptionFilter(adoptionFilter === k ? null : k)} aria-pressed={adoptionFilter === k}
-              className={cn("rounded-full border px-2.5 py-1 font-body text-[12px] font-medium transition-colors",
-                adoptionFilter === k ? "border-sirius bg-accent-soft text-sirius" : "border-border text-fg-muted hover:text-fg")}>
-              {l}
-            </button>
-          ))}
-          <span className="ml-2 font-body text-[11.5px] text-fg-subtle">
-            Industry, country and last-reviewed filters arrive with the fields they filter on.
-          </span>
-        </div>
-      )}
 
       {activeFilters > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">

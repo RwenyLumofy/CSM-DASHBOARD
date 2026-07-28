@@ -50,7 +50,7 @@ export default async function UseCasesPage() {
     return {
       option,
       entry,
-      status: definitionStatus(entry, (overridesRaw[option.id] as { status?: string } | undefined)?.status),
+      status: definitionStatus(entry),
       accounts: (a?.confirmed.length ?? 0) + (a?.declaredOnly.length ?? 0),
       // Account ARR: the contract value of accounts carrying this use case.
       // Not revenue attributed to it — no attribution data exists.

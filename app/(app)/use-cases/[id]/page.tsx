@@ -59,7 +59,7 @@ export default async function UseCaseDetailPage({ params }: { params: Promise<{ 
         entry={entries.get(id)}
         allEntries={all}
         groups={resolveGroups(taxonomy)}
-        status={definitionStatus(entries.get(id), (overridesRaw[id] as { status?: string } | undefined)?.status)}
+        status={definitionStatus(entries.get(id))}
         canEdit={canEdit}
         confirmed={a?.confirmed ?? []}
         declaredOnly={a?.declaredOnly ?? []}
