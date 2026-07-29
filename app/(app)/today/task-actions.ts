@@ -4,7 +4,7 @@
    the signed-in user; assigning a task to someone ELSE requires admin rights
    (editsAllClients) — enforced here, not just hidden in the UI. */
 
-import { getCurrentUserEmail, getCurrentUserRole, denyClientWrite } from "@/lib/auth";
+import { getCurrentUserEmail, getCurrentUserRole, denyClientWrite, getCurrentUserScope } from "@/lib/auth";
 import { editsAllClients } from "@/lib/roles";
 import { hasDatabase } from "@/lib/config";
 
@@ -37,12 +37,29 @@ async function denyTaskTarget(accountId?: string | null, projectId?: string | nu
 }
 
 /** Rejects a due date in the past — a task that is overdue the moment it is
- *  created is always a mistake, and it pollutes every overdue count. */
+ *  created is always a mistake, and it pollutes every overdue count.
+ *
+ *  The floor is YESTERDAY in UTC, not today. The server has no idea which
+ *  timezone the picker was in, and for anyone west of UTC "today" locally is
+ *  already "yesterday" in UTC after early evening — a strict compare rejected
+ *  a task due today. One day of slack costs nothing and removes the false
+ *  rejection; a genuinely stale date is still caught. */
 function badDueDate(due?: string | null): string | null {
   if (!due) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return "Use the date picker.";
-  const today = new Date().toISOString().slice(0, 10);
-  return due < today ? "That due date is in the past." : null;
+  const floor = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  return due < floor ? "That due date is in the past." : null;
+}
+
+/** May this caller act on a task that isn't theirs?
+ *
+ *  Role alone is not enough: an admin can be narrowed to specific accounts via
+ *  app_users.scope, and denyClientWrite honours that — but a role-only check
+ *  let that same admin edit or delete ANY task in the system, including ones
+ *  on accounts they cannot otherwise touch. Requires unrestricted scope too. */
+async function mayEditAnyTask(): Promise<boolean> {
+  const [role, scope] = await Promise.all([getCurrentUserRole(), getCurrentUserScope()]);
+  return editsAllClients(role) && scope.mode === "all";
 }
 
 const PRIORITIES = ["urgent", "high", "normal", "low"] as const;
@@ -139,7 +156,7 @@ export async function toggleTaskAction(id: string, status: "open" | "done"): Pro
   if (denied) return { ok: false, error: denied };
   try {
     const { setTodayTaskStatusDb } = await import("@/lib/repo/drizzle");
-    const anyOwner = editsAllClients(await getCurrentUserRole());
+    const anyOwner = await mayEditAnyTask();
     const n = await setTodayTaskStatusDb(id, email, status, { anyOwner });
     if (n === 0) return { ok: false, error: NOT_YOURS };
     return { ok: true };
@@ -188,7 +205,7 @@ export async function updateTaskAction(id: string, patch: {
 
   try {
     const { updateTodayTaskDb } = await import("@/lib/repo/drizzle");
-    const anyOwner = editsAllClients(await getCurrentUserRole());
+    const anyOwner = await mayEditAnyTask();
     const n = await updateTodayTaskDb(id, email, clean, { anyOwner });
     if (n === 0) return { ok: false, error: NOT_YOURS };
     return { ok: true };
@@ -204,7 +221,7 @@ export async function deleteTaskAction(id: string): Promise<TaskResult> {
   if (denied) return { ok: false, error: denied };
   try {
     const { deleteTodayTaskDb } = await import("@/lib/repo/drizzle");
-    const anyOwner = editsAllClients(await getCurrentUserRole());
+    const anyOwner = await mayEditAnyTask();
     const n = await deleteTodayTaskDb(id, email, { anyOwner });
     if (n === 0) return { ok: false, error: NOT_YOURS };
     return { ok: true };

@@ -1623,6 +1623,12 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
   const [types, setTypes] = useState<string[]>([]);
   const [staff, setStaff] = useState<LumofyStaffEntry[]>([]);
   const [mappings, setMappings] = useState<StakeholderMapping[]>(initialMappings);
+  /* Which rows this session actually touched. Saving every row would rewrite
+     the whole matrix from the state loaded at page-open, so a colleague's edit
+     to a row you never looked at would still be clobbered — the element-level
+     write only removes the race between DIFFERENT rows if you send only the
+     rows you changed. */
+  const [dirtyTypes, setDirtyTypes] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1656,6 +1662,7 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
     // Any edit invalidates a prior "Saved" confirmation and clears a stale error.
     setSaved(false);
     setError(null);
+    setDirtyTypes((prev) => new Set(prev).add(type));
     setMappings((prev) => {
       const existing = prev.find((m) => m.type === type);
       if (existing) return prev.map((m) => m.type === type ? { ...m, ...patch } : m);
@@ -1678,7 +1685,9 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
          Sequential, not Promise.all: these are UPDATEs against one row, and
          firing them concurrently just makes them queue behind each other's
          locks while making a partial failure harder to report. */
-      for (const m of mappings) {
+      const changed = mappings.filter((m) => dirtyTypes.has(m.type));
+      if (changed.length === 0) { setSaved(true); return; }
+      for (const m of changed) {
         const r = await saveStakeholderMappingAction(clientId, m.type, {
           contactIds: m.contactIds, staffIds: m.staffIds,
         });
@@ -1687,6 +1696,7 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
           return;
         }
       }
+      setDirtyTypes(new Set());
       setSaved(true);
       router.refresh();
     } catch (e) {

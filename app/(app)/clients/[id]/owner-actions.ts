@@ -78,9 +78,16 @@ async function recordOwnerChange(
     console.error("[owner-actions] assignment committed but notify/audit failed", { clientId, team, err });
   }
 
-  revalidatePath(`/clients/${clientId}`);
-  revalidatePath("/clients");
-  revalidatePath("/");
+  // Inside its own try for the same reason as the block above: the ownership
+  // write has already committed, and a revalidate that throws would surface as
+  // "assignment failed" — the exact thing this function exists to avoid.
+  try {
+    revalidatePath(`/clients/${clientId}`);
+    revalidatePath("/clients");
+    revalidatePath("/");
+  } catch (err) {
+    console.error("[owner-actions] assignment committed but revalidate failed", { clientId, err });
+  }
 }
 
 export async function setCsmOwnerAction(clientId: string, email: string | null): Promise<OwnerActionResult> {

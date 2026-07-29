@@ -21,12 +21,15 @@ const isPublic = createRouteMatcher([
   // Force-refresh one client's Metabase usage snapshot (same secret check).
   "/api/usage-refresh(.*)",
   "/api/cron(.*)",
-  // Predates this branch. Renders through getClients(), which is role-scoped,
-  // so with no session it resolves to an empty workspace rather than leaking.
-  // NOTHING ELSE UNDER /scratch-* BELONGS HERE: those harnesses read through
-  // the unscoped getClientsFromDb(), which bypasses both Clerk and role
-  // scoping. They are dev-only, git-ignored, and 404 outside development.
-  "/scratch-wf(.*)",
+  // NOTHING UNDER /scratch-* BELONGS HERE. /scratch-wf was public and shipped
+  // for longer than the rest, on the assumption it was safe because
+  // getClients() is role-scoped. It wasn't: buildTodaySnapshot() also calls
+  // getAppUsers(), which has no role, session or scope check and returns the
+  // whole staff directory — emails, names, permission tiers, departments,
+  // plus the bootstrap super-admin addresses. TodayWorkspace is a client
+  // component, so that list was serialized into the RSC payload of an
+  // unauthenticated page. The route is deleted; /today serves the same thing
+  // behind auth.
 ]);
 
 // Build the Clerk handler only when configured; otherwise run open (dev/sample).
