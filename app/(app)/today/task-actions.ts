@@ -4,9 +4,46 @@
    the signed-in user; assigning a task to someone ELSE requires admin rights
    (editsAllClients) — enforced here, not just hidden in the UI. */
 
-import { getCurrentUserEmail, getCurrentUserRole } from "@/lib/auth";
+import { getCurrentUserEmail, getCurrentUserRole, denyClientWrite } from "@/lib/auth";
 import { editsAllClients } from "@/lib/roles";
 import { hasDatabase } from "@/lib/config";
+
+/** The task isn't yours and you aren't an admin, so the owner-scoped write
+ *  matched nothing. Said out loud instead of returning a false success. */
+const NOT_YOURS = "That task isn't on your board. Ask its owner, or an admin, to change it.";
+
+/** Guests may not create or change actions (see permissionCapabilities in
+ *  lib/roles.ts). Enforced here, not merely hidden in the UI. */
+async function denyTaskWrite(): Promise<string | null> {
+  const role = await getCurrentUserRole();
+  if (!role) return "Not signed in.";
+  if (role === "guest") return "Your access level can't create or change actions.";
+  return null;
+}
+
+/** An account-linked task is account work: it needs the same write permission
+ *  as editing the account. A project link is validated for existence only —
+ *  projects hang off an account, whose gate has already been applied. */
+async function denyTaskTarget(accountId?: string | null, projectId?: string | null): Promise<string | null> {
+  if (accountId) {
+    const denied = await denyClientWrite(accountId);
+    if (denied) return denied;
+  }
+  if (projectId) {
+    const { projectExists } = await import("@/lib/repo/drizzle");
+    if (!(await projectExists(projectId))) return "That project no longer exists.";
+  }
+  return null;
+}
+
+/** Rejects a due date in the past — a task that is overdue the moment it is
+ *  created is always a mistake, and it pollutes every overdue count. */
+function badDueDate(due?: string | null): string | null {
+  if (!due) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return "Use the date picker.";
+  const today = new Date().toISOString().slice(0, 10);
+  return due < today ? "That due date is in the past." : null;
+}
 
 const PRIORITIES = ["urgent", "high", "normal", "low"] as const;
 type Priority = (typeof PRIORITIES)[number];
@@ -29,6 +66,10 @@ export async function createTaskAction(input: {
   const email = await getCurrentUserEmail();
   if (!email) return { ok: false, error: "Not signed in." };
   if (!hasDatabase()) return { ok: false, error: "No database configured." };
+  const denied = (await denyTaskWrite())
+    ?? (await denyTaskTarget(input.accountId, input.projectId))
+    ?? badDueDate(input.dueDate);
+  if (denied) return { ok: false, error: denied };
   const title = input.title.trim();
   if (!title) return { ok: false, error: "Enter a task title." };
   const category = input.category.trim().slice(0, 60);
@@ -45,12 +86,43 @@ export async function createTaskAction(input: {
   const sourceType = input.sourceType === "signal" || input.sourceType === "commitment" ? input.sourceType : null;
   const sourceId = sourceType && input.sourceId ? input.sourceId : null;
   try {
-    const { createTodayTaskDb } = await import("@/lib/repo/drizzle");
+    const { createTodayTaskDb, findOpenTodayTaskBySourceDb, insertNotificationsDb } = await import("@/lib/repo/drizzle");
+
+    /* Flagging the same signal or commitment twice used to create a second
+       row, so one problem showed up in a lane as two pieces of work. When the
+       task traces to a source, an OPEN task for that source in the same lane
+       and owner is returned instead of a duplicate. */
+    if (sourceType && sourceId) {
+      const existing = await findOpenTodayTaskBySourceDb(assignee, category, sourceType, sourceId);
+      if (existing) return { ok: false, error: `Already on the board as "${existing.title}".` };
+    }
+
     const row = await createTodayTaskDb({
       ownerEmail: assignee, createdByEmail: email, category, title,
       accountId: input.accountId ?? null, projectId: input.projectId ?? null, dueDate: input.dueDate ?? null,
       priority, notes, sourceType, sourceId,
     });
+    /* Assigning work to someone else used to be silent — the task appeared on
+       their board with no indication it had arrived. Best-effort: the task is
+       already created, so a notification failure must not read as a failed
+       create. */
+    if (assignee !== email) {
+      try {
+        await insertNotificationsDb([{
+          id: `nt-task-${row.id}`,
+          recipientEmail: assignee,
+          type: "task_assigned",
+          title: `New task from ${email}`,
+          body: title,
+          clientId: input.accountId ?? null,
+          dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          createdByEmail: email,
+        }]);
+      } catch (err) {
+        console.error("[task-actions] task created but assignee not notified", { taskId: row.id, err });
+      }
+    }
+
     return { ok: true, task: {
       id: row.id, category: row.category, title: row.title, accountId: row.accountId, projectId: row.projectId, dueDate: row.dueDate,
       priority, notes: row.notes, ownerEmail: row.ownerEmail, sourceType, sourceId, status: "open", createdAt: row.createdAt,
@@ -63,9 +135,13 @@ export async function createTaskAction(input: {
 export async function toggleTaskAction(id: string, status: "open" | "done"): Promise<TaskResult> {
   const email = await getCurrentUserEmail();
   if (!email || !hasDatabase()) return { ok: false, error: "Unavailable." };
+  const denied = await denyTaskWrite();
+  if (denied) return { ok: false, error: denied };
   try {
     const { setTodayTaskStatusDb } = await import("@/lib/repo/drizzle");
-    await setTodayTaskStatusDb(id, email, status);
+    const anyOwner = editsAllClients(await getCurrentUserRole());
+    const n = await setTodayTaskStatusDb(id, email, status, { anyOwner });
+    if (n === 0) return { ok: false, error: NOT_YOURS };
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -98,6 +174,11 @@ export async function updateTaskAction(id: string, patch: {
   if (patch.priority !== undefined && PRIORITIES.includes(patch.priority as Priority)) clean.priority = patch.priority;
   if (patch.accountId !== undefined) clean.accountId = patch.accountId || null;
 
+  const blocked = (await denyTaskWrite())
+    ?? (await denyTaskTarget(patch.accountId, null))
+    ?? (patch.dueDate !== undefined ? badDueDate(patch.dueDate) : null);
+  if (blocked) return { ok: false, error: blocked };
+
   const requested = patch.assigneeEmail?.trim().toLowerCase();
   if (requested && requested !== email) {
     const role = await getCurrentUserRole();
@@ -107,7 +188,9 @@ export async function updateTaskAction(id: string, patch: {
 
   try {
     const { updateTodayTaskDb } = await import("@/lib/repo/drizzle");
-    await updateTodayTaskDb(id, email, clean);
+    const anyOwner = editsAllClients(await getCurrentUserRole());
+    const n = await updateTodayTaskDb(id, email, clean, { anyOwner });
+    if (n === 0) return { ok: false, error: NOT_YOURS };
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -117,9 +200,13 @@ export async function updateTaskAction(id: string, patch: {
 export async function deleteTaskAction(id: string): Promise<TaskResult> {
   const email = await getCurrentUserEmail();
   if (!email || !hasDatabase()) return { ok: false, error: "Unavailable." };
+  const denied = await denyTaskWrite();
+  if (denied) return { ok: false, error: denied };
   try {
     const { deleteTodayTaskDb } = await import("@/lib/repo/drizzle");
-    await deleteTodayTaskDb(id, email);
+    const anyOwner = editsAllClients(await getCurrentUserRole());
+    const n = await deleteTodayTaskDb(id, email, { anyOwner });
+    if (n === 0) return { ok: false, error: NOT_YOURS };
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };

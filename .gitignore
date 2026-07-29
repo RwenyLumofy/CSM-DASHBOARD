@@ -55,3 +55,32 @@ next-env.d.ts
 .vercel
 
 .vercel
+
+# Production clone tooling (scripts/clone-prod-db.sh)
+.env.clone
+.db-dumps/
+
+# DEV-ONLY preview harnesses. They read through the UNSCOPED getClientsFromDb(),
+# bypassing Clerk and role scoping, so they must never reach a deployment.
+# /app/scratch-wf/ predates this and IS tracked — it renders through the
+# role-scoped getClients(), so with no session it resolves to empty.
+/app/scratch-clients/
+/app/scratch-health/
+/app/scratch-insights/
+/app/scratch-model-editor/
+/app/scratch-pulse/
+/app/scratch-settings/
+/app/scratch-usecases/
+
+# Local design mocks, never served in the app.
+/public/*-mock.html
+/public/clients-v2.html
+/public/clients-lumofy-grouped.html
+/public/filters-interactive.html
+/public/insight-strip-compare.html
+/public/linear-full.html
+/public/linear-style-interactive.html
+
+# Production-clone tooling and its env example — carries prod connection shape.
+/scripts/clone-prod-db.sh
+.env.clone*

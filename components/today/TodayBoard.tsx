@@ -202,10 +202,13 @@ function TaskRow({ item }: { item: LaneItem }) {
   const { setTaskStatus, openAccount } = useToday();
   const done = !!item.done;
   const due = item.dueDate ? dueLabel(item.dueDate, getToday()) : null;
-  function toggle() {
+  async function toggle() {
     const next = done ? "open" : "done";
     setTaskStatus(item.taskId!, next);
-    void toggleTaskAction(item.taskId!, next);
+    // Reverted if the write is rejected — a cross-owner toggle now errors
+    // rather than silently no-op'ing.
+    const r = await toggleTaskAction(item.taskId!, next);
+    if (!r.ok) setTaskStatus(item.taskId!, done ? "done" : "open");
   }
   return (
     <li>

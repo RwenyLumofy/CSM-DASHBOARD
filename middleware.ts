@@ -21,6 +21,11 @@ const isPublic = createRouteMatcher([
   // Force-refresh one client's Metabase usage snapshot (same secret check).
   "/api/usage-refresh(.*)",
   "/api/cron(.*)",
+  // Predates this branch. Renders through getClients(), which is role-scoped,
+  // so with no session it resolves to an empty workspace rather than leaking.
+  // NOTHING ELSE UNDER /scratch-* BELONGS HERE: those harnesses read through
+  // the unscoped getClientsFromDb(), which bypasses both Clerk and role
+  // scoping. They are dev-only, git-ignored, and 404 outside development.
   "/scratch-wf(.*)",
 ]);
 

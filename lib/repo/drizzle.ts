@@ -1332,7 +1332,7 @@ export async function setClientPropertyDb(clientId: string, key: string, value: 
 
 /** Insert-or-replace one element of a JSONB array keyed by its `id`. */
 async function upsertJsonbArrayElementDb(
-  clientId: string, key: string, elementId: string, element: unknown,
+  clientId: string, key: string, elementId: string, element: unknown, matchField = "id",
 ): Promise<void> {
   const db = getDb();
   await db.execute(sql`
@@ -1345,7 +1345,7 @@ async function upsertJsonbArrayElementDb(
                          CASE WHEN jsonb_typeof(COALESCE(properties, '{}'::jsonb) -> ${key}) = 'array'
                               THEN COALESCE(properties, '{}'::jsonb) -> ${key}
                               ELSE '[]'::jsonb END) AS e
-                 WHERE e ->> 'id' IS DISTINCT FROM ${elementId}),
+                 WHERE e ->> ${matchField} IS DISTINCT FROM ${elementId}),
                '[]'::jsonb
              ) || jsonb_build_array(${JSON.stringify(element)}::jsonb)
            ),
@@ -1388,9 +1388,9 @@ async function deleteJsonbArrayElementsDb(
  *  implementation writers both go through these rather than each rebuilding
  *  the same read-modify-write race. */
 export async function upsertJsonbArrayElementForClientDb(
-  clientId: string, key: string, elementId: string, element: unknown,
+  clientId: string, key: string, elementId: string, element: unknown, matchField = "id",
 ): Promise<void> {
-  await upsertJsonbArrayElementDb(clientId, key, elementId, element);
+  await upsertJsonbArrayElementDb(clientId, key, elementId, element, matchField);
 }
 
 export async function deleteJsonbArrayElementForClientDb(
@@ -1736,14 +1736,62 @@ export async function createTodayTaskDb(input: {
   };
 }
 
-export async function setTodayTaskStatusDb(id: string, ownerEmail: string, status: "open" | "done"): Promise<void> {
-  const db = getDb();
-  await db.update(schema.todayTasks).set({ status, updatedAt: new Date() }).where(and(eq(schema.todayTasks.id, id), eq(schema.todayTasks.ownerEmail, ownerEmail.toLowerCase())));
+/**
+ * Scope for a task write. Non-admins may only touch tasks on their own board;
+ * `anyOwner` lifts that for admins (editsAllClients), who legitimately manage
+ * other people's work.
+ */
+function todayTaskScope(id: string, ownerEmail: string, anyOwner: boolean) {
+  return anyOwner
+    ? eq(schema.todayTasks.id, id)
+    : and(eq(schema.todayTasks.id, id), eq(schema.todayTasks.ownerEmail, ownerEmail.toLowerCase()));
 }
 
-export async function deleteTodayTaskDb(id: string, ownerEmail: string): Promise<void> {
+/* EVERY TASK WRITER RETURNS ROWS AFFECTED. These are owner-scoped UPDATEs, so
+   a write against someone else's task matches nothing and Postgres reports
+   success — the caller used to return {ok:true} and the edit vanished with no
+   error anywhere. Returning the count makes that failure representable, and
+   the actions turn 0 into a message the user actually sees. */
+
+/**
+ * An OPEN task already raised for the same signal/commitment, by the same
+ * owner, in the same lane. Flagging the same risk twice used to create a
+ * second row, so a lane could show one problem as two pieces of work.
+ */
+export async function findOpenTodayTaskBySourceDb(
+  ownerEmail: string, category: string, sourceType: string, sourceId: string,
+): Promise<{ id: string; title: string } | null> {
   const db = getDb();
-  await db.delete(schema.todayTasks).where(and(eq(schema.todayTasks.id, id), eq(schema.todayTasks.ownerEmail, ownerEmail.toLowerCase())));
+  const rows = await db.select({ id: schema.todayTasks.id, title: schema.todayTasks.title })
+    .from(schema.todayTasks).where(and(
+    eq(schema.todayTasks.ownerEmail, ownerEmail.toLowerCase()),
+    eq(schema.todayTasks.category, category),
+    eq(schema.todayTasks.sourceType, sourceType),
+    eq(schema.todayTasks.sourceId, sourceId),
+    eq(schema.todayTasks.status, "open"),
+  )).limit(1);
+  return rows[0]?.id ? { id: rows[0].id, title: rows[0].title } : null;
+}
+
+export async function setTodayTaskStatusDb(
+  id: string, ownerEmail: string, status: "open" | "done", opts?: { anyOwner?: boolean },
+): Promise<number> {
+  const db = getDb();
+  const rows = await db.update(schema.todayTasks)
+    .set({ status, updatedAt: new Date() })
+    .where(todayTaskScope(id, ownerEmail, opts?.anyOwner ?? false))
+    .returning({ id: schema.todayTasks.id });
+  return rows.length;
+}
+
+export async function deleteTodayTaskDb(
+  id: string, ownerEmail: string, opts?: { anyOwner?: boolean },
+): Promise<number> {
+  const db = getDb();
+  const rows = await db.delete(schema.todayTasks)
+    .where(todayTaskScope(id, ownerEmail, opts?.anyOwner ?? false))
+    .returning({ id: schema.todayTasks.id });
+  return rows.length;
 }
 
 /**
@@ -1762,7 +1810,8 @@ export async function updateTodayTaskDb(
     title?: string; category?: string; notes?: string | null; dueDate?: string | null;
     priority?: string; accountId?: string | null; ownerEmail?: string;
   },
-): Promise<void> {
+  opts?: { anyOwner?: boolean },
+): Promise<number> {
   const db = getDb();
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (patch.title !== undefined) set.title = patch.title;
@@ -1772,8 +1821,10 @@ export async function updateTodayTaskDb(
   if (patch.priority !== undefined) set.priority = patch.priority;
   if (patch.accountId !== undefined) set.accountId = patch.accountId;
   if (patch.ownerEmail !== undefined) set.ownerEmail = patch.ownerEmail.toLowerCase();
-  await db.update(schema.todayTasks).set(set)
-    .where(and(eq(schema.todayTasks.id, id), eq(schema.todayTasks.ownerEmail, ownerEmail.toLowerCase())));
+  const rows = await db.update(schema.todayTasks).set(set)
+    .where(todayTaskScope(id, ownerEmail, opts?.anyOwner ?? false))
+    .returning({ id: schema.todayTasks.id });
+  return rows.length;
 }
 
 /* ----------------------------------------------------------------- */
@@ -1781,6 +1832,14 @@ export async function updateTodayTaskDb(
 export async function clientExists(id: string): Promise<boolean> {
   const db = getDb();
   const rows = await db.select({ id: schema.clients.id }).from(schema.clients).where(eq(schema.clients.id, id)).limit(1);
+  return rows.length > 0;
+}
+
+/** Does this project id exist? Used to reject a task pointed at a project that
+ *  was deleted or never existed, which would otherwise create an orphan row. */
+export async function projectExists(id: string): Promise<boolean> {
+  const db = getDb();
+  const rows = await db.select({ id: schema.clientProjects.id }).from(schema.clientProjects).where(eq(schema.clientProjects.id, id)).limit(1);
   return rows.length > 0;
 }
 
@@ -1965,6 +2024,27 @@ export interface NewNotification {
 
 /** Insert notifications, skipping any whose id already exists (idempotent —
  *  deterministic ids let a re-run avoid duplicate action items). */
+/**
+ * Append a client timeline event. timeline_events was defined but had no
+ * writer, which is why manual owner reassignment left no trace at all — the
+ * only assignment record was whatever the auto-assigner happened to notify
+ * about. An audit row is worth writing even before a screen reads it: the
+ * question "who moved this account, and when?" is asked after the fact.
+ */
+export async function appendTimelineEventDb(e: {
+  clientId: string; type: string; title: string; body?: string | null; author?: string | null;
+}): Promise<void> {
+  const db = getDb();
+  await db.insert(schema.timelineEvents).values({
+    id: `tl-${globalThis.crypto.randomUUID()}`,
+    clientId: e.clientId,
+    type: e.type,
+    title: e.title,
+    body: e.body ?? null,
+    author: e.author ?? null,
+  });
+}
+
 export async function insertNotificationsDb(rows: NewNotification[]): Promise<void> {
   if (rows.length === 0) return;
   const db = getDb();

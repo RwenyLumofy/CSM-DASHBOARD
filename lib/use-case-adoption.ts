@@ -21,6 +21,7 @@ import "server-only";
 
 import { getClients } from "@/lib/data";
 import { normalizeUseCases, USE_CASES, ACCOUNT_USE_CASES_KEY, type UseCaseOption } from "@/lib/use-cases";
+import { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy, resolveThroughMerges } from "@/lib/use-case-overlay";
 import { hasDatabase } from "@/lib/config";
 import type { Client, Deal } from "@/lib/types";
 
@@ -93,10 +94,27 @@ export async function getUseCaseAdoption(): Promise<AdoptionSummary> {
   const unconfirmedAccounts: AccountRef[] = [];
   const unmapped = new Set<string>();
 
+  /* Resolve against the EDITABLE taxonomy, not just the shipped list. Without
+     this, a use case the team added reads as unmapped and its accounts are
+     counted nowhere, and an id retired with `mergedInto` stops being
+     attributed to its successor. */
+  const overlay = normalizeOverlay(
+    await (async () => {
+      try {
+        const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
+        return await getWorkspaceConfigFromDb(TAXONOMY_KEY);
+      } catch { return null; }
+    })(),
+  );
+  const resolveOpts = {
+    known: new Set(resolveTaxonomy(overlay, true).map((u) => u.id)),
+    follow: (id: string) => resolveThroughMerges(id, overlay),
+  };
+
   for (const c of live) {
     const stored = (c.properties as Record<string, unknown> | undefined)?.[ACCOUNT_USE_CASES_KEY] as { ids?: unknown } | undefined;
-    const confirmed = normalizeUseCases(stored?.ids);
-    const declared = normalizeUseCases((dealsByClient.get(c.id) ?? []).flatMap((d) => d.useCases ?? []));
+    const confirmed = normalizeUseCases(stored?.ids, resolveOpts);
+    const declared = normalizeUseCases((dealsByClient.get(c.id) ?? []).flatMap((d) => d.useCases ?? []), resolveOpts);
     confirmed.unmapped.concat(declared.unmapped).forEach((u) => unmapped.add(u));
 
     const r = ref(c);

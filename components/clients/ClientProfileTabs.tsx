@@ -117,6 +117,7 @@ import { ACCOUNT_USE_CASES_KEY } from "@/lib/use-cases";
 import { ActionFeed } from "@/components/actions/ActionFeed";
 import { NotesTab } from "@/components/clients/notes/NotesTab";
 import type { Note } from "@/lib/notes/types";
+import { saveStakeholderMappingAction } from "@/app/(app)/clients/[id]/stakeholder-actions";
 
 type TabKey =
   | "stakeholders"
@@ -1667,18 +1668,24 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
     setError(null);
     setSaved(false);
     try {
-      const res = await fetch(`/api/clients/${clientId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ properties: { stakeholder_mappings: mappings } }),
-      });
-      // Previously fire-and-forget: a 403 (not the account owner) / 500 / timeout
-      // was swallowed, so the map looked saved but was lost on reload. Surface the
-      // failure, and on success re-read from the server so it's provably persisted.
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setError(body?.error ?? `Couldn't save the stakeholder map (HTTP ${res.status}).`);
-        return;
+      /* One row at a time through the gated server action, NOT a whole-array
+         PATCH of /api/clients/[id]. That route merges by replacing the key, so
+         a concurrent editor's row was silently erased, and its permission check
+         is a read gate — anyone who could see the account could overwrite the
+         matrix. saveStakeholderMappingAction rewrites a single element inside
+         Postgres, behind canEditClient.
+
+         Sequential, not Promise.all: these are UPDATEs against one row, and
+         firing them concurrently just makes them queue behind each other's
+         locks while making a partial failure harder to report. */
+      for (const m of mappings) {
+        const r = await saveStakeholderMappingAction(clientId, m.type, {
+          contactIds: m.contactIds, staffIds: m.staffIds,
+        });
+        if (!r.ok) {
+          setError(r.error ?? "Couldn't save the stakeholder map.");
+          return;
+        }
       }
       setSaved(true);
       router.refresh();

@@ -187,15 +187,33 @@ export interface ResolvedUseCases {
   unmapped: string[];
 }
 
-export function normalizeUseCases(raw: unknown): ResolvedUseCases {
+/**
+ * `extra` lets a caller that has loaded the editable taxonomy resolve ids this
+ * module cannot know about on its own:
+ *
+ *   known   ids that exist after the overlay is applied — without it, every
+ *           use case the team ADDED reads as unmapped, so an account confirmed
+ *           against one is never counted anywhere.
+ *   follow  merge resolution. Retiring with `mergedInto` is how a merge is
+ *           performed; without following it, accounts on the retired id stop
+ *           being attributed to its successor.
+ *
+ * Both are optional so the pure, taxonomy-only call sites are unchanged.
+ */
+export function normalizeUseCases(
+  raw: unknown,
+  extra?: { known?: ReadonlySet<string>; follow?: (id: string) => string },
+): ResolvedUseCases {
   const list = Array.isArray(raw) ? raw : [];
   const ids = new Set<string>();
   const unmapped: string[] = [];
   for (const v of list) {
     if (typeof v !== "string" || !v.trim()) continue;
-    const id = resolveUseCase(v);
+    const raw0 = v.trim();
+    const followed = extra?.follow ? extra.follow(raw0) : raw0;
+    const id = resolveUseCase(followed) ?? (extra?.known?.has(followed) ? followed : null);
     if (id) ids.add(id);
-    else if (!unmapped.includes(v.trim())) unmapped.push(v.trim());
+    else if (!unmapped.includes(raw0)) unmapped.push(raw0);
   }
   const order = new Map(USE_CASES.map((u, i) => [u.id, i]));
   return { ids: [...ids].sort((a, b) => (order.get(a) ?? 99) - (order.get(b) ?? 99)), unmapped };

@@ -117,10 +117,13 @@ export function FocusAreaBoxes() {
                     // original intent.
                     if (item.source === "task" && item.taskId) {
                       const done = !!item.done;
-                      const toggle = () => {
+                      const toggle = async () => {
                         const next = done ? "open" : "done";
                         setTaskStatus(item.taskId!, next);
-                        void toggleTaskAction(item.taskId!, next);
+                        // Reverted if the write is rejected — a cross-owner
+                        // toggle now errors rather than silently no-op'ing.
+                        const r = await toggleTaskAction(item.taskId!, next);
+                        if (!r.ok) setTaskStatus(item.taskId!, done ? "done" : "open");
                       };
                       return (
                         <li key={item.id} className="border-b border-border-subtle last:border-0">

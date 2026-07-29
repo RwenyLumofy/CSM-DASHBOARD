@@ -37,8 +37,13 @@ import { UseCaseDetail } from "@/components/reports/UseCaseDetail";
 import { TaxonomyManager } from "@/components/reports/TaxonomyManager";
 import type { ImplementationRow } from "@/components/reports/UseCaseAccounts";
 
-const money = (n: number) =>
-  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${Math.round(n / 1_000)}K` : `$${Math.round(n)}`;
+/* Rounds BEFORE choosing the unit. Formatting first and bucketing second let
+   999_500 round to 1000 and render "$1000K" instead of "$1.0M". */
+const money = (n: number) => {
+  if (Math.round(n / 1_000) >= 1_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
+  return `$${Math.round(n)}`;
+};
 
 export interface WorkbenchRow {
   option: ResolvedUseCase;
@@ -92,7 +97,7 @@ export function UseCaseWorkbench({
       const n = r.confirmed.length + r.declaredOnly.length;
       if (filter === "on") return n > 0;
       if (filter === "off") return n === 0;
-      if (filter === "gaps") return !!r.statusText;
+      if (filter === "gaps") return !r.entry?.customerProblem || !r.entry?.desiredOutcome || r.statusText === "Review overdue";
       return true;
     };
     const pool = live.filter(matches);
@@ -111,7 +116,14 @@ export function UseCaseWorkbench({
   const current = flat.find((r) => r.option.id === sel) ?? flat[0];
 
   const onCount = live.filter((r) => r.confirmed.length + r.declaredOnly.length > 0).length;
-  const gapCount = live.filter((r) => r.statusText).length;
+  /* "Needs attention" means ACTIONABLE, not merely unreviewed. Counting any
+     not-recently-reviewed row flagged 29 of 29, because the library ships with
+     nothing reviewed — a number that is always the total tells you nothing and
+     trains people to ignore the colour. An entry qualifies when its definition
+     is actually blank, or when a review it once had has gone stale. */
+  const needsAttention = (r: WorkbenchRow) =>
+    !r.entry?.customerProblem || !r.entry?.desiredOutcome || r.statusText === "Review overdue";
+  const gapCount = live.filter(needsAttention).length;
 
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
