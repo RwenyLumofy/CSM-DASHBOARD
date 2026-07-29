@@ -38,8 +38,8 @@ import type { AdoptionSummary } from "@/lib/use-case-adoption";
 import type { UseCaseEntry } from "@/lib/use-case-library";
 import type { ResolvedUseCase } from "@/lib/use-case-overlay";
 import {
-  definitionStatus, STATUS_LABEL, STATUS_TONE, STATUS_HELP,
-  DEFINITION_STATUSES, type DefinitionStatus,
+  STATUS_LABEL, STATUS_TONE, STATUS_HELP, statusLine,
+  LIFECYCLE_STATUSES, type LifecycleStatus,
 } from "@/lib/use-case-status";
 
 const VIEW_KEY = "use-case-library-view";
@@ -52,16 +52,18 @@ const money = (n: number) =>
 export interface LibraryRow {
   option: ResolvedUseCase;
   entry: UseCaseEntry | undefined;
-  status: DefinitionStatus;
+  status: LifecycleStatus;
+  /** Precomputed "Draft · Needs review" — the review half is derived server-side. */
+  statusText: string;
   accounts: number;
   accountArr: number;
 }
 
-function StatusChip({ status }: { status: DefinitionStatus }) {
+function StatusChip({ status, text }: { status: LifecycleStatus; text: string }) {
   return (
     <span title={STATUS_HELP[status]}
       className={cn("inline-block whitespace-nowrap rounded-full border px-2 py-0.5 font-body text-[11px] font-medium", STATUS_TONE[status])}>
-      {STATUS_LABEL[status]}
+      {text}
     </span>
   );
 }
@@ -88,7 +90,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
   const [view, setView] = useState<"list" | "table">("list");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
-  const [status, setStatus] = useState<DefinitionStatus | null>(null);
+  const [status, setStatus] = useState<LifecycleStatus | null>(null);
   const [adoptionFilter, setAdoptionFilter] = useState<"active" | "none" | null>(null);
 
   // Restore the preferred view. Read after mount so the server and first client
@@ -108,7 +110,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
       if (adoptionFilter === "none" && r.accounts > 0) return false;
       if (!q) return true;
       // soundsLike is searched too: a CSM types what they heard on the call.
-      return `${r.option.label} ${r.option.summary} ${r.entry?.goal ?? ""} ${(r.entry?.soundsLike ?? []).join(" ")}`
+      return `${r.option.label} ${r.option.summary} ${r.entry?.oneLiner ?? ""} ${r.entry?.customerProblem ?? ""} ${(r.entry?.clientPhrases ?? []).join(" ")}`
         .toLowerCase().includes(q);
     });
   }, [rows, query, category, status, adoptionFilter]);
@@ -159,9 +161,8 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
 
   const counts = useMemo(() => ({
     total: rows.length,
-    described: rows.filter((r) => r.status === "described").length,
-    drafted: rows.filter((r) => r.entry?.needsReview).length,
-    needsDefinition: rows.filter((r) => r.status === "needs_definition").length,
+    published: rows.filter((r) => r.status === "published").length,
+    needsWriting: rows.filter((r) => !r.entry).length,
     active: rows.filter((r) => r.accounts > 0).length,
   }), [rows]);
 
@@ -172,7 +173,8 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
         <p className="font-body text-[13px] text-fg-muted">
           <span className="tabular font-semibold text-fg">{counts.total}</span> use cases ·{" "}
           <span className="tabular font-semibold text-fg">{groups.length}</span> categories ·{" "}
-          <span className="tabular font-semibold text-fg">{counts.described}</span> described{counts.drafted > 0 && <>{" "}(<span className="tabular font-semibold text-[#B23A57]">{counts.drafted}</span> unreviewed)</>} ·{" "}
+          <span className="tabular font-semibold text-fg">{counts.published}</span> published ·{" "}
+          <span className="tabular font-semibold text-fg">{counts.needsWriting}</span> not written ·{" "}
           <span className="tabular font-semibold text-fg">{counts.active}</span> active on accounts
         </p>
         {canEdit && (
@@ -211,10 +213,10 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
 
         <label className="flex items-center gap-1.5">
           <span className="sr-only">Filter by definition status</span>
-          <select value={status ?? ""} onChange={(e) => setStatus((e.target.value || null) as DefinitionStatus | null)}
+          <select value={status ?? ""} onChange={(e) => setStatus((e.target.value || null) as LifecycleStatus | null)}
             className="rounded-lg border border-border bg-bg px-2.5 py-1.5 font-body text-[12.5px] text-fg outline-none focus:border-sirius">
             <option value="">Any status</option>
-            {DEFINITION_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+            {LIFECYCLE_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select>
         </label>
 
@@ -288,24 +290,18 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
                         {r.option.label}
                       </span>
                       <span dir="auto" className="min-w-0 flex-1 truncate font-body text-[12.5px] text-fg-subtle">
-                        {r.entry?.goal || r.option.summary}
+                        {r.entry?.oneLiner || r.option.summary}
                       </span>
 
                       {/* Metadata right-aligned in fixed slots so the columns
                           line up down the whole list, Linear-style. */}
-                      {r.entry?.needsReview && (
-                        <span title="Drafted, not yet reviewed by anyone at Lumofy"
-                          className="shrink-0 whitespace-nowrap font-body text-[11px] font-medium text-[#B23A57]">
-                          Draft
-                        </span>
-                      )}
                       {r.option.unresolved && (
                         <span className="hidden shrink-0 whitespace-nowrap font-body text-[11px] text-[#8A6D12] lg:inline">
                           Outside set
                         </span>
                       )}
                       <span className="hidden w-[92px] shrink-0 text-right font-body text-[11.5px] text-fg-subtle sm:inline">
-                        {r.entry?.modules.length ? r.entry.modules.join(" · ") : ""}
+                        {r.entry?.products.length ? r.entry.products.join(" · ") : ""}
                       </span>
                       <span className="tabular hidden w-[74px] shrink-0 text-right font-body text-[12px] text-fg-muted md:inline">
                         {r.accounts ? `${r.accounts} acct${r.accounts === 1 ? "" : "s"}` : ""}
@@ -313,7 +309,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
                       <span className="tabular hidden w-[64px] shrink-0 text-right font-body text-[12px] text-fg-muted lg:inline">
                         {r.accountArr ? money(r.accountArr) : ""}
                       </span>
-                      <span className="w-[132px] shrink-0 text-right"><StatusChip status={r.status} /></span>
+                      <span className="w-[132px] shrink-0 text-right"><StatusChip status={r.status} text={r.statusText} /></span>
                     </Link>
                   );
                 })}
@@ -333,7 +329,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
             <caption className="sr-only">Use cases with definition status, adoption and account ARR</caption>
             <thead>
               <tr className="border-b border-border bg-bg-muted/40 text-left">
-                {["Use case", "Category", "Definition", "Accounts", "Account ARR", "Modules", "Outside set"].map((h) => (
+                {["Use case", "Category", "Status", "Accounts", "Associated ARR", "Products", "Outside set"].map((h) => (
                   <th key={h} scope="col" className="whitespace-nowrap px-3 py-2 font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
                     {h}
                   </th>
@@ -349,16 +345,16 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
                       {r.option.label}
                     </Link>
                     <span className="block max-w-[38ch] truncate font-body text-[11.5px] text-fg-subtle">
-                      {r.entry?.goal || r.option.summary}
+                      {r.entry?.oneLiner || r.option.summary}
                     </span>
                   </td>
                   <td className="px-3 py-2.5 font-body text-[12px] text-fg-muted">
                     {r.option.groups.map((g) => groups.find((x) => x.id === g)?.label).filter(Boolean).join(" · ")}
                   </td>
-                  <td className="px-3 py-2.5"><StatusChip status={r.status} /></td>
+                  <td className="px-3 py-2.5"><StatusChip status={r.status} text={r.statusText} /></td>
                   <td className="tabular px-3 py-2.5 font-body text-[12.5px] text-fg">{r.accounts || "—"}</td>
                   <td className="tabular px-3 py-2.5 font-body text-[12.5px] text-fg">{r.accountArr ? money(r.accountArr) : "—"}</td>
-                  <td className="px-3 py-2.5 font-body text-[12px] text-fg-muted">{r.entry?.modules.join(" · ") || "—"}</td>
+                  <td className="px-3 py-2.5 font-body text-[12px] text-fg-muted">{r.entry?.products.join(" · ") || "—"}</td>
                   <td className="px-3 py-2.5 font-body text-[12px] text-fg-muted">
                     {r.option.unresolved ? "Yes" : "—"}
                   </td>

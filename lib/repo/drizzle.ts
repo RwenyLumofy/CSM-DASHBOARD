@@ -1383,6 +1383,22 @@ async function deleteJsonbArrayElementsDb(
   `);
 }
 
+/** Generic element-level array writes on clients.properties, for any feature
+ *  that stores a list of records there. The stakeholder and use-case
+ *  implementation writers both go through these rather than each rebuilding
+ *  the same read-modify-write race. */
+export async function upsertJsonbArrayElementForClientDb(
+  clientId: string, key: string, elementId: string, element: unknown,
+): Promise<void> {
+  await upsertJsonbArrayElementDb(clientId, key, elementId, element);
+}
+
+export async function deleteJsonbArrayElementForClientDb(
+  clientId: string, key: string, elementId: string,
+): Promise<void> {
+  await deleteJsonbArrayElementsDb(clientId, key, elementId);
+}
+
 export async function upsertStakeholderProfileDb(clientId: string, profile: { id: string } & Record<string, unknown>): Promise<void> {
   await upsertJsonbArrayElementDb(clientId, "stakeholder_profiles", profile.id, profile);
 }

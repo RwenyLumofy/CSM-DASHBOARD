@@ -1,127 +1,157 @@
 "use server";
 
 /* =========================================================================
-   Editing the Use Case Universe.
+   Editing a use-case definition.
 
-   WHAT IS AND ISN'T EDITABLE. The taxonomy — ids, labels, categories — is NOT.
-   It comes from the published deck, other reporting aggregates over it, and a
-   renamed id would orphan every account already recorded against it. What IS
-   editable is the editorial layer: definition, what it looks like in practice,
-   examples, evidence, pitfall, owning roles. That is the part written to be
-   argued with.
+   SECTION-LEVEL, not whole-page. Every call carries only the fields of the
+   section being saved, merged over what is stored — so two people editing
+   different sections don't overwrite each other, and a failed save loses only
+   the section in hand.
 
-   OVERRIDES, NOT REPLACEMENT. Edits land in workspace_config under
-   `use_case_library` and merge over the shipped baseline field by field
-   (mergeLibrary). Clearing an override restores the original, so a bad edit is
-   never destructive and the baseline can't be lost.
+   WHO. isAdminOrSuper: one edit changes what every CSM reads when classifying
+   an account, so it sits with whoever curates the taxonomy rather than with
+   everyone who can edit an account. Enforced here, not by hiding buttons.
 
-   WHO. isAdminOrSuper. This is workspace-wide reference content — one edit
-   changes what every CSM reads when deciding how to classify an account — so
-   it sits with the people who curate the taxonomy rather than with everyone
-   who can edit an account. Loosening it later is a one-line change.
+   Account implementations are a different thing entirely and gate on
+   canEditClient instead — a CSM owns their own accounts' objectives.
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";
 import { isAdminOrSuper, getCurrentUserEmail } from "@/lib/auth";
 import { hasDatabase } from "@/lib/config";
-import { LIBRARY_OVERRIDE_KEY, MODULES, type UseCaseOverride, type Module, type ConfusedWith } from "@/lib/use-case-library";
-import { STAKEHOLDER_ROLES, type StakeholderRole } from "@/lib/stakeholders/profile";
+import {
+  LIBRARY_OVERRIDE_KEY, PRODUCTS, LIFECYCLE_STATUSES, canPublish, mergeLibrary,
+  type UseCaseOverride, type Product, type LifecycleStatus,
+} from "@/lib/use-case-library";
 
 export interface LibraryResult { ok: boolean; error?: string }
 
-const text = (v: unknown, max: number): string | undefined => {
-  if (typeof v !== "string") return undefined;
-  const t = v.trim();
-  return t ? t.slice(0, max) : "";  // "" means "clear this override"
-};
+const text = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+const lines = (v: unknown, max = 12): string[] | undefined =>
+  Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).slice(0, max) : undefined;
 
-const lines = (v: unknown): string[] | undefined => {
-  if (!Array.isArray(v)) return undefined;
-  return v.map((x) => String(x).trim()).filter(Boolean).slice(0, 12).map((x) => x.slice(0, 400));
-};
-
-export interface LibraryEditInput {
-  goal?: string;
-  soundsLike?: string[];
-  delivers?: string[];
-  confusedWith?: { id: string; distinction: string }[];
-  watchFor?: string[];
-  modules?: string[];
-  stakeholderRoles?: string[];
+/** Only the fields of one section arrive on any given call. */
+export interface SectionPatch {
+  oneLiner?: string;
+  customerProblem?: string;
+  desiredOutcome?: string;
+  products?: string[];
+  ownerEmail?: string | null;
+  status?: string;
+  clientPhrases?: string[];
+  audience?: { buyer?: string; operationalOwner?: string; targetPopulation?: string; contexts?: string };
+  capabilities?: { name: string; role: string }[];
+  successIndicators?: string[];
+  relatedUseCases?: { id: string; distinction: string }[];
   sourceUrl?: string | null;
-  needsReview?: boolean;
+  /** Stamp the review as done now. */
+  markReviewed?: boolean;
 }
 
-export async function saveUseCaseEntryAction(id: string, input: LibraryEditInput): Promise<LibraryResult> {
-  if (!hasDatabase()) return { ok: false, error: "No database configured." };
-  if (!(await isAdminOrSuper())) return { ok: false, error: "Admin access required to edit the Use Case Universe." };
+async function load(): Promise<Record<string, UseCaseOverride>> {
+  const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
+  const raw = await getWorkspaceConfigFromDb(LIBRARY_OVERRIDE_KEY);
+  return (raw && typeof raw === "object" ? raw : {}) as Record<string, UseCaseOverride>;
+}
 
-  // The id must be a live use case in the CURRENT taxonomy, not just a shipped
-  // one — the team can add their own, and those need descriptions too.
-  const { getWorkspaceConfigFromDb, setWorkspaceConfigDb } = await import("@/lib/repo/drizzle");
+export async function saveUseCaseSectionAction(id: string, patch: SectionPatch): Promise<LibraryResult> {
+  if (!hasDatabase()) return { ok: false, error: "No database configured." };
+  if (!(await isAdminOrSuper())) return { ok: false, error: "Admin access required to edit a definition." };
+
   const { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy } = await import("@/lib/use-case-overlay");
+  const { getWorkspaceConfigFromDb, setWorkspaceConfigDb } = await import("@/lib/repo/drizzle");
   const taxonomy = normalizeOverlay(await getWorkspaceConfigFromDb(TAXONOMY_KEY));
   const live = resolveTaxonomy(taxonomy, true);
   if (!live.some((u) => u.id === id)) return { ok: false, error: "Unknown use case." };
 
-  const patch: UseCaseOverride = {
-    updatedAt: new Date().toISOString(),
-    updatedBy: (await getCurrentUserEmail()) ?? undefined,
-  };
+  const current = await load();
+  const next: UseCaseOverride = { ...(current[id] ?? {}) };
 
-  const goal = text(input.goal, 600);
-  if (goal !== undefined) patch.goal = goal;
-  const sounds = lines(input.soundsLike); if (sounds) patch.soundsLike = sounds;
-  const delivers = lines(input.delivers); if (delivers) patch.delivers = delivers;
-  const watch = lines(input.watchFor); if (watch) patch.watchFor = watch;
-
-  if (Array.isArray(input.confusedWith)) {
-    // Silently drop a pointer at a use case that no longer exists rather than
-    // rendering a broken cross-reference later.
-    const ids = new Set(live.map((u) => u.id));
-    patch.confusedWith = input.confusedWith
-      .filter((c) => c && typeof c.id === "string" && ids.has(c.id) && c.id !== id)
-      .map<ConfusedWith>((c) => ({ id: c.id, distinction: String(c.distinction ?? "").trim().slice(0, 300) }))
-      .slice(0, 6);
-  }
-  if (Array.isArray(input.modules)) {
-    patch.modules = input.modules.filter((m): m is Module => (MODULES as readonly string[]).includes(m));
-  }
-  if (Array.isArray(input.stakeholderRoles)) {
-    patch.stakeholderRoles = input.stakeholderRoles
-      .filter((r): r is StakeholderRole => (STAKEHOLDER_ROLES as readonly string[]).includes(r));
-  }
-  if (typeof input.needsReview === "boolean") patch.needsReview = input.needsReview;
-  if (input.sourceUrl !== undefined) {
-    const u = typeof input.sourceUrl === "string" ? input.sourceUrl.trim() : "";
+  if (patch.oneLiner !== undefined) next.oneLiner = text(patch.oneLiner, 400);
+  if (patch.customerProblem !== undefined) next.customerProblem = text(patch.customerProblem, 2000);
+  if (patch.desiredOutcome !== undefined) next.desiredOutcome = text(patch.desiredOutcome, 2000);
+  if (patch.ownerEmail !== undefined) next.ownerEmail = text(patch.ownerEmail, 200).toLowerCase() || null;
+  if (patch.sourceUrl !== undefined) {
+    const u = text(patch.sourceUrl, 500);
     if (u && !/^https?:\/\//i.test(u)) return { ok: false, error: "The source link needs to start with https://" };
-    patch.sourceUrl = u || null;
+    next.sourceUrl = u || null;
   }
+  if (patch.products) {
+    next.products = patch.products.filter((p): p is Product => (PRODUCTS as readonly string[]).includes(p));
+  }
+  const phrases = lines(patch.clientPhrases); if (phrases) next.clientPhrases = phrases;
+  const indicators = lines(patch.successIndicators); if (indicators) next.successIndicators = indicators;
+
+  if (patch.audience) {
+    next.audience = {
+      buyer: text(patch.audience.buyer, 300),
+      operationalOwner: text(patch.audience.operationalOwner, 300),
+      targetPopulation: text(patch.audience.targetPopulation, 300),
+      contexts: text(patch.audience.contexts, 300),
+    };
+  }
+  if (patch.capabilities) {
+    next.capabilities = patch.capabilities
+      .map((c) => ({ name: text(c?.name, 120), role: text(c?.role, 300) }))
+      .filter((c) => c.name)
+      .slice(0, 15);
+  }
+  if (patch.relatedUseCases) {
+    const ids = new Set(live.map((u) => u.id));
+    // A pointer at something that no longer exists renders as a broken link
+    // later; drop it at the door instead.
+    next.relatedUseCases = patch.relatedUseCases
+      .filter((r) => r && ids.has(r.id) && r.id !== id)
+      .map((r) => ({ id: r.id, distinction: text(r.distinction, 400) }))
+      .slice(0, 8);
+  }
+
+  const editor = await getCurrentUserEmail();
+  if (patch.status !== undefined) {
+    if (!(LIFECYCLE_STATUSES as readonly string[]).includes(patch.status)) {
+      return { ok: false, error: "Unknown status." };
+    }
+    // Publishing is the one transition with a bar: it means "safe to quote to a
+    // client", so the required fields have to be there first.
+    if (patch.status === "published") {
+      const candidate = mergeLibrary({ [id]: next })[0];
+      if (!canPublish(candidate)) {
+        return { ok: false, error: "Fill in the definition, problem, outcome, product and owner before publishing." };
+      }
+    }
+    next.status = patch.status as LifecycleStatus;
+  }
+  if (patch.markReviewed) {
+    next.lastReviewedAt = new Date().toISOString();
+    next.reviewedBy = editor ?? undefined;
+  }
+
+  next.updatedAt = new Date().toISOString();
+  next.updatedBy = editor ?? undefined;
 
   try {
-    const current = (await getWorkspaceConfigFromDb(LIBRARY_OVERRIDE_KEY)) as Record<string, UseCaseOverride> | null;
-    const next = { ...(current && typeof current === "object" ? current : {}), [id]: patch };
-    await setWorkspaceConfigDb(LIBRARY_OVERRIDE_KEY, next);
+    await setWorkspaceConfigDb(LIBRARY_OVERRIDE_KEY, { ...current, [id]: next });
     revalidatePath("/use-cases");
+    revalidatePath(`/use-cases/${id}`);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
 }
 
-/** Delete what the team wrote. There is no shipped text underneath, so this
- *  returns the use case to undocumented. */
-export async function resetUseCaseEntryAction(id: string): Promise<LibraryResult> {
+/** Delete the whole definition. The use case itself stays in the taxonomy. */
+export async function clearUseCaseDefinitionAction(id: string): Promise<LibraryResult> {
   if (!hasDatabase()) return { ok: false, error: "No database configured." };
   if (!(await isAdminOrSuper())) return { ok: false, error: "Admin access required." };
   try {
-    const { getWorkspaceConfigFromDb, setWorkspaceConfigDb } = await import("@/lib/repo/drizzle");
-    const current = (await getWorkspaceConfigFromDb(LIBRARY_OVERRIDE_KEY)) as Record<string, UseCaseOverride> | null;
-    if (!current || typeof current !== "object" || !(id in current)) return { ok: true }; // already baseline
+    const { setWorkspaceConfigDb } = await import("@/lib/repo/drizzle");
+    const current = await load();
+    if (!current[id]) return { ok: true };
     const next = { ...current };
     delete next[id];
     await setWorkspaceConfigDb(LIBRARY_OVERRIDE_KEY, next);
     revalidatePath("/use-cases");
+    revalidatePath(`/use-cases/${id}`);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };

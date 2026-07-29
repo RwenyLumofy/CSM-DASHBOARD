@@ -3,8 +3,11 @@ import { UseCaseDetail } from "@/components/reports/UseCaseDetail";
 import { getUseCaseAdoption } from "@/lib/use-case-adoption";
 import { mergeLibrary, LIBRARY_OVERRIDE_KEY, type UseCaseOverride } from "@/lib/use-case-library";
 import { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy, resolveGroups } from "@/lib/use-case-overlay";
-import { definitionStatus } from "@/lib/use-case-status";
+
 import { hasDatabase } from "@/lib/config";
+import { getClients } from "@/lib/data";
+import { IMPLEMENTATION_KEY, normalizeImplementations, type UseCaseImplementation } from "@/lib/use-case-implementation";
+import type { AccountRef } from "@/lib/use-case-adoption";
 import { isAdminOrSuper } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +53,23 @@ export default async function UseCaseDetailPage({ params }: { params: Promise<{ 
   if (!option) notFound();
 
   const entries = new Map(mergeLibrary(overridesRaw).map((e) => [e.id, e]));
+  const implClients = await getClients();
+  // Implementations live on the client, so they're gathered by scanning the
+  // accounts in scope rather than read from the use case.
+  const implementations = (() => {
+    const rows: { account: AccountRef; implementation: UseCaseImplementation }[] = [];
+    for (const c of implClients) {
+      const found = normalizeImplementations(
+        (c.properties as Record<string, unknown> | undefined)?.[IMPLEMENTATION_KEY],
+      ).find((i) => i.useCaseId === id);
+      if (found) rows.push({
+        account: { id: c.id, name: c.name, arr: c.arr ?? 0, csm: c.csm?.email ?? null },
+        implementation: found,
+      });
+    }
+    return rows.sort((a, b) => b.account.arr - a.account.arr);
+  })();
+
   const a = adoption.rows.find((r) => r.option.id === id);
 
   return (
@@ -59,13 +79,12 @@ export default async function UseCaseDetailPage({ params }: { params: Promise<{ 
         entry={entries.get(id)}
         allEntries={all}
         groups={resolveGroups(taxonomy)}
-        status={definitionStatus(entries.get(id))}
         canEdit={canEdit}
         confirmed={a?.confirmed ?? []}
         declaredOnly={a?.declaredOnly ?? []}
         accountArr={a?.totalArr ?? 0}
-        updatedAt={overridesRaw[id]?.updatedAt ?? null}
-        updatedBy={overridesRaw[id]?.updatedBy ?? null}
+        implementations={implementations}
+        today={new Date().toISOString().slice(0, 10)}
       />
     </div>
   );

@@ -2,7 +2,7 @@ import { UseCaseLibrary, type LibraryRow } from "@/components/reports/UseCaseLib
 import { getUseCaseAdoption } from "@/lib/use-case-adoption";
 import { mergeLibrary, LIBRARY_OVERRIDE_KEY, type UseCaseOverride } from "@/lib/use-case-library";
 import { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy, resolveGroups } from "@/lib/use-case-overlay";
-import { definitionStatus } from "@/lib/use-case-status";
+import { statusLine } from "@/lib/use-case-status";
 import { hasDatabase } from "@/lib/config";
 import { isAdminOrSuper } from "@/lib/auth";
 
@@ -41,6 +41,7 @@ export default async function UseCasesPage() {
 
   const taxonomy = normalizeOverlay(taxonomyRaw);
   const groups = resolveGroups(taxonomy);
+  const today = new Date().toISOString().slice(0, 10);
   const entries = new Map(mergeLibrary(overridesRaw).map((e) => [e.id, e]));
   const adoptionById = new Map(adoption.rows.map((r) => [r.option.id, r]));
 
@@ -50,7 +51,8 @@ export default async function UseCasesPage() {
     return {
       option,
       entry,
-      status: definitionStatus(entry),
+      status: entry?.status ?? "draft",
+      statusText: statusLine(entry, today),
       accounts: (a?.confirmed.length ?? 0) + (a?.declaredOnly.length ?? 0),
       // Account ARR: the contract value of accounts carrying this use case.
       // Not revenue attributed to it — no attribution data exists.

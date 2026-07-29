@@ -125,13 +125,13 @@ test("malformed input never throws", () => {
   }
 });
 
-/* ---- nothing is shipped as authored content ---------------------------- */
+/* ---- nothing ships as authored content -------------------------------- */
 
-import { USE_CASE_LIBRARY, mergeLibrary, isCustomised, completeness } from "./use-case-library";
+import { USE_CASE_LIBRARY, mergeLibrary, missingFields, canPublish } from "./use-case-library";
 
-test("no use-case description ships with the product", () => {
+test("no definition ships with the product", () => {
   assert.equal(USE_CASE_LIBRARY.length, 0,
-    "descriptions must come from the team, not the codebase — an invented one reads as doctrine");
+    "definitions must come from the team, not the codebase — an invented one reads as doctrine");
 });
 
 test("with nothing written, there is nothing to show", () => {
@@ -140,47 +140,45 @@ test("with nothing written, there is nothing to show", () => {
 });
 
 test("only what the team wrote comes back", () => {
-  const out = mergeLibrary({ tna: { goal: "Ours.", soundsLike: ["we don't know what to train"] } });
+  const out = mergeLibrary({ tna: { oneLiner: "Ours.", clientPhrases: ["we don't know what to train"] } });
   assert.equal(out.length, 1);
-  assert.equal(out[0].goal, "Ours.");
-  assert.deepEqual(out[0].soundsLike, ["we don't know what to train"]);
-  assert.deepEqual(out[0].delivers, [], "an unwritten field stays empty rather than being filled in");
+  assert.equal(out[0].oneLiner, "Ours.");
+  assert.deepEqual(out[0].clientPhrases, ["we don't know what to train"]);
+  assert.equal(out[0].customerProblem, "", "an unwritten field stays empty rather than being filled in");
+  assert.equal(out[0].status, "draft", "anything unset starts as a draft, never published");
 });
 
-test("an override holding only audit fields is not a description", () => {
-  assert.deepEqual(mergeLibrary({ tna: { updatedAt: "2026-07-28", updatedBy: "a@b.com" } }), []);
-  assert.equal(isCustomised("tna", { tna: { updatedAt: "x", updatedBy: "y" } }), false);
+test("audit or metadata alone is not a definition", () => {
+  assert.deepEqual(mergeLibrary({ tna: { updatedAt: "2026-07-29", updatedBy: "a@b.com" } }), []);
+  assert.deepEqual(mergeLibrary({ tna: { products: ["Perform"], sourceUrl: "https://notion.so/x" } }), []);
 });
 
-test("metadata alone is not a description either", () => {
-  assert.deepEqual(mergeLibrary({ tna: { modules: ["Perform"], sourceUrl: "https://notion.so/x" } }), [],
-    "a module tag tells a CSM nothing on its own");
+test("an unknown product or status is discarded rather than stored", () => {
+  const out = mergeLibrary({ tna: { oneLiner: "x", products: ["Perform", "Nonsense"] as never, status: "banana" as never } });
+  assert.deepEqual(out[0].products, ["Perform"]);
+  assert.equal(out[0].status, "draft");
 });
 
-test("blank strings and empty lines do not count", () => {
-  assert.deepEqual(mergeLibrary({ tna: { goal: "   ", soundsLike: ["", "  "] } }), []);
+test("capabilities without a name are dropped", () => {
+  const out = mergeLibrary({ tna: { oneLiner: "x", capabilities: [{ name: "", role: "y" }, { name: "Assessments", role: "measure readiness" }] } });
+  assert.deepEqual(out[0].capabilities.map((c) => c.name), ["Assessments"]);
 });
 
-test("a confusedWith entry without an id is dropped", () => {
-  const out = mergeLibrary({
-    tna: { goal: "x", confusedWith: [{ id: "", distinction: "y" }, { id: "feedback_360", distinction: "z" }] },
-  });
-  assert.deepEqual(out[0].confusedWith.map((c) => c.id), ["feedback_360"]);
+test("missing fields are named, never scored", () => {
+  const gaps = missingFields(mergeLibrary({ tna: { oneLiner: "x" } })[0]);
+  assert.ok(gaps.includes("Customer problem"));
+  assert.ok(gaps.includes("Desired outcome"));
+  assert.ok(gaps.includes("Owner not confirmed"));
+  assert.ok(gaps.includes("Never reviewed"));
+  assert.equal(missingFields(undefined)[0], "Nothing has been written yet");
 });
 
-test("an unknown module is filtered out", () => {
-  const out = mergeLibrary({ tna: { goal: "x", modules: ["Perform", "Nonsense"] as never } });
-  assert.deepEqual(out[0].modules, ["Perform"]);
-});
-
-test("completeness counts the five written fields, not metadata", () => {
-  assert.equal(completeness(undefined), 0);
-  const one = mergeLibrary({ tna: { goal: "x" } })[0];
-  assert.equal(completeness(one), 1 / 5);
-  const all = mergeLibrary({ tna: {
-    goal: "x", soundsLike: ["a"], delivers: ["b"], watchFor: ["c"],
-    confusedWith: [{ id: "feedback_360", distinction: "d" }],
-    modules: ["Perform"], sourceUrl: "https://notion.so/x",
+test("publishing requires the definition, problem, outcome, product and owner", () => {
+  const partial = mergeLibrary({ tna: { oneLiner: "x", customerProblem: "y" } })[0];
+  assert.equal(canPublish(partial), false);
+  const full = mergeLibrary({ tna: {
+    oneLiner: "x", customerProblem: "y", desiredOutcome: "z",
+    products: ["Perform"], ownerEmail: "a@b.com",
   } })[0];
-  assert.equal(completeness(all), 1);
+  assert.equal(canPublish(full), true);
 });
