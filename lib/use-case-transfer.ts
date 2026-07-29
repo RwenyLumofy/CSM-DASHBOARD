@@ -15,10 +15,28 @@
    Nothing fuzzier than that: a near-match is a rename, and silently updating
    the wrong definition is worse than reporting an unmatched name.
 
-   IMPORT MERGES, NEVER DELETES. A use case present here but absent from the
-   file is left exactly as it is. An import is "apply these definitions", not
-   "make production look like my laptop" — the second is a footgun when the
-   file is a week old, and it can always be done by hand afterwards.
+   TWO MODES.
+
+     merge    (default) A use case present here but absent from the file is
+              left exactly as it is. "Apply these definitions."
+
+     replace  Delete everything and re-import. The overlay and the library are
+              rebuilt FROM THE FILE, not merged into what is here — a use case
+              the file omits is gone from the picker, the list and every
+              report.
+
+              One mechanical caveat, because the data model leaves no choice:
+              a use case that ships in code (lib/use-cases.ts) cannot be
+              deleted from the overlay, since the overlay is a delta ON TOP of
+              that code list. Omitting it from `added` would resurrect it. The
+              only representation of "this shipped entry is gone" is a
+              `retired` marker, so that is what an omitted shipped entry gets.
+              It disappears from the picker and every list exactly as a deleted
+              one does. Team-added entries are genuinely dropped.
+
+              Accounts recorded against a deleted id stop resolving and read as
+              unmapped. The preview says how many accounts each deletion costs
+              BEFORE anything is written, and the UI takes a typed confirmation.
 
    planImport() is pure. The preview the user approves and the write that
    follows are computed by the same function from the same inputs, so the
@@ -29,6 +47,7 @@ import {
   PRODUCTS, LIFECYCLE_STATUSES, EMPTY_AUDIENCE,
   type UseCaseEntry, type UseCaseOverride, type Product, type LifecycleStatus,
 } from "@/lib/use-case-library";
+import { isShippedGroup as isShippedGroupId } from "@/lib/use-case-overlay";
 import type { ResolvedUseCase, TaxonomyOverlay } from "@/lib/use-case-overlay";
 
 export const TRANSFER_KIND = "lumofy.use-case-universe";
@@ -235,11 +254,17 @@ export function parseTransferFile(raw: unknown): { file: TransferFile } | { erro
 
 /* ---------------------------------------------------------------- plan */
 
+export type ImportMode = "merge" | "replace";
+
 export interface ImportPlan {
+  mode: ImportMode;
   /** Existing entries matched by name and rewritten. */
   updated: string[];
   /** Names not present here, created as new use cases. */
   created: string[];
+  /** replace only: here but not in the file, so deleted. `accounts` is how
+   *  many client records still reference it — the cost of the deletion. */
+  removed: { name: string; accounts: number }[];
   /** New categories the file needs. */
   newCategories: string[];
   /** Non-fatal problems, each naming what was dropped and why. */
@@ -257,25 +282,43 @@ export function planImport(
   currentLibrary: Record<string, UseCaseOverride>,
   newId: () => string,
   newGroupIdFn: () => string,
+  opts?: { mode?: ImportMode; accountsById?: ReadonlyMap<string, number> },
 ): ImportPlan {
+  const mode: ImportMode = opts?.mode ?? "merge";
   const warnings: string[] = [];
   const updated: string[] = [];
   const created: string[] = [];
+  const removed: { name: string; accounts: number }[] = [];
   const newCategories: string[] = [];
 
-  const overlay: TaxonomyOverlay = {
-    renamed: { ...(currentOverlay.renamed ?? {}) },
-    added: { ...(currentOverlay.added ?? {}) },
-    retired: { ...(currentOverlay.retired ?? {}) },
-    groups: { ...(currentOverlay.groups ?? {}) },
-    hiddenGroups: [...(currentOverlay.hiddenGroups ?? [])],
-  };
-  const library: Record<string, UseCaseOverride> = { ...currentLibrary };
+  /* replace rebuilds the overlay FROM THE FILE. Copying the current one first
+     would carry forward every entry the file dropped, which is the opposite of
+     what replace means. */
+  const overlay: TaxonomyOverlay = mode === "replace"
+    ? { renamed: {}, added: {}, retired: {}, groups: {}, hiddenGroups: [] }
+    : {
+        renamed: { ...(currentOverlay.renamed ?? {}) },
+        added: { ...(currentOverlay.added ?? {}) },
+        retired: { ...(currentOverlay.retired ?? {}) },
+        groups: { ...(currentOverlay.groups ?? {}) },
+        hiddenGroups: [...(currentOverlay.hiddenGroups ?? [])],
+      };
+  /* replace starts from an EMPTY library, so a definition absent from the file
+     is gone rather than lingering under an entry the file no longer describes.
+     The taxonomy is still edited in place — retiring needs the existing rows. */
+  const library: Record<string, UseCaseOverride> = mode === "replace" ? {} : { ...currentLibrary };
 
   /* -- categories: resolve by label, create what's missing -- */
   const groupIdByName = new Map(currentGroups.map((g) => [nameKey(g.label), g.id]));
   for (const c of file.categories) {
-    if (groupIdByName.has(nameKey(c.name))) continue;
+    const existing = groupIdByName.get(nameKey(c.name));
+    if (existing) {
+      // Reuse the id — including a shipped one — so replace doesn't mint a
+      // duplicate "Enablement" alongside the real one. In replace the override
+      // has to be re-stated, since the overlay was rebuilt empty.
+      if (mode === "replace") overlay.groups![existing] = { id: existing, label: c.name, blurb: c.blurb };
+      continue;
+    }
     const id = newGroupIdFn();
     overlay.groups![id] = { id, label: c.name, blurb: c.blurb };
     groupIdByName.set(nameKey(c.name), id);
@@ -370,5 +413,34 @@ export function planImport(
     };
   }
 
-  return { updated, created, newCategories, warnings, taxonomy: overlay, library };
+  if (mode === "replace") {
+    const inFile = new Set(file.useCases.map((u) => nameKey(u.name)));
+    for (const o of currentOptions) {
+      if (inFile.has(nameKey(o.label))) continue;
+
+      // Only entries that were VISIBLE count as a deletion — one already out
+      // of the picker isn't news.
+      if (!o.retired) removed.push({ name: o.label, accounts: opts?.accountsById?.get(o.id) ?? 0 });
+
+      /* A team-added entry simply isn't in the rebuilt `added` map — deleted.
+         A SHIPPED entry lives in code, so a retired marker is the only way to
+         remove it (see the note at the top of this file).
+
+         This must run even when the entry was ALREADY retired: the overlay was
+         rebuilt empty, so skipping it would drop the marker and the code list
+         would bring the entry back — a replace that resurrects what someone
+         retired months ago. The original reason is preserved. */
+      if (!o.custom) {
+        overlay.retired![o.id] = o.retired ?? { reason: "Deleted by a replace import." };
+      }
+    }
+    // Categories the file doesn't mention go too.
+    const fileCats = new Set(file.categories.map((c) => nameKey(c.name)));
+    for (const g of currentGroups) {
+      if (fileCats.has(nameKey(g.label))) continue;
+      if (isShippedGroupId(g.id)) overlay.hiddenGroups!.push(g.id);
+    }
+  }
+
+  return { mode, updated, created, removed, newCategories, warnings, taxonomy: overlay, library };
 }
