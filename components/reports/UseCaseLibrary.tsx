@@ -10,21 +10,28 @@
    This page does one job — find, compare and maintain — and hands the detail to
    its own route, so a use case can be linked, refreshed and navigated back to.
 
-   Two views, because the two audiences differ. Cards are for exploring when you
-   don't yet know what you're looking for; the table is for administration, where
-   you are comparing status, ownership and coverage across the whole set and want
-   density instead of prose. The choice persists, because whichever you prefer
-   you will prefer it every time.
+   The default is a DENSE LIST, not a card grid. Cards gave each entry ~180px
+   of chrome and fitted six on screen; the list fits the whole taxonomy at once,
+   which is what makes 28 things comparable. The answer to "there isn't enough
+   detail on a card" is not a bigger card — it is a list you can scan and a
+   detail you can reach instantly. Rows are grouped by category with counts, so
+   the shape of the taxonomy reads without opening anything.
+
+   Keyboard: "/" focuses search, up/down moves, Enter opens. A list this dense
+   is only pleasant if you never have to reach for the mouse.
+
+   The table stays for administration, where you want every column at once.
 
    ARR IS LABELLED ACCOUNT ARR. It is the sum of client.arr for accounts carrying
    the use case — the whole contract value of those accounts, not revenue this
    use case produced. Nothing in the data supports attribution, so the page must
    not imply it. */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  Search, LayoutGrid, Table as TableIcon, X, Plus, SlidersHorizontal, ArrowRight,
+  Search, LayoutGrid, Table as TableIcon, X, Plus, SlidersHorizontal, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { AdoptionSummary } from "@/lib/use-case-adoption";
@@ -70,13 +77,15 @@ function FilterChip({ label, onClear }: { label: string; onClear: () => void }) 
   );
 }
 
-export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
+export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/use-cases" }: {
   rows: LibraryRow[];
   groups: { id: string; label: string; blurb: string }[];
   canEdit: boolean;
   adoption: AdoptionSummary;
+  /** Where a row links. Overridden only by the dev preview harness. */
+  basePath?: string;
 }) {
-  const [view, setView] = useState<"cards" | "table">("cards");
+  const [view, setView] = useState<"list" | "table">("list");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const [status, setStatus] = useState<DefinitionStatus | null>(null);
@@ -86,7 +95,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
   // render agree — reading localStorage during render hydrates mismatched.
   useEffect(() => {
     const saved = typeof window !== "undefined" ? window.localStorage.getItem(VIEW_KEY) : null;
-    if (saved === "table" || saved === "cards") setView(saved);
+    if (saved === "table" || saved === "list") setView(saved);
   }, []);
   useEffect(() => { try { window.localStorage.setItem(VIEW_KEY, view); } catch { /* private mode */ } }, [view]);
 
@@ -106,6 +115,47 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
 
   const activeFilters = [category, status, adoptionFilter, query.trim()].filter(Boolean).length;
   const clearAll = () => { setCategory(null); setStatus(null); setAdoptionFilter(null); setQuery(""); };
+
+  /** Grouped by category, the way Linear groups by status — the group header
+   *  carries the count so the distribution reads without expanding anything.
+   *  A cross-listed use case appears under each of its categories, which is
+   *  correct: that is what cross-listing means. */
+  const grouped = useMemo(() => {
+    const out = groups
+      .map((g) => ({ group: g, rows: filtered.filter((r) => (r.option.groups as string[]).includes(g.id)) }))
+      .filter((s) => s.rows.length > 0);
+    const filed = new Set(out.flatMap((s) => s.rows.map((r) => r.option.id)));
+    const orphans = filtered.filter((r) => !filed.has(r.option.id));
+    return orphans.length
+      ? [...out, { group: { id: "__none", label: "Uncategorised", blurb: "" }, rows: orphans }]
+      : out;
+  }, [filtered, groups]);
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [cursor, setCursor] = useState(0);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+
+  /** Flat order for keyboard movement, matching what is on screen. */
+  const flat = useMemo(
+    () => grouped.flatMap((g) => (collapsed.has(g.group.id) ? [] : g.rows)), [grouped, collapsed]);
+
+  useEffect(() => { setCursor(0); }, [query, category, status, adoptionFilter]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const typing = (e.target as HTMLElement)?.tagName === "INPUT" || (e.target as HTMLElement)?.tagName === "SELECT";
+      if (e.key === "/" && !typing) { e.preventDefault(); searchRef.current?.focus(); return; }
+      if (typing && e.key !== "Escape") return;
+      if (e.key === "Escape") { (e.target as HTMLElement)?.blur?.(); return; }
+      if (view !== "list" || flat.length === 0) return;
+      if (e.key === "ArrowDown" || e.key === "j") { e.preventDefault(); setCursor((c) => Math.min(c + 1, flat.length - 1)); }
+      if (e.key === "ArrowUp" || e.key === "k") { e.preventDefault(); setCursor((c) => Math.max(c - 1, 0)); }
+      if (e.key === "Enter" && flat[cursor]) router.push(`${basePath}/${flat[cursor].option.id}`);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [flat, cursor, view, router, basePath]);
 
   const counts = useMemo(() => ({
     total: rows.length,
@@ -144,7 +194,8 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
           <Search size={13} className="pointer-events-none absolute left-2.5 text-fg-subtle" aria-hidden />
           <span className="sr-only">Search use cases</span>
           <input value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search — including what a client would say…"
+            ref={searchRef}
+            placeholder="Search — including what a client would say…    /"
             className="w-full rounded-lg border border-border bg-bg py-1.5 pl-7 pr-2.5 font-body text-[12.5px] text-fg outline-none placeholder:text-fg-subtle focus:border-sirius" />
         </label>
 
@@ -167,7 +218,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
         </label>
 
         <div role="tablist" aria-label="View" className="ml-auto flex rounded-lg border border-border p-0.5">
-          {([["cards", LayoutGrid, "Cards"], ["table", TableIcon, "Table"]] as const).map(([k, Icon, label]) => (
+          {([["list", LayoutGrid, "List"], ["table", TableIcon, "Table"]] as const).map(([k, Icon, label]) => (
             <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} title={label}
               className={cn("inline-flex items-center gap-1.5 rounded-[6px] px-2.5 py-1.5 font-body text-[12.5px] font-medium transition-colors",
                 view === k ? "bg-accent-soft text-sirius" : "text-fg-muted hover:text-fg")}>
@@ -199,48 +250,76 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
             Clear all filters
           </button>
         </div>
-      ) : view === "cards" ? (
-        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((r) => (
-            <li key={r.option.id}>
-              <Link href={`/use-cases/${r.option.id}`}
-                className="group flex h-full flex-col gap-2.5 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-sirius">
-                <div className="flex items-start justify-between gap-2">
-                  <span className="font-body text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">
-                    {r.option.groups.map((g) => groups.find((x) => x.id === g)?.label).filter(Boolean).join(" · ")}
+      ) : view === "list" ? (
+        <div className="flex flex-col">
+          {grouped.map(({ group, rows: gRows }) => {
+            const shut = collapsed.has(group.id);
+            return (
+              <section key={group.id}>
+                {/* Group header carries the count — the distribution reads
+                    without expanding anything. */}
+                <button
+                  onClick={() => setCollapsed((prev) => {
+                    const next = new Set(prev);
+                    next.has(group.id) ? next.delete(group.id) : next.add(group.id);
+                    return next;
+                  })}
+                  aria-expanded={!shut}
+                  className="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border-subtle bg-canvas/95 py-2 text-left backdrop-blur">
+                  <ChevronRight size={12} aria-hidden
+                    className={cn("shrink-0 text-fg-subtle transition-transform", !shut && "rotate-90")} />
+                  <span className="font-body text-[11.5px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">
+                    {group.label}
                   </span>
-                  <StatusChip status={r.status} />
-                </div>
+                  <span className="tabular font-body text-[11.5px] text-fg-subtle">{gRows.length}</span>
+                </button>
 
-                <h3 dir="auto" className="font-body text-[15px] font-semibold leading-snug text-fg">{r.option.label}</h3>
+                {!shut && gRows.map((r) => {
+                  const i = flat.findIndex((f) => f.option.id === r.option.id);
+                  const active = i === cursor;
+                  return (
+                    <Link key={r.option.id} href={`${basePath}/${r.option.id}`} onMouseEnter={() => setCursor(i)}
+                      className={cn(
+                        "group flex items-center gap-3 border-b border-border-subtle px-2 py-2 transition-colors",
+                        active ? "bg-accent-soft/50" : "hover:bg-bg-muted/50",
+                      )}>
+                      <span dir="auto" className="min-w-0 shrink-0 max-w-[42%] truncate font-body text-[13.5px] font-medium text-fg">
+                        {r.option.label}
+                      </span>
+                      <span dir="auto" className="min-w-0 flex-1 truncate font-body text-[12.5px] text-fg-subtle">
+                        {r.entry?.goal || r.option.summary}
+                      </span>
 
-                <p className="line-clamp-2 font-body text-[12.5px] leading-relaxed text-fg-muted">
-                  {r.entry?.goal || r.option.summary}
-                </p>
-
-                {r.option.unresolved && (
-                  <span className="self-start rounded-full border border-[#C99A14]/30 bg-[#8A6D12]/5 px-2 py-0.5 font-body text-[11px] font-medium text-[#8A6D12]">
-                    Outside published set
-                  </span>
-                )}
-
-                <div className="mt-auto flex flex-col gap-1.5 border-t border-border-subtle pt-2.5">
-                  <p className="tabular font-body text-[12px] text-fg-muted">
-                    {r.accounts === 0
-                      ? "No accounts yet"
-                      : <>{r.accounts} account{r.accounts === 1 ? "" : "s"} · {money(r.accountArr)} account ARR</>}
-                  </p>
-                  {(r.entry?.modules.length ?? 0) > 0 && (
-                    <p className="font-body text-[12px] text-fg-subtle">{r.entry!.modules.join(" · ")}</p>
-                  )}
-                  <span className="inline-flex items-center gap-1 font-body text-[12px] font-semibold text-sirius">
-                    View use case <ArrowRight size={12} className="transition-transform group-hover:translate-x-0.5" />
-                  </span>
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
+                      {/* Metadata right-aligned in fixed slots so the columns
+                          line up down the whole list, Linear-style. */}
+                      {r.option.unresolved && (
+                        <span className="hidden shrink-0 whitespace-nowrap font-body text-[11px] text-[#8A6D12] lg:inline">
+                          Outside set
+                        </span>
+                      )}
+                      <span className="hidden w-[92px] shrink-0 text-right font-body text-[11.5px] text-fg-subtle sm:inline">
+                        {r.entry?.modules.length ? r.entry.modules.join(" · ") : ""}
+                      </span>
+                      <span className="tabular hidden w-[74px] shrink-0 text-right font-body text-[12px] text-fg-muted md:inline">
+                        {r.accounts ? `${r.accounts} acct${r.accounts === 1 ? "" : "s"}` : ""}
+                      </span>
+                      <span className="tabular hidden w-[64px] shrink-0 text-right font-body text-[12px] text-fg-muted lg:inline">
+                        {r.accountArr ? money(r.accountArr) : ""}
+                      </span>
+                      <span className="w-[132px] shrink-0 text-right"><StatusChip status={r.status} /></span>
+                    </Link>
+                  );
+                })}
+              </section>
+            );
+          })}
+          <p className="mt-3 font-body text-[11.5px] text-fg-subtle">
+            <kbd className="rounded border border-border px-1">/</kbd> search ·{" "}
+            <kbd className="rounded border border-border px-1">↑</kbd>
+            <kbd className="rounded border border-border px-1">↓</kbd> move ·{" "}
+            <kbd className="rounded border border-border px-1">↵</kbd> open
+          </p>
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border">
           <table className="w-full min-w-[860px] border-collapse">
@@ -258,7 +337,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption }: {
               {filtered.map((r) => (
                 <tr key={r.option.id} className="border-b border-border-subtle last:border-0 hover:bg-bg-muted/40">
                   <td className="px-3 py-2.5">
-                    <Link href={`/use-cases/${r.option.id}`} dir="auto"
+                    <Link href={`${basePath}/${r.option.id}`} dir="auto"
                       className="font-body text-[13px] font-semibold text-fg hover:text-sirius">
                       {r.option.label}
                     </Link>
