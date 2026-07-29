@@ -13,9 +13,9 @@
    You write 26 customer problems in one sitting, in one mode of thinking, with
    the previous 25 visible above. Drift is obvious while you can still fix it.
 
-   Only the fields that benefit from comparison are here — prose, phrasing,
-   products, owner. Audience and capabilities are structured multi-part records
-   that would turn each row into a form; they stay on the detail page.
+   Only the fields that benefit from comparison are here — prose, phrasing and
+   products. Audience and capabilities are structured multi-part records that
+   would turn each row into a form; they stay on the detail page.
 
    Autosaves on blur, per row. No page reload, no Save button to forget: a
    long writing session must never lose a paragraph to a mis-click. */
@@ -30,7 +30,7 @@ import { saveUseCaseSectionAction, type SectionPatch } from "@/app/(app)/use-cas
 
 type FieldKey =
   | "oneLiner" | "customerProblem" | "desiredOutcome"
-  | "clientPhrases" | "successIndicators" | "products" | "ownerEmail";
+  | "clientPhrases" | "successIndicators" | "products";
 
 interface FieldDef {
   key: FieldKey;
@@ -60,9 +60,6 @@ const FIELDS: FieldDef[] = [
     placeholder: "Pass rate ↑" },
   { key: "products", label: "Lumofy products", kind: "products",
     prompt: "Which products this use case runs on." },
-  { key: "ownerEmail", label: "Owner", kind: "line",
-    prompt: "Who at Lumofy owns this wording and answers questions about it.",
-    placeholder: "name@lumofy.com" },
 ];
 
 const inputCls =
@@ -135,7 +132,6 @@ export function UseCaseWriter({ options, entries, groups, canEdit, basePath = "/
       case "clientPhrases": return { clientPhrases: v.clientPhrases };
       case "successIndicators": return { successIndicators: v.successIndicators };
       case "products": return { products: v.products };
-      case "ownerEmail": return { ownerEmail: v.ownerEmail };
     }
   }
 
@@ -268,9 +264,8 @@ export function UseCaseWriter({ options, entries, groups, canEdit, basePath = "/
 
                   {field.kind === "line" && (
                     <input className={inputCls} placeholder={field.placeholder}
-                      value={fieldKey === "oneLiner" ? v.oneLiner : (v.ownerEmail ?? "")}
-                      onChange={(e) => set(o.id, fieldKey === "oneLiner"
-                        ? { oneLiner: e.target.value } : { ownerEmail: e.target.value || null })}
+                      value={v.oneLiner}
+                      onChange={(e) => set(o.id, { oneLiner: e.target.value })}
                       onBlur={() => void commit(o.id)} />
                   )}
 

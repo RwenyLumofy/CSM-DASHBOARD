@@ -168,19 +168,25 @@ test("missing fields are named, never scored", () => {
   const gaps = missingFields(mergeLibrary({ tna: { oneLiner: "x" } })[0]);
   assert.ok(gaps.includes("Customer problem"));
   assert.ok(gaps.includes("Desired outcome"));
-  assert.ok(gaps.includes("Owner not confirmed"));
   assert.ok(gaps.includes("Never reviewed"));
   assert.equal(missingFields(undefined)[0], "Nothing has been written yet");
 });
 
-test("a definition is complete only with the definition, problem, outcome, product and owner", () => {
+test("a definition is complete only with the definition, problem, outcome and product", () => {
   const partial = mergeLibrary({ tna: { oneLiner: "x", customerProblem: "y" } })[0];
   assert.equal(isComplete(partial), false);
   const full = mergeLibrary({ tna: {
-    oneLiner: "x", customerProblem: "y", desiredOutcome: "z",
-    products: ["Perform"], ownerEmail: "a@b.com",
+    oneLiner: "x", customerProblem: "y", desiredOutcome: "z", products: ["Perform"],
   } })[0];
   assert.equal(isComplete(full), true);
+});
+
+test("an internal owner is stored but never named as a gap", () => {
+  const gaps = missingFields(mergeLibrary({ tna: { oneLiner: "x" } })[0]);
+  assert.ok(!gaps.some((g) => /owner/i.test(g)),
+    "owner-per-definition is governance nobody asked for — it must not flag all 28 pages");
+  const kept = mergeLibrary({ tna: { oneLiner: "x", ownerEmail: "A@B.com" } })[0];
+  assert.equal(kept.ownerEmail, "a@b.com", "a stored owner survives; it is just not shown");
 });
 
 test("the five platform modules are accepted; delivery descriptors are not", () => {

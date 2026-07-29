@@ -86,7 +86,10 @@ export interface UseCaseEntry {
   /** What "working" looks like. */
   desiredOutcome: string;
   products: Product[];
-  /** Email of the internal owner of this definition. */
+  /** Email of the internal owner of this definition. PRESERVED BUT NOT SHOWN:
+   *  an owner-per-definition was internal governance nobody asked for, and it
+   *  put "Owner not confirmed" on all 28 pages. Stored values are kept rather
+   *  than destroyed for a display decision — same reason `delivers` survives. */
   ownerEmail: string | null;
   status: LifecycleStatus;
 
@@ -201,7 +204,6 @@ export function missingFields(e: UseCaseEntry | undefined): string[] {
   if (!e.customerProblem) gaps.push("Customer problem");
   if (!e.desiredOutcome) gaps.push("Desired outcome");
   if (!e.products.length) gaps.push("Applicable Lumofy product");
-  if (!e.ownerEmail) gaps.push("Owner not confirmed");
   if (!e.capabilities.length) gaps.push("No capabilities listed");
   if (!e.successIndicators.length) gaps.push("No success indicators");
   if (!e.lastReviewedAt) gaps.push("Never reviewed");
@@ -213,5 +215,5 @@ export function missingFields(e: UseCaseEntry | undefined): string[] {
  *  back when "published" was a status you had to earn.) */
 export function isComplete(e: UseCaseEntry | undefined): boolean {
   return !!e && !!e.oneLiner && !!e.customerProblem && !!e.desiredOutcome
-    && e.products.length > 0 && !!e.ownerEmail;
+    && e.products.length > 0;
 }

@@ -207,7 +207,7 @@ export function UseCaseDetail({
       {isOpen("header") && (
         <form className="flex max-w-[68ch] flex-col gap-3 rounded-xl border border-sirius/30 bg-accent-soft/20 p-4"
           onSubmit={(ev) => { ev.preventDefault(); void save({
-            oneLiner: draft.oneLiner, ownerEmail: draft.ownerEmail, status: draft.status,
+            oneLiner: draft.oneLiner, status: draft.status,
             products: draft.products, sourceUrl: draft.sourceUrl }); }}>
           <label className="flex flex-col gap-1">
             <span className="font-body text-[12px] font-semibold text-fg">One-line definition</span>
@@ -215,11 +215,6 @@ export function UseCaseDetail({
               onChange={(ev) => setDraft({ ...draft, oneLiner: ev.target.value })} />
           </label>
           <div className="flex flex-wrap gap-3">
-            <label className="flex min-w-[200px] flex-1 flex-col gap-1">
-              <span className="font-body text-[12px] font-semibold text-fg">Owner</span>
-              <input className={fieldCls} placeholder="name@lumofy.com" value={draft.ownerEmail ?? ""}
-                onChange={(ev) => setDraft({ ...draft, ownerEmail: ev.target.value || null })} />
-            </label>
             <label className="flex flex-col gap-1">
               <span className="font-body text-[12px] font-semibold text-fg">Status</span>
               <select className={fieldCls} value={draft.status}

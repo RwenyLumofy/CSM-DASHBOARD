@@ -92,7 +92,7 @@ export function UseCaseWorkbench({
       const n = r.confirmed.length + r.declaredOnly.length;
       if (filter === "on") return n > 0;
       if (filter === "off") return n === 0;
-      if (filter === "gaps") return !!r.statusText || !r.entry?.ownerEmail;
+      if (filter === "gaps") return !!r.statusText;
       return true;
     };
     const pool = live.filter(matches);
@@ -111,7 +111,7 @@ export function UseCaseWorkbench({
   const current = flat.find((r) => r.option.id === sel) ?? flat[0];
 
   const onCount = live.filter((r) => r.confirmed.length + r.declaredOnly.length > 0).length;
-  const gapCount = live.filter((r) => r.statusText || !r.entry?.ownerEmail).length;
+  const gapCount = live.filter((r) => r.statusText).length;
 
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
