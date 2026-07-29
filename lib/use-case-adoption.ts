@@ -53,8 +53,7 @@ export interface AdoptionSummary {
   rows: UseCaseAdoption[];
   /** Accounts with no confirmed use cases at all. */
   unconfirmedAccounts: AccountRef[];
-  /** Accounts whose only confirmed answer is provisional ("Not yet established"). */
-  provisionalAccounts: AccountRef[];
+
   totalAccounts: number;
   /** Values on deals that resolve to nothing in the taxonomy. */
   unmappedValues: string[];
@@ -66,8 +65,6 @@ const BROAD_DEFAULTS: Record<string, string> = {
     "The broadest label available, so it is often chosen when the specific use case isn't obvious. Treat a high count here as a prompt to look at the accounts, not as demand.",
   technical_skills:
     "Overlaps Job-Role-Specific Training closely; the split between the two is frequently arbitrary.",
-  other:
-    "Recurring use means the taxonomy is missing an entry, not that these accounts are unusual.",
 };
 
 export async function getUseCaseAdoption(): Promise<AdoptionSummary> {
@@ -94,7 +91,6 @@ export async function getUseCaseAdoption(): Promise<AdoptionSummary> {
   const confirmedBy = new Map<string, AccountRef[]>();
   const declaredBy = new Map<string, AccountRef[]>();
   const unconfirmedAccounts: AccountRef[] = [];
-  const provisionalAccounts: AccountRef[] = [];
   const unmapped = new Set<string>();
 
   for (const c of live) {
@@ -105,7 +101,6 @@ export async function getUseCaseAdoption(): Promise<AdoptionSummary> {
 
     const r = ref(c);
     if (confirmed.ids.length === 0) unconfirmedAccounts.push(r);
-    else if (confirmed.ids.every((id) => USE_CASES.find((u) => u.id === id)?.provisional)) provisionalAccounts.push(r);
 
     for (const id of confirmed.ids) {
       const list = confirmedBy.get(id);
@@ -141,7 +136,6 @@ export async function getUseCaseAdoption(): Promise<AdoptionSummary> {
   return {
     rows,
     unconfirmedAccounts: unconfirmedAccounts.sort((a, b) => b.arr - a.arr),
-    provisionalAccounts: provisionalAccounts.sort((a, b) => b.arr - a.arr),
     totalAccounts: live.length,
     unmappedValues: [...unmapped],
   };

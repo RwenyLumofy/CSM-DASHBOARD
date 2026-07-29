@@ -17,6 +17,12 @@
    2. Live HubSpot values are aliased onto canonical ids on READ. No migration,
       nothing rewritten, and every historical value stays resolvable.
 
+   "Unclear" and "Other" were carried as selectable entries; they are gone.
+   Neither names something a client is trying to achieve — they record that
+   nobody wrote one down, which is a gap in the data, not a use case. The
+   HubSpot values now resolve to nothing and surface as unrecognised, which
+   states the same fact without pretending it is a category.
+
    3. A value with real usage and no canonical home is NOT silently folded away.
       Qiwa Disclosure is on 8 deals — the second most-used value in the whole
       book — and appears nowhere in the published 23. Quietly mapping it to
@@ -37,8 +43,6 @@ export interface UseCaseOption {
   groups: UseCaseGroup[];
   /** True for values that carry real data but sit outside the published 23. */
   unresolved?: boolean;
-  /** True for "we haven't established this yet" answers. */
-  provisional?: boolean;
 }
 
 export const USE_CASE_GROUPS: { id: UseCaseGroup; label: string; blurb: string }[] = [
@@ -95,8 +99,6 @@ export const USE_CASES: UseCaseOption[] = [
   { id: "internal_knowledge_base", label: "Internal Knowledge Base Development", summary: "Capture institutional knowledge internally.", groups: ["enablement"], unresolved: true },
   { id: "expertise_sharing", label: "Expertise Sharing (top performers / SMEs)", summary: "Turn what the best people know into shared content.", groups: ["capability"], unresolved: true },
 
-  { id: "unclear", label: "Not yet established", summary: "Nobody has yet recorded what this account is trying to achieve.", groups: ["enablement"], provisional: true },
-  { id: "other", label: "Other", summary: "A genuine use case the taxonomy does not yet cover.", groups: ["enablement"], provisional: true },
 ];
 
 export const USE_CASE_BY_ID = new Map(USE_CASES.map((u) => [u.id, u]));
@@ -131,8 +133,6 @@ const ALIASES: Record<string, string> = {
   "service knowledge": "products_services_knowledge",
   "compliance and regulatory requirements": "compliance_training",
   "compliance training": "compliance_training",
-  "unclear": "unclear",
-  "not yet established": "unclear",
   "functional knowledge": "technical_skills",
   "technical skills training": "technical_skills",
   "preparing for a new role (succession development)": "succession_hipo",
@@ -141,7 +141,6 @@ const ALIASES: Record<string, string> = {
   "internal knowledge base development": "internal_knowledge_base",
   "onboarding new joiner": "employee_onboarding",
   "employee onboarding": "employee_onboarding",
-  "other": "other",
   "preparation for certification": "certification_prep",
   "certification preparation": "certification_prep",
   "sharing experience of top performers": "expertise_sharing",
@@ -203,11 +202,6 @@ export function normalizeUseCases(raw: unknown): ResolvedUseCases {
 }
 
 export const useCaseLabel = (id: string): string => USE_CASE_BY_ID.get(id)?.label ?? id;
-
-/** Answered "we don't know" — distinct from never having been asked. */
-export function isProvisionalOnly(ids: string[]): boolean {
-  return ids.length > 0 && ids.every((id) => USE_CASE_BY_ID.get(id)?.provisional);
-}
 
 /** Selected use cases that sit outside the published 23. */
 export const unresolvedSelections = (ids: string[]): UseCaseOption[] =>

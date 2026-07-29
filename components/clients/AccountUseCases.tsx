@@ -25,7 +25,7 @@ import { useMemo, useState } from "react";
 import { Check, ChevronDown, Loader2, Search, Target, AlertTriangle, Sparkles } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
-  USE_CASES, USE_CASE_GROUPS, USE_CASE_BY_ID, useCaseLabel, compareUseCases, isProvisionalOnly,
+  USE_CASES, USE_CASE_GROUPS, USE_CASE_BY_ID, useCaseLabel, compareUseCases,
 } from "@/lib/use-cases";
 import { setAccountUseCasesAction } from "@/app/(app)/clients/[id]/use-case-actions";
 
@@ -111,12 +111,6 @@ export function AccountUseCases({ clientId, accountUseCases, dealUseCases, canEd
               <div className="flex flex-wrap gap-1.5">
                 {cmp.confirmed.map((id) => <Chip key={id} tone="confirmed">{useCaseLabel(id)}</Chip>)}
               </div>
-            )}
-            {isProvisionalOnly(cmp.confirmed) && (
-              <p className="mt-1.5 flex items-start gap-1.5 font-body text-[11.5px] text-[#8A6D12]">
-                <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden />
-                Only provisional answers recorded — the account&rsquo;s purpose is still unestablished.
-              </p>
             )}
           </div>
 
@@ -212,7 +206,6 @@ export function AccountUseCases({ clientId, accountUseCases, dealUseCases, canEd
                                 <span className="shrink-0 font-body text-[10.5px] text-fg-subtle">also in {u.groups.length - 1} other</span>
                               )}
                               {u.unresolved && <span className="shrink-0 font-body text-[10.5px] text-[#8A6D12]">unlisted</span>}
-                              {u.provisional && <span className="shrink-0 font-body text-[10.5px] text-fg-subtle">provisional</span>}
                             </button>
                           </li>
                         );

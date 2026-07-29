@@ -1,14 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  normalizeUseCases, resolveUseCase, compareUseCases, isProvisionalOnly, unresolvedSelections,
+  normalizeUseCases, resolveUseCase, compareUseCases, unresolvedSelections,
   useCaseLabel, useCasesInGroup, USE_CASES, USE_CASE_BY_ID, USE_CASE_GROUPS,
 } from "./use-cases";
 
 /* ---- the published taxonomy, checked against the deck ------------------ */
 
 test("23 published use cases across 26 category slots", () => {
-  const published = USE_CASES.filter((u) => !u.unresolved && !u.provisional);
+  const published = USE_CASES.filter((u) => !u.unresolved);
   assert.equal(published.length, 23, "the deck defines 23 use cases");
   const slots = published.reduce((n, u) => n + u.groups.length, 0);
   assert.equal(slots, 26, "26 slots — three use cases are cross-listed");
@@ -25,7 +25,7 @@ test("category counts match the deck exactly", () => {
     enablement: 2, readiness: 9, capability: 6, performance: 5, assessment: 3, engagement: 1,
   };
   for (const [g, n] of Object.entries(expected)) {
-    const inGroup = useCasesInGroup(g as never).filter((u) => !u.unresolved && !u.provisional);
+    const inGroup = useCasesInGroup(g as never).filter((u) => !u.unresolved);
     assert.equal(inGroup.length, n, `${g} should hold ${n}, got ${inGroup.length}`);
   }
   assert.equal(USE_CASE_GROUPS.length, 6);
@@ -34,16 +34,18 @@ test("category counts match the deck exactly", () => {
 /* ---- every live database value still resolves -------------------------- */
 
 test("all 18 live HubSpot values map to something", () => {
+  // "Unclear" and "Other" are deliberately excluded — they were removed from
+  // the taxonomy and are expected to read as unrecognised.
   const live = [
     "Building Job-related Skills", "Qiwa Disclosure", "Centralizing L&D under One Digital Platform",
     "Building Leadership Capabilities", "Upskilling / Reskilling", "Product Knowledge",
-    "Compliance and Regulatory Requirements", "Service Knowledge", "Unclear", "Functional Knowledge",
+    "Compliance and Regulatory Requirements", "Service Knowledge", "Functional Knowledge",
     "Preparing for a New Role (Succession Development)", "Training Needs Analysis (TNA)",
-    "Internal Knowledge Base Development", "Onboarding New Joiner", "Other",
+    "Internal Knowledge Base Development", "Onboarding New Joiner",
     "Preparation for Certification", "Sharing Experience of Top Performers", "Talenet Assesments",
   ];
   const { unmapped } = normalizeUseCases(live);
-  assert.deepEqual(unmapped, [], "no live value may be dropped");
+  assert.deepEqual(unmapped, [], "no real value may be dropped");
 });
 
 test("Product Knowledge and Service Knowledge collapse into one published use case", () => {
@@ -97,10 +99,12 @@ test("an unrecognised value is surfaced, never silently dropped", () => {
   assert.deepEqual(unmapped, ["Something Nobody Defined"]);
 });
 
-test("'answered we-don't-know' differs from 'unanswered'", () => {
-  assert.equal(isProvisionalOnly([]), false);
-  assert.equal(isProvisionalOnly(["unclear"]), true);
-  assert.equal(isProvisionalOnly(["unclear", "tna"]), false);
+test("'Unclear' and 'Other' no longer resolve — they record a gap, not a use case", () => {
+  assert.equal(resolveUseCase("Unclear"), null);
+  assert.equal(resolveUseCase("Other"), null);
+  const { ids, unmapped } = normalizeUseCases(["Unclear", "Other", "Compliance Training"]);
+  assert.deepEqual(ids, ["compliance_training"]);
+  assert.deepEqual(unmapped, ["Unclear", "Other"], "surfaced as unrecognised rather than silently dropped");
 });
 
 test("sales-declared and CS-confirmed are compared, not merged", () => {
