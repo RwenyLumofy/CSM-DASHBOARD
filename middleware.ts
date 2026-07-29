@@ -60,9 +60,16 @@ export const config = {
        middleware has already guaranteed this request is authenticated".
 
        Matching an explicit extension list instead means a dotted DYNAMIC
-       SEGMENT stays inside the middleware, while genuine assets still skip it.
-       This is Clerk's current recommended matcher. */
-    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)$).*)",
+       SEGMENT stays inside the middleware, while genuine assets still skip it:
+       `/clients/x.y` is protected because `y` is not a known extension, while
+       `/logo.svg` is not.
+
+       This is Clerk's canonical matcher, verbatim. An earlier version of this
+       fix narrowed the `_next` exclusion to `_next/static|_next/image`, which
+       put dev-only internals like the HMR endpoint through clerkMiddleware for
+       no benefit. Excluding `_next` wholesale still closes the hole, because
+       the hole was "any dot at all", not "anything under _next". */
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     "/(api|trpc)(.*)",
   ],
 };
