@@ -25,12 +25,9 @@ import { cn } from "@/lib/cn";
 import { PRODUCTS, blankEntry, missingFields, type UseCaseEntry, type Product } from "@/lib/use-case-library";
 import type { ResolvedUseCase } from "@/lib/use-case-overlay";
 import type { AccountRef } from "@/lib/use-case-adoption";
-import { STATUS_HELP, statusLine, statusTone, reviewState } from "@/lib/use-case-status";
+import { reviewState } from "@/lib/use-case-status";
 import { saveUseCaseSectionAction, type SectionPatch } from "@/app/(app)/use-cases/actions";
 import { UseCaseAccounts, type ImplementationRow } from "@/components/reports/UseCaseAccounts";
-
-const money = (n: number) =>
-  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${Math.round(n / 1_000)}K` : `$${Math.round(n)}`;
 
 const fieldCls =
   "w-full rounded-lg border border-border bg-bg px-3 py-2 font-body text-[13px] leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-sirius focus:ring-2 focus:ring-sirius/15";
@@ -96,8 +93,8 @@ function ClientPhrases({ phrases }: { phrases: string[] }) {
 }
 
 export function UseCaseDetail({
-  option, entry, allEntries, groups, canEdit, confirmed, declaredOnly, accountArr,
-  implementations, today, basePath = "/use-cases",
+  option, entry, allEntries, groups, canEdit, confirmed, declaredOnly,
+  implementations, today, basePath = "/use-cases", embedded = false,
 }: {
   option: ResolvedUseCase;
   entry: UseCaseEntry | undefined;
@@ -106,10 +103,14 @@ export function UseCaseDetail({
   canEdit: boolean;
   confirmed: AccountRef[];
   declaredOnly: AccountRef[];
-  accountArr: number;
   implementations: ImplementationRow[];
   today: string;
   basePath?: string;
+  /** Rendered inside the Workbench's right pane rather than on its own route:
+   *  drops the back link and the outer heading level, since the sidebar is
+   *  already the navigation. Everything else — every editable section — is
+   *  identical, so there is one implementation of editing, not two. */
+  embedded?: boolean;
 }) {
   const [tab, setTab] = useState<"overview" | "accounts">("overview");
   const [section, setSection] = useState<string | null>(null);
@@ -159,16 +160,19 @@ export function UseCaseDetail({
 
   return (
     <div className="flex flex-col gap-5">
-      <Link href={basePath}
-        className="inline-flex w-fit items-center gap-1 font-body text-[12.5px] font-medium text-fg-muted transition-colors hover:text-sirius">
-        <ChevronLeft size={13} /> Use Cases
-      </Link>
+      {!embedded && (
+        <Link href={basePath}
+          className="inline-flex w-fit items-center gap-1 font-body text-[12.5px] font-medium text-fg-muted transition-colors hover:text-sirius">
+          <ChevronLeft size={13} /> Use Cases
+        </Link>
+      )}
 
       <header className="flex flex-col gap-2 border-b border-border-subtle pb-4">
         <span className="font-body text-[11px] font-semibold uppercase tracking-[0.08em] text-sirius">{categoryLabel}</span>
 
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 dir="auto" className="font-display text-[27px] font-semibold leading-tight tracking-[-0.02em] text-fg">
+          <h1 dir="auto" className={cn("font-display font-semibold leading-tight tracking-[-0.02em] text-fg",
+            embedded ? "text-[23px]" : "text-[27px]")}>
             {option.label}
           </h1>
           {canEdit && (
@@ -181,31 +185,17 @@ export function UseCaseDetail({
 
         <p className="max-w-[64ch] font-body text-[15px] leading-[1.6] text-fg">{e.oneLiner || option.summary}</p>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-body text-[12px] text-fg-subtle">
-          {/* Empty when the entry is active and freshly reviewed — a chip that
-              every page wears is a chip nobody reads. */}
-          {statusLine(entry, today) && (
-            <span title={STATUS_HELP[e.status]}
-              className={cn("rounded-full border px-2 py-0.5 font-medium", statusTone(entry, today))}>
-              {statusLine(entry, today)}
-            </span>
-          )}
-          <span className="tabular">
-            {accounts.length} account{accounts.length === 1 ? "" : "s"}
-            {accountArr > 0 && <> · {money(accountArr)} associated account ARR</>}
-          </span>
-          {/* Governance moved up here when the right rail went. These are
-              one-liners; they never needed a panel of their own. */}
-          <span>Owner: {e.ownerEmail ?? "not set"}</span>
-          {e.lastReviewedAt && <span>Reviewed {shortDate(e.lastReviewedAt)}</span>}
-          {e.updatedAt && <span>Last updated {shortDate(e.updatedAt)}</span>}
-          {e.sourceUrl && (
-            <a href={e.sourceUrl} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 text-sirius underline decoration-dotted underline-offset-2">
-              Source <ExternalLink size={10} />
-            </a>
-          )}
-        </div>
+        {/* NO META STRIP. It read "Needs review · 0 accounts · Owner: not set"
+            on every entry — three facts already on the screen: the index dot
+            and the footer flag the review, the Accounts tab carries its own
+            count, and the footer names the governance gaps. Only the source
+            link had nowhere else to live, so it stays. */}
+        {e.sourceUrl && (
+          <a href={e.sourceUrl} target="_blank" rel="noreferrer"
+            className="inline-flex w-fit items-center gap-1 font-body text-[12px] text-sirius underline decoration-dotted underline-offset-2">
+            Source <ExternalLink size={10} />
+          </a>
+        )}
       </header>
 
       {error && (
@@ -538,6 +528,16 @@ export function UseCaseDetail({
                       {reviewState(entry, today) === "overdue" ? "Review overdue" : "Still missing"}:
                     </span>{" "}
                     {gaps.join(" · ")}
+                  </p>
+                )}
+                {/* The one fact from the old meta strip worth keeping, now
+                    beside the rest of the governance rather than above the
+                    definition. */}
+                {e.updatedAt && (
+                  <p className="font-body text-[11.5px] text-fg-subtle">
+                    Last updated {shortDate(e.updatedAt)}
+                    {e.updatedBy && <> by {e.updatedBy}</>}
+                    {e.lastReviewedAt && <> · reviewed {shortDate(e.lastReviewedAt)}</>}
                   </p>
                 )}
                 {canEdit && (

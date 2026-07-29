@@ -82,7 +82,6 @@ export default async function UseCaseDetailPage({ params }: { params: Promise<{ 
         canEdit={canEdit}
         confirmed={a?.confirmed ?? []}
         declaredOnly={a?.declaredOnly ?? []}
-        accountArr={a?.totalArr ?? 0}
         implementations={implementations}
         today={new Date().toISOString().slice(0, 10)}
       />
