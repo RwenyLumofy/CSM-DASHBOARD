@@ -20,7 +20,7 @@ import { revalidatePath } from "next/cache";
 import { isAdminOrSuper, getCurrentUserEmail } from "@/lib/auth";
 import { hasDatabase } from "@/lib/config";
 import {
-  LIBRARY_OVERRIDE_KEY, PRODUCTS, LIFECYCLE_STATUSES, canPublish, mergeLibrary,
+  LIBRARY_OVERRIDE_KEY, PRODUCTS, LIFECYCLE_STATUSES,
   type UseCaseOverride, type Product, type LifecycleStatus,
 } from "@/lib/use-case-library";
 
@@ -111,14 +111,9 @@ export async function saveUseCaseSectionAction(id: string, patch: SectionPatch):
     if (!(LIFECYCLE_STATUSES as readonly string[]).includes(patch.status)) {
       return { ok: false, error: "Unknown status." };
     }
-    // Publishing is the one transition with a bar: it means "safe to quote to a
-    // client", so the required fields have to be there first.
-    if (patch.status === "published") {
-      const candidate = mergeLibrary({ [id]: next })[0];
-      if (!canPublish(candidate)) {
-        return { ok: false, error: "Fill in the definition, problem, outcome, product and owner before publishing." };
-      }
-    }
+    // No completeness gate any more: with draft/published gone, archiving is
+    // the only transition, and it exists precisely for entries you no longer
+    // want to maintain. Blocking it on missing fields would be backwards.
     next.status = patch.status as LifecycleStatus;
   }
   if (patch.markReviewed) {

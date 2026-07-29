@@ -1,23 +1,22 @@
 /* =========================================================================
    Status — one lifecycle state, one review state, said once.
 
-   The page previously carried four overlapping signals for the same fact: a
-   "Described" chip, a red "Draft · not reviewed" chip, "Updated by drafted —
-   needs review" in the metadata line, and another red warning further down.
-   Four ways of saying one thing reads as noise and costs trust.
+   DRAFT IS GONE. It was a hedge from when the library shipped empty and every
+   entry was half-written. Now that all 28 carry a full definition, marking
+   them "Draft" said nothing true — every page read "Draft · Needs review",
+   which is two labels for one fact and trains people to ignore both.
 
-   So there are exactly two axes now, and they answer different questions:
+   What is left is the distinction that actually matters operationally:
 
-     LIFECYCLE   Draft / Published / Archived — is this safe to rely on with a
-                 client? Set deliberately by a person.
+     LIFECYCLE   Active / Archived — is this still offered? Set deliberately.
+                 Archived entries are kept because accounts reference them.
 
      REVIEW      Needs review / Reviewed / Review overdue — has anyone checked
                  the wording lately? DERIVED from lastReviewedAt, so it cannot
                  drift out of step with reality and nobody has to maintain it.
 
-   "Described" is gone. Whether an entry has content is not a status; if the
-   definition is incomplete the page names the missing fields instead (see
-   missingFields), which is the actionable version of the same information.
+   An active, recently reviewed use case shows NO chip at all. A chip should
+   mean "look at this", and if everything wears one, nothing does.
    ========================================================================= */
 
 import type { UseCaseEntry, LifecycleStatus } from "@/lib/use-case-library";
@@ -25,21 +24,18 @@ import type { UseCaseEntry, LifecycleStatus } from "@/lib/use-case-library";
 export { LIFECYCLE_STATUSES, type LifecycleStatus } from "@/lib/use-case-library";
 
 export const STATUS_LABEL: Record<LifecycleStatus, string> = {
-  draft: "Draft",
-  published: "Published",
+  active: "Active",
   archived: "Archived",
 };
 
 export const STATUS_HELP: Record<LifecycleStatus, string> = {
-  draft: "Being written. Usable, but not agreed — don't quote it to a client yet.",
-  published: "Agreed. Safe to rely on in a client conversation.",
+  active: "Currently offered. Safe to rely on in a client conversation.",
   archived: "No longer offered. Kept because accounts still reference it.",
 };
 
 /** Colour supports the label and never replaces it (WCAG 1.4.1). */
 export const STATUS_TONE: Record<LifecycleStatus, string> = {
-  draft: "border-[#C99A14]/30 bg-[#8A6D12]/[0.07] text-[#8A6D12]",
-  published: "border-[#1F9D63]/25 bg-[#1F9D63]/10 text-[#1F9D63]",
+  active: "border-[#1F9D63]/25 bg-[#1F9D63]/10 text-[#1F9D63]",
   archived: "border-border bg-bg-muted text-fg-subtle",
 };
 
@@ -50,6 +46,13 @@ export const REVIEW_LABEL: Record<ReviewState, string> = {
   needs_review: "Needs review",
   reviewed: "Reviewed",
   overdue: "Review overdue",
+};
+
+/** Amber for both attention states; neutral once reviewed. */
+export const REVIEW_TONE: Record<ReviewState, string> = {
+  needs_review: "border-[#C99A14]/30 bg-[#8A6D12]/[0.07] text-[#8A6D12]",
+  overdue: "border-[#C99A14]/40 bg-[#8A6D12]/[0.10] text-[#8A6D12]",
+  reviewed: "border-border bg-bg-muted text-fg-subtle",
 };
 
 /** A definition older than this is stale enough to be worth re-reading. Six
@@ -68,13 +71,19 @@ export function reviewState(entry: UseCaseEntry | undefined, today: string): Rev
   return (b - a) / 86_400_000 > REVIEW_INTERVAL_DAYS ? "overdue" : "reviewed";
 }
 
-/** "Draft · Needs review" — the whole state in one string. */
+/**
+ * The one thing worth saying about this entry's state, or "" when there is
+ * nothing to say. Archived wins — it changes whether you should use the entry
+ * at all, which outranks whether its wording is fresh.
+ */
 export function statusLine(entry: UseCaseEntry | undefined, today: string): string {
-  const lifecycle = STATUS_LABEL[entry?.status ?? "draft"];
-  const review = REVIEW_LABEL[reviewState(entry, today)];
-  // Published-and-reviewed is the resting state; adding "· Reviewed" to it is
-  // noise, so it's only shown when it needs attention.
-  return entry?.status === "published" && reviewState(entry, today) === "reviewed"
-    ? lifecycle
-    : `${lifecycle} · ${review}`;
+  if (entry?.status === "archived") return "Archived";
+  const review = reviewState(entry, today);
+  return review === "reviewed" ? "" : REVIEW_LABEL[review];
+}
+
+/** Tone for whatever statusLine decided to show. */
+export function statusTone(entry: UseCaseEntry | undefined, today: string): string {
+  if (entry?.status === "archived") return STATUS_TONE.archived;
+  return REVIEW_TONE[reviewState(entry, today)];
 }

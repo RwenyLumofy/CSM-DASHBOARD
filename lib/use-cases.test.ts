@@ -127,7 +127,7 @@ test("malformed input never throws", () => {
 
 /* ---- nothing ships as authored content -------------------------------- */
 
-import { USE_CASE_LIBRARY, mergeLibrary, missingFields, canPublish } from "./use-case-library";
+import { USE_CASE_LIBRARY, mergeLibrary, missingFields, isComplete } from "./use-case-library";
 
 test("no definition ships with the product", () => {
   assert.equal(USE_CASE_LIBRARY.length, 0,
@@ -145,7 +145,7 @@ test("only what the team wrote comes back", () => {
   assert.equal(out[0].oneLiner, "Ours.");
   assert.deepEqual(out[0].clientPhrases, ["we don't know what to train"]);
   assert.equal(out[0].customerProblem, "", "an unwritten field stays empty rather than being filled in");
-  assert.equal(out[0].status, "draft", "anything unset starts as a draft, never published");
+  assert.equal(out[0].status, "active", "an entry is live unless somebody archives it");
 });
 
 test("audit or metadata alone is not a definition", () => {
@@ -156,7 +156,7 @@ test("audit or metadata alone is not a definition", () => {
 test("an unknown product or status is discarded rather than stored", () => {
   const out = mergeLibrary({ tna: { oneLiner: "x", products: ["Perform", "Nonsense"] as never, status: "banana" as never } });
   assert.deepEqual(out[0].products, ["Perform"]);
-  assert.equal(out[0].status, "draft");
+  assert.equal(out[0].status, "active");
 });
 
 test("capabilities without a name are dropped", () => {
@@ -173,12 +173,18 @@ test("missing fields are named, never scored", () => {
   assert.equal(missingFields(undefined)[0], "Nothing has been written yet");
 });
 
-test("publishing requires the definition, problem, outcome, product and owner", () => {
+test("a definition is complete only with the definition, problem, outcome, product and owner", () => {
   const partial = mergeLibrary({ tna: { oneLiner: "x", customerProblem: "y" } })[0];
-  assert.equal(canPublish(partial), false);
+  assert.equal(isComplete(partial), false);
   const full = mergeLibrary({ tna: {
     oneLiner: "x", customerProblem: "y", desiredOutcome: "z",
     products: ["Perform"], ownerEmail: "a@b.com",
   } })[0];
-  assert.equal(canPublish(full), true);
+  assert.equal(isComplete(full), true);
+});
+
+test("the five platform modules are accepted; delivery descriptors are not", () => {
+  const out = mergeLibrary({ tna: { oneLiner: "x",
+    products: ["Foundation", "Perform", "Develop", "Engage", "Analyze", "advisory services"] as never } })[0];
+  assert.deepEqual(out.products, ["Foundation", "Perform", "Develop", "Engage", "Analyze"]);
 });

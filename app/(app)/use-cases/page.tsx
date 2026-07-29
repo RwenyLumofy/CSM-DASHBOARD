@@ -51,7 +51,7 @@ export default async function UseCasesPage() {
     return {
       option,
       entry,
-      status: entry?.status ?? "draft",
+      status: entry?.status ?? "active",
       statusText: statusLine(entry, today),
       accounts: (a?.confirmed.length ?? 0) + (a?.declaredOnly.length ?? 0),
       // Account ARR: the contract value of accounts carrying this use case.

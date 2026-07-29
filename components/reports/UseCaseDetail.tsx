@@ -25,7 +25,7 @@ import { cn } from "@/lib/cn";
 import { PRODUCTS, blankEntry, missingFields, type UseCaseEntry, type Product } from "@/lib/use-case-library";
 import type { ResolvedUseCase } from "@/lib/use-case-overlay";
 import type { AccountRef } from "@/lib/use-case-adoption";
-import { STATUS_TONE, STATUS_HELP, statusLine, reviewState } from "@/lib/use-case-status";
+import { STATUS_HELP, statusLine, statusTone, reviewState } from "@/lib/use-case-status";
 import { saveUseCaseSectionAction, type SectionPatch } from "@/app/(app)/use-cases/actions";
 import { UseCaseAccounts, type ImplementationRow } from "@/components/reports/UseCaseAccounts";
 
@@ -182,10 +182,14 @@ export function UseCaseDetail({
         <p className="max-w-[64ch] font-body text-[15px] leading-[1.6] text-fg">{e.oneLiner || option.summary}</p>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-body text-[12px] text-fg-subtle">
-          <span title={STATUS_HELP[e.status]}
-            className={cn("rounded-full border px-2 py-0.5 font-medium", STATUS_TONE[e.status])}>
-            {statusLine(entry, today)}
-          </span>
+          {/* Empty when the entry is active and freshly reviewed — a chip that
+              every page wears is a chip nobody reads. */}
+          {statusLine(entry, today) && (
+            <span title={STATUS_HELP[e.status]}
+              className={cn("rounded-full border px-2 py-0.5 font-medium", statusTone(entry, today))}>
+              {statusLine(entry, today)}
+            </span>
+          )}
           <span className="tabular">
             {accounts.length} account{accounts.length === 1 ? "" : "s"}
             {accountArr > 0 && <> · {money(accountArr)} associated account ARR</>}
@@ -230,8 +234,7 @@ export function UseCaseDetail({
               <span className="font-body text-[12px] font-semibold text-fg">Status</span>
               <select className={fieldCls} value={draft.status}
                 onChange={(ev) => setDraft({ ...draft, status: ev.target.value as UseCaseEntry["status"] })}>
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
+                <option value="active">Active</option>
                 <option value="archived">Archived</option>
               </select>
             </label>
@@ -417,7 +420,14 @@ export function UseCaseDetail({
                   ))}
                 </div>
               )}
-              {e.capabilities.length ? (
+              {/* Two shapes, because the content has two shapes. The Definition
+                  Library states capabilities as plain sentences; earlier
+                  hand-written entries pair a name with its role here. A table
+                  with an empty right-hand column would look broken, so a
+                  role-less list renders as a list. */}
+              {e.capabilities.length === 0 ? (
+                <Empty>No capabilities listed.</Empty>
+              ) : e.capabilities.some((c) => c.role) ? (
                 <div className="overflow-hidden rounded-lg border border-border-subtle">
                   <table className="w-full border-collapse">
                     <caption className="sr-only">Capabilities and their role in this use case</caption>
@@ -431,7 +441,16 @@ export function UseCaseDetail({
                     </tbody>
                   </table>
                 </div>
-              ) : <Empty>No capabilities listed.</Empty>}
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {e.capabilities.map((c, i) => (
+                    <li key={i} className="flex gap-2.5 font-body text-[13px] leading-relaxed text-fg-muted">
+                      <span aria-hidden className="mt-[9px] size-[3px] shrink-0 rounded-full bg-fg-subtle" />
+                      <span>{c.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </Section>
             )}
 

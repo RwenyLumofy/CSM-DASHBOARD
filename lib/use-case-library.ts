@@ -30,10 +30,16 @@
 
 import type { StakeholderRole } from "@/lib/stakeholders/profile";
 
-/** Lumofy's products. Matches the `products` picklist on a HubSpot deal and
- *  the three sections of the company profile. Distinct from CAPABILITIES,
- *  which are the features inside them that a use case actually leans on. */
-export const PRODUCTS = ["Perform", "Develop", "Engage"] as const;
+/** Lumofy's platform modules, as named in the Use Case Definition Library.
+ *  Perform/Develop/Engage also match the `products` picklist on a HubSpot
+ *  deal; Foundation and Analyze are library-only. Distinct from CAPABILITIES,
+ *  which are the things inside them that a use case actually leans on.
+ *
+ *  Delivery descriptors the document also lists against some use cases —
+ *  advisory services, Authoring, reporting, integrations, custom content — are
+ *  deliberately NOT products. They are how the work is done, and the
+ *  capability list already says so. */
+export const PRODUCTS = ["Foundation", "Perform", "Develop", "Engage", "Analyze"] as const;
 export type Product = (typeof PRODUCTS)[number];
 
 /** A platform capability and what it does for this specific use case. The
@@ -63,7 +69,9 @@ export interface Audience {
   contexts: string;
 }
 
-export const LIFECYCLE_STATUSES = ["draft", "published", "archived"] as const;
+/** Active or archived. "Draft" was removed once every entry carried a real
+ *  definition — see lib/use-case-status.ts. */
+export const LIFECYCLE_STATUSES = ["active", "archived"] as const;
 export type LifecycleStatus = (typeof LIFECYCLE_STATUSES)[number];
 
 export interface UseCaseEntry {
@@ -144,7 +152,7 @@ export function mergeLibrary(overrides: Record<string, UseCaseOverride> | null |
         ? o.products.filter((p): p is Product => (PRODUCTS as readonly string[]).includes(p as string)) : [],
       ownerEmail: strOrNull(o.ownerEmail)?.toLowerCase() ?? null,
       status: (LIFECYCLE_STATUSES as readonly string[]).includes(o.status as string)
-        ? (o.status as LifecycleStatus) : "draft",
+        ? (o.status as LifecycleStatus) : "active",
       clientPhrases: lines(o.clientPhrases),
       audience: audienceOf(o.audience),
       capabilities: Array.isArray(o.capabilities)
@@ -175,7 +183,7 @@ export function mergeLibrary(overrides: Record<string, UseCaseOverride> | null |
 
 export const blankEntry = (id: string): UseCaseEntry => ({
   id, oneLiner: "", customerProblem: "", desiredOutcome: "", products: [], ownerEmail: null,
-  status: "draft", clientPhrases: [], audience: { ...EMPTY_AUDIENCE }, capabilities: [],
+  status: "active", clientPhrases: [], audience: { ...EMPTY_AUDIENCE }, capabilities: [],
   successIndicators: [], relatedUseCases: [], updatedAt: null, updatedBy: null,
   lastReviewedAt: null, reviewedBy: null, delivers: [], sourceUrl: null,
 });
@@ -200,9 +208,10 @@ export function missingFields(e: UseCaseEntry | undefined): string[] {
   return gaps;
 }
 
-/** Ready to publish when every required field is present. Optional repeating
- *  fields don't block — a use case can be real without a related-use-case list. */
-export function canPublish(e: UseCaseEntry | undefined): boolean {
+/** Every required field is present. Optional repeating fields don't block — a
+ *  use case can be complete without a related-use-case list. (Was canPublish,
+ *  back when "published" was a status you had to earn.) */
+export function isComplete(e: UseCaseEntry | undefined): boolean {
   return !!e && !!e.oneLiner && !!e.customerProblem && !!e.desiredOutcome
     && e.products.length > 0 && !!e.ownerEmail;
 }
