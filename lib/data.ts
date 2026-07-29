@@ -195,8 +195,14 @@ export async function getClientForProfile(id: string): Promise<Client | null> {
   if (!row) return null; // genuinely gone → real 404
 
   const role = await getCurrentUserRole();
-  // An unresolved user (transient — but authenticated): show rather than 404.
-  if (role === null) return row;
+  /* A null role now DENIES. It used to return the unfiltered row, on the
+     stated assumption that the middleware had already proven the request was
+     authenticated — an assumption the matcher's dotted-path hole broke, so an
+     anonymous request that skipped clerkMiddleware got a full account read.
+     The matcher is fixed, but this must not be the only thing standing
+     between an unauthenticated request and a customer record. A genuinely
+     transient resolution failure now shows a 404 instead of leaking. */
+  if (role === null) return null;
   // Otherwise defer to the single visibility gate, which honours access scope
   // (all / assigned / selected). A RESOLVED denial → null → real 404 (hides
   // existence). canSeeClient is cached per request, so this is cheap.

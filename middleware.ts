@@ -21,7 +21,15 @@ const isPublic = createRouteMatcher([
   // Force-refresh one client's Metabase usage snapshot (same secret check).
   "/api/usage-refresh(.*)",
   "/api/cron(.*)",
-  "/scratch-wf(.*)",
+  // NOTHING UNDER /scratch-* BELONGS HERE. /scratch-wf was public and shipped
+  // for longer than the rest, on the assumption it was safe because
+  // getClients() is role-scoped. It wasn't: buildTodaySnapshot() also calls
+  // getAppUsers(), which has no role, session or scope check and returns the
+  // whole staff directory — emails, names, permission tiers, departments,
+  // plus the bootstrap super-admin addresses. TodayWorkspace is a client
+  // component, so that list was serialized into the RSC payload of an
+  // unauthenticated page. The route is deleted; /today serves the same thing
+  // behind auth.
 ]);
 
 // Build the Clerk handler only when configured; otherwise run open (dev/sample).
@@ -41,8 +49,20 @@ export default handler;
 
 export const config = {
   matcher: [
-    // Skip Next internals and static files; always run on API routes.
-    "/((?!_next|.*\\..*).*)",
+    /* Skip Next internals and REAL static files; always run on API routes.
+       The previous pattern excluded any path containing a dot ANYWHERE
+       (`.*\..*`). /api was re-covered by the second entry, but pages were not
+       — and Next dispatches a server action as a POST to a page URL, so
+       `POST /clients/x.y` matched the [id] route, skipped clerkMiddleware
+       entirely, and ran server actions with no session. Actions that resolve
+       role -> null mostly deny, but getClientForProfile explicitly returns the
+       unfiltered row when role is null, on the stated assumption that "the
+       middleware has already guaranteed this request is authenticated".
+
+       Matching an explicit extension list instead means a dotted DYNAMIC
+       SEGMENT stays inside the middleware, while genuine assets still skip it.
+       This is Clerk's current recommended matcher. */
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)$).*)",
     "/(api|trpc)(.*)",
   ],
 };

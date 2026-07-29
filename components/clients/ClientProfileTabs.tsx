@@ -108,11 +108,19 @@ import type {
   SupportTicket,
 } from "@/lib/types";
 import { normalizeStakeholderMappings, type StakeholderMapping } from "@/lib/stakeholders";
+import { normalizeStakeholderProfiles, normalizeStakeholderLinks, PROFILES_KEY, LINKS_KEY } from "@/lib/stakeholders/profile";
+import { StakeholdersTab } from "@/components/clients/stakeholders/StakeholdersTab";
+import { AccountUseCases } from "@/components/clients/AccountUseCases";
+import { AccountReminders, type AccountReminder } from "@/components/clients/AccountReminders";
+import { computeUseCasesRollup } from "@/lib/deal-overrides";
+import { ACCOUNT_USE_CASES_KEY } from "@/lib/use-cases";
 import { ActionFeed } from "@/components/actions/ActionFeed";
 import { NotesTab } from "@/components/clients/notes/NotesTab";
 import type { Note } from "@/lib/notes/types";
+import { saveStakeholderMappingAction } from "@/app/(app)/clients/[id]/stakeholder-actions";
 
 type TabKey =
+  | "stakeholders"
   | "general"
   | "usage"
   | "communication"
@@ -148,16 +156,39 @@ interface Props {
   projectImplementers: Member[];
   projectCanManage: boolean;
   projectDbEnabled: boolean;
+  /** Write gate for the Stakeholders tab — canEditClient, resolved on the
+   *  server. The mutations enforce it again; this only decides what to render. */
+  canEditClient: boolean;
+  /** Assignable Lumofy owners for a stakeholder relationship. */
+  teamEmails: { email: string; name: string | null }[];
+  /** Account-scoped reminders — today_tasks in the "reminder" focus area. */
+  reminders: AccountReminder[];
+  /** Server-resolved date, so the coverage rules can't drift with the
+   *  viewer's clock or time zone. */
+  today: string;
 }
 
 export function ClientProfileTabs(props: Props) {
-  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthConfig } = props;
+  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthConfig, canEditClient, teamEmails, today, reminders } = props;
   const [active, setActive] = useState<TabKey>("general");
+
+  const stakeholderProfiles = useMemo(
+    () => normalizeStakeholderProfiles((client.properties as Record<string, unknown> | undefined)?.[PROFILES_KEY]),
+    [client.properties],
+  );
+  const stakeholderLinks = useMemo(
+    () => normalizeStakeholderLinks(
+      (client.properties as Record<string, unknown> | undefined)?.[LINKS_KEY],
+      new Set(stakeholderProfiles.map((p) => p.id)),
+    ),
+    [client.properties, stakeholderProfiles],
+  );
 
   const commCount = contacts.length + emails.length + meetings.length;
 
   const TABS: { key: TabKey; label: string; icon: typeof Building2; count?: number }[] = [
     { key: "general", label: "General information", icon: Building2 },
+    { key: "stakeholders", label: "Stakeholders", icon: Users, count: stakeholderProfiles.length || undefined },
     { key: "communication", label: "Communication", icon: MessagesSquare, count: commCount || undefined },
     { key: "attachments", label: "Attachments", icon: Paperclip, count: attachments.length || undefined },
     { key: "usage", label: "Usage", icon: BarChart3 },
@@ -202,7 +233,38 @@ export function ClientProfileTabs(props: Props) {
 
       {/* ── Active panel ─────────────────────────────────────────────── */}
       <div className="min-w-0 flex flex-col gap-5">
-        {active === "general" && <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} />}
+        {active === "general" && (
+          <>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <AccountUseCases
+                clientId={client.id}
+                accountUseCases={((client.properties as Record<string, unknown> | undefined)?.[ACCOUNT_USE_CASES_KEY] as { ids?: unknown } | undefined)?.ids}
+                dealUseCases={computeUseCasesRollup(deals.filter((d) => d.tracked !== false))}
+                canEdit={canEditClient}
+              />
+              <AccountReminders
+                clientId={client.id}
+                clientName={client.name}
+                initial={reminders}
+                canEdit={canEditClient}
+                today={today}
+              />
+            </div>
+            <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} />
+          </>
+        )}
+        {active === "stakeholders" && (
+          <StakeholdersTab
+            clientId={client.id}
+            initialProfiles={stakeholderProfiles}
+            initialLinks={stakeholderLinks}
+            contacts={contacts}
+            canEdit={canEditClient}
+            teamEmails={teamEmails}
+            renewalDate={client.renewalDate ?? null}
+            today={today}
+          />
+        )}
         {active === "usage" && <UsageTab clientId={client.id} />}
         {active === "communication" && <CommunicationTab clientId={client.id} contacts={contacts} emails={emails} meetings={meetings} stakeholderMappings={normalizeStakeholderMappings(client.properties?.stakeholder_mappings)} />}
         {active === "attachments" && <AttachmentsTab clientId={client.id} attachments={attachments} deals={deals} supabaseUrl={supabaseUrl} />}
@@ -1561,6 +1623,12 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
   const [types, setTypes] = useState<string[]>([]);
   const [staff, setStaff] = useState<LumofyStaffEntry[]>([]);
   const [mappings, setMappings] = useState<StakeholderMapping[]>(initialMappings);
+  /* Which rows this session actually touched. Saving every row would rewrite
+     the whole matrix from the state loaded at page-open, so a colleague's edit
+     to a row you never looked at would still be clobbered — the element-level
+     write only removes the race between DIFFERENT rows if you send only the
+     rows you changed. */
+  const [dirtyTypes, setDirtyTypes] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1594,6 +1662,7 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
     // Any edit invalidates a prior "Saved" confirmation and clears a stale error.
     setSaved(false);
     setError(null);
+    setDirtyTypes((prev) => new Set(prev).add(type));
     setMappings((prev) => {
       const existing = prev.find((m) => m.type === type);
       if (existing) return prev.map((m) => m.type === type ? { ...m, ...patch } : m);
@@ -1606,19 +1675,28 @@ function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: 
     setError(null);
     setSaved(false);
     try {
-      const res = await fetch(`/api/clients/${clientId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ properties: { stakeholder_mappings: mappings } }),
-      });
-      // Previously fire-and-forget: a 403 (not the account owner) / 500 / timeout
-      // was swallowed, so the map looked saved but was lost on reload. Surface the
-      // failure, and on success re-read from the server so it's provably persisted.
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setError(body?.error ?? `Couldn't save the stakeholder map (HTTP ${res.status}).`);
-        return;
+      /* One row at a time through the gated server action, NOT a whole-array
+         PATCH of /api/clients/[id]. That route merges by replacing the key, so
+         a concurrent editor's row was silently erased, and its permission check
+         is a read gate — anyone who could see the account could overwrite the
+         matrix. saveStakeholderMappingAction rewrites a single element inside
+         Postgres, behind canEditClient.
+
+         Sequential, not Promise.all: these are UPDATEs against one row, and
+         firing them concurrently just makes them queue behind each other's
+         locks while making a partial failure harder to report. */
+      const changed = mappings.filter((m) => dirtyTypes.has(m.type));
+      if (changed.length === 0) { setSaved(true); return; }
+      for (const m of changed) {
+        const r = await saveStakeholderMappingAction(clientId, m.type, {
+          contactIds: m.contactIds, staffIds: m.staffIds,
+        });
+        if (!r.ok) {
+          setError(r.error ?? "Couldn't save the stakeholder map.");
+          return;
+        }
       }
+      setDirtyTypes(new Set());
       setSaved(true);
       router.refresh();
     } catch (e) {

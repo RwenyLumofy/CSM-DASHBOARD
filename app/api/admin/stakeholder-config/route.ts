@@ -7,6 +7,10 @@ const KEYS = ["stakeholder_types", "lumofy_staff", "attachment_categories"] as c
 type ConfigKey = (typeof KEYS)[number];
 
 export async function GET(req: Request) {
+  // `lumofy_staff` is the internal staff directory — admin-only, same as the
+  // PUT below. This read had no check at all, so any signed-in user (a guest
+  // included) could fetch it.
+  if (!(await isAdminOrSuper())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { searchParams } = new URL(req.url);
   const key = searchParams.get("key") as ConfigKey | null;
   if (!key || !KEYS.includes(key)) return NextResponse.json({ error: "invalid key" }, { status: 400 });

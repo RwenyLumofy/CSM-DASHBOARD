@@ -72,10 +72,21 @@ export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () =>
     router.refresh();
   }
 
-  function toggleDone() {
+  /* Optimistic, but reverted on failure. A cross-owner toggle now returns an
+     error instead of a false success, so leaving the tick in place would show
+     the task as done when the row never changed. */
+  async function toggleDone() {
     const next = done ? "open" : "done";
+    const prev = done ? "done" : "open";
     setTaskStatus(task!.id, next);
-    void toggleTaskAction(task!.id, next);
+    setError(null);
+    const r = await toggleTaskAction(task!.id, next);
+    if (!r.ok) {
+      setTaskStatus(task!.id, prev);
+      setError(r.error ?? "Couldn't change the task.");
+      return;
+    }
+    router.refresh();
   }
 
   async function remove() {
