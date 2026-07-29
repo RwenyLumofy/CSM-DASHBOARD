@@ -2,11 +2,12 @@
 
 /* One use case.
 
-   TWO COLUMNS. Prose in the main column at a readable measure; every
-   structured reference fact — category, status, owner, products, capabilities,
-   accounts, ARR, related use cases, what's missing — in one panel on the right.
-   The previous single narrow column left half the viewport empty while the
-   metadata it could have held was scattered through the page.
+   ONE COLUMN. A right-hand rail was tried and removed: everything it held was
+   already on the page — category in the eyebrow, status in the header chip,
+   owner and account count and ARR in the header line, capabilities and related
+   use cases in their own sections. What remained was three governance
+   one-liners, which now sit in the header where they belong, and the list of
+   gaps, which sits at the foot next to the buttons that close them.
 
    SECTION-LEVEL EDITING. Each block owns its Edit / Save / Cancel and sends
    only its own fields. Two people editing different sections don't collide, a
@@ -74,15 +75,6 @@ function Section({ title, canEdit, editing, busy, onEdit, onSave, onCancel, chil
 
 const Empty = ({ children }: { children: React.ReactNode }) =>
   <p className="font-body text-[13px] italic text-fg-subtle">{children}</p>;
-
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5 border-b border-border-subtle py-2 last:border-0">
-      <span className="font-body text-[10.5px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">{label}</span>
-      <span className="font-body text-[12.5px] text-fg">{children}</span>
-    </div>
-  );
-}
 
 /** Two by default, the rest behind a disclosure — the section is a recognition
  *  aid, not the point of the page. */
@@ -198,7 +190,17 @@ export function UseCaseDetail({
             {accounts.length} account{accounts.length === 1 ? "" : "s"}
             {accountArr > 0 && <> · {money(accountArr)} associated account ARR</>}
           </span>
+          {/* Governance moved up here when the right rail went. These are
+              one-liners; they never needed a panel of their own. */}
+          <span>Owner: {e.ownerEmail ?? "not set"}</span>
+          {e.lastReviewedAt && <span>Reviewed {shortDate(e.lastReviewedAt)}</span>}
           {e.updatedAt && <span>Last updated {shortDate(e.updatedAt)}</span>}
+          {e.sourceUrl && (
+            <a href={e.sourceUrl} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1 text-sirius underline decoration-dotted underline-offset-2">
+              Source <ExternalLink size={10} />
+            </a>
+          )}
         </div>
       </header>
 
@@ -284,8 +286,10 @@ export function UseCaseDetail({
         <UseCaseAccounts useCaseId={option.id} confirmed={confirmed} declaredOnly={declaredOnly}
           implementations={implementations} canEdit={canEdit} />
       ) : (
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div className="flex max-w-[70ch] flex-col gap-7">
+        /* Single column. The right rail repeated what the header and the body
+           already said, so the page now runs top to bottom at one readable
+           measure and nothing competes with the prose. */
+        <div className="flex max-w-[70ch] flex-col gap-7">
             <Section title="Customer problem" canEdit={canEdit} editing={isOpen("problem")} busy={busy}
               onEdit={() => open("problem")} onCancel={cancel}
               onSave={() => void save({ customerProblem: draft.customerProblem, desiredOutcome: draft.desiredOutcome })}
@@ -504,83 +508,35 @@ export function UseCaseDetail({
             </Section>
             )}
 
-            {canEdit && hiddenSections.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-4">
-                <span className="font-body text-[12px] text-fg-subtle">Add:</span>
-                {hiddenSections.map((s) => (
-                  <button key={s.id} onClick={() => open(s.id)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 font-body text-[12px] font-medium text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
-                    <Plus size={11} /> {s.short}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* The rail carries only what is NOT already on this screen.
-              It previously repeated eight things — category (the eyebrow),
-              status (the header chip), owner, account count and ARR (the
-              header), capabilities and related use cases (their own body
-              sections) — so on an unwritten use case it was a column reading
-              "Not set / Never / None listed / 0 / —". */}
-          <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
-            {accounts.length > 0 && (
-              <div className="rounded-xl border border-border bg-surface p-4">
-                <h2 className="font-body text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">
-                  Where it&rsquo;s live
-                </h2>
-                <ul className="mt-2 flex flex-col gap-1.5">
-                  {accounts.slice(0, 6).map((a) => (
-                    <li key={a.id} className="flex items-baseline justify-between gap-3">
-                      <Link href={`/clients/${a.id}`} className="font-body text-[12.5px] text-fg hover:text-sirius">{a.name}</Link>
-                      <span className="tabular shrink-0 font-body text-[12px] text-fg-subtle">{a.arr ? money(a.arr) : "—"}</span>
-                    </li>
-                  ))}
-                </ul>
-                {accounts.length > 6 && (
-                  <button onClick={() => setTab("accounts")}
-                    className="mt-2 font-body text-[12px] font-medium text-sirius underline decoration-dotted underline-offset-2">
-                    All {accounts.length} accounts
-                  </button>
+            {/* What is left to do, at the foot of what has been done — the
+                status chip has already flagged it at the top, so this is the
+                detail and the way to act on it, not a second warning. */}
+            {(gaps.length > 0 || (canEdit && hiddenSections.length > 0)) && (
+              <footer className="flex flex-col gap-2.5 border-t border-border-subtle pt-4">
+                {gaps.length > 0 && (
+                  <p className="font-body text-[12px] leading-relaxed text-[#8A6D12]">
+                    <span className="font-semibold">
+                      {reviewState(entry, today) === "overdue" ? "Review overdue" : "Still missing"}:
+                    </span>{" "}
+                    {gaps.join(" · ")}
+                  </p>
                 )}
-              </div>
-            )}
-
-            <div className="rounded-xl border border-border bg-surface px-4 py-2">
-              <h2 className="border-b border-border-subtle py-2 font-body text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">
-                Definition
-              </h2>
-              <Fact label="Owner">{e.ownerEmail ?? <span className="text-fg-subtle">Not set</span>}</Fact>
-              <Fact label="Last reviewed">
-                {e.lastReviewedAt ? shortDate(e.lastReviewedAt) : <span className="text-fg-subtle">Never</span>}
-              </Fact>
-              <Fact label="Source">
-                {e.sourceUrl ? (
-                  <a href={e.sourceUrl} target="_blank" rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-sirius underline decoration-dotted underline-offset-2">
-                    Full page <ExternalLink size={10} />
-                  </a>
-                ) : <span className="text-fg-subtle">None linked</span>}
-              </Fact>
-            </div>
-
-            {gaps.length > 0 && (
-              <div className="rounded-xl border border-[#C99A14]/30 bg-[#8A6D12]/[0.05] p-4">
-                <h2 className="font-body text-[12.5px] font-semibold text-[#8A6D12]">
-                  {reviewState(entry, today) === "overdue" ? "Definition review overdue" : "Definition needs review"}
-                </h2>
-                <ul className="mt-1.5 flex flex-col gap-0.5">
-                  {gaps.map((g) => <li key={g} className="font-body text-[12px] text-[#8A6D12]">· {g}</li>)}
-                </ul>
                 {canEdit && (
-                  <Link href={`${basePath}/write`}
-                    className="mt-2.5 inline-block font-body text-[12px] font-semibold text-[#8A6D12] underline decoration-dotted underline-offset-2">
-                    Write these across the library →
-                  </Link>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {hiddenSections.map((s) => (
+                      <button key={s.id} onClick={() => open(s.id)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 font-body text-[12px] font-medium text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+                        <Plus size={11} /> {s.short}
+                      </button>
+                    ))}
+                    <Link href={`${basePath}/write`}
+                      className="font-body text-[12px] font-medium text-fg-subtle underline decoration-dotted underline-offset-2 hover:text-sirius">
+                      Write these across the library →
+                    </Link>
+                  </div>
                 )}
-              </div>
+              </footer>
             )}
-          </aside>
         </div>
       )}
     </div>
