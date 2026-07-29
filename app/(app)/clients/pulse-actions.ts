@@ -3,12 +3,15 @@
 /* =========================================================================
    CS Pulse write — the CSM's monthly (or event-driven) read on an account.
    Stored on the client's protected `properties.cs_pulse` JSONB (migration-free,
-   survives the HubSpot sync). Any signed-in user who can reach the account may
-   record its pulse; the account re-scores from it on the next read.
+   survives the HubSpot sync). Recording a pulse is an ACCOUNT WRITE and gates
+   on denyClientWrite like every sibling action in clients/[id]/. It used to
+   check only that you were signed in, so a read-only guest could rewrite the
+   pulse — and force a health recompute — on any account they could not see,
+   by passing its id directly.
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";
-import { getCurrentUserEmail } from "@/lib/auth";
+import { getCurrentUserEmail, denyClientWrite } from "@/lib/auth";
 import { hasDatabase } from "@/lib/config";
 import { normalizePulse, isPulseComplete, type StoredPulse } from "@/lib/health/pulse";
 import { getCsPulseDimensions, getCsPulseTiers, getAccountHealth, persistAccountHealth } from "@/lib/health/data";
@@ -26,6 +29,8 @@ export async function setClientPulseAction(clientId: string, input: {
   if (!email) return { ok: false, error: "Sign in required to record a pulse." };
   if (!hasDatabase()) return { ok: false, error: "No database configured." };
   if (!clientId) return { ok: false, error: "Missing account." };
+  const denied = await denyClientWrite(clientId);
+  if (denied) return { ok: false, error: denied };
 
   // Validate against the configured dimensions AND tier keys; stamp the author
   // and time server-side so freshness can't be spoofed.

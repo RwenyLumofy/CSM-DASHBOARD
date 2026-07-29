@@ -15,7 +15,12 @@ export const maxDuration = 800;
 // open just because a second, separate secret was never configured.
 function authorized(req: Request): boolean {
   const secret = env.syncSecret || env.cronSecret;
-  if (!secret) return true; // open only when NEITHER secret is set (local dev)
+  // FAIL CLOSED IN PRODUCTION. This used to `return true` whenever no secret
+  // was configured, so a deployment that never set SYNC_SECRET/CRON_SECRET
+  // left every one of these endpoints — including the DELETE that wipes all
+  // HubSpot-sourced data — open to the internet. An unset secret is a
+  // misconfiguration, not permission. Local dev keeps the open path.
+  if (!secret) return process.env.NODE_ENV !== "production";
   const header = req.headers.get("authorization") ?? "";
   const bearer = header.replace(/^Bearer\s+/i, "");
   const url = new URL(req.url);
