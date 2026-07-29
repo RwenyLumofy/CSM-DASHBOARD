@@ -26,7 +26,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Search, X, Circle, ChevronRight, ChevronDown, Plus, SlidersHorizontal, PenLine,
+  Search, X, Circle, ChevronRight, ChevronDown, Plus, SlidersHorizontal, PenLine, ArrowLeftRight,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
@@ -35,6 +35,7 @@ import type { ResolvedUseCase, TaxonomyOverlay } from "@/lib/use-case-overlay";
 import type { AccountRef } from "@/lib/use-case-adoption";
 import { UseCaseDetail } from "@/components/reports/UseCaseDetail";
 import { TaxonomyManager } from "@/components/reports/TaxonomyManager";
+import { UseCaseTransfer } from "@/components/reports/UseCaseTransfer";
 import type { ImplementationRow } from "@/components/reports/UseCaseAccounts";
 
 /* Rounds BEFORE choosing the unit. Formatting first and bucketing second let
@@ -85,6 +86,7 @@ export function UseCaseWorkbench({
   const [sel, setSel] = useState<string | null>(null);
   const [dense, setDense] = useState<"detailed" | "compact">("detailed");
   const [managing, setManaging] = useState(false);
+  const [transferring, setTransferring] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const live = useMemo(() => rows.filter((r) => r.entry?.status !== "archived"), [rows]);
@@ -154,6 +156,8 @@ export function UseCaseWorkbench({
         onClose={() => setManaging(false)} />
     );
   }
+
+  if (transferring) return <UseCaseTransfer onClose={() => setTransferring(false)} />;
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
@@ -274,6 +278,10 @@ export function UseCaseWorkbench({
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-body text-[12px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
               <PenLine size={12} /> Write
             </Link>
+            <button onClick={() => setTransferring(true)} title="Export this library, or import one from another environment"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-body text-[12px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+              <ArrowLeftRight size={12} /> Transfer
+            </button>
           </div>
         )}
 
