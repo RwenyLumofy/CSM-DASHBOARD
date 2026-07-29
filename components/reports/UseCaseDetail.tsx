@@ -18,6 +18,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronLeft, Pencil, Loader2, X, Check, ExternalLink, Plus } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { PRODUCTS, blankEntry, missingFields, type UseCaseEntry, type Product } from "@/lib/use-case-library";
@@ -123,6 +124,7 @@ export function UseCaseDetail({
   const [draft, setDraft] = useState<UseCaseEntry>(entry ?? blankEntry(option.id));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   const e = entry ?? blankEntry(option.id);
   const accounts = [...confirmed, ...declaredOnly];
@@ -136,12 +138,31 @@ export function UseCaseDetail({
   const cancel = () => { setSection(null); setError(null); };
   const isOpen = (id: string) => section === id;
 
+  /* Which optional sections have something to show. An empty one is HIDDEN
+     rather than rendered as a grey "Not defined yet" — a page of placeholders
+     reads as broken, and it made the sparse state look like a bug instead of
+     work not yet done. They come back through the "Add" strip at the bottom. */
+  const optional = [
+    { id: "phrases", title: "How clients describe the need", short: "Client phrases", has: e.clientPhrases.length > 0 },
+    { id: "audience", title: "Who it is for", short: "Who it’s for", has: Object.values(e.audience).some(Boolean) },
+    // Products alone are enough to render this section, so they also count as
+    // "has" — otherwise it shows AND is offered under "Add" at the same time.
+    { id: "capabilities", title: "What Lumofy enables", short: "What Lumofy enables", has: e.capabilities.length > 0 || e.products.length > 0 },
+    { id: "indicators", title: "Success indicators", short: "Success indicators", has: e.successIndicators.length > 0 },
+    { id: "related", title: "How this differs from related use cases", short: "Related use cases", has: e.relatedUseCases.length > 0 },
+  ];
+  const shows = (id: string) => !!optional.find((s) => s.id === id)?.has || isOpen(id);
+  const hiddenSections = optional.filter((s) => !s.has && !isOpen(s.id));
+
   async function save(patch: SectionPatch) {
     setBusy(true); setError(null);
     const r = await saveUseCaseSectionAction(option.id, patch);
+    if (!r.ok) { setBusy(false); setError(r.error ?? "Couldn't save."); return; }   // stays open, nothing typed is lost
+    // router.refresh, not location.reload: a full reload after every section
+    // save meant scroll position and open state were lost 182 times over.
+    setSection(null);
+    router.refresh();
     setBusy(false);
-    if (!r.ok) { setError(r.error ?? "Couldn't save."); return; }   // stays open, nothing typed is lost
-    window.location.reload();
   }
 
   return (
@@ -177,7 +198,6 @@ export function UseCaseDetail({
             {accounts.length} account{accounts.length === 1 ? "" : "s"}
             {accountArr > 0 && <> · {money(accountArr)} associated account ARR</>}
           </span>
-          {e.ownerEmail && <span>Owner: {e.ownerEmail}</span>}
           {e.updatedAt && <span>Last updated {shortDate(e.updatedAt)}</span>}
         </div>
       </header>
@@ -295,6 +315,7 @@ export function UseCaseDetail({
               </section>
             )}
 
+            {shows("phrases") && (
             <Section title="How clients describe the need" canEdit={canEdit} editing={isOpen("phrases")} busy={busy}
               onEdit={() => open("phrases")} onCancel={cancel}
               onSave={() => void save({ clientPhrases: draft.clientPhrases })}
@@ -308,7 +329,9 @@ export function UseCaseDetail({
                 </label>}>
               {e.clientPhrases.length ? <ClientPhrases phrases={e.clientPhrases} /> : <Empty>None recorded.</Empty>}
             </Section>
+            )}
 
+            {shows("audience") && (
             <Section title="Who it is for" canEdit={canEdit} editing={isOpen("audience")} busy={busy}
               onEdit={() => open("audience")} onCancel={cancel}
               onSave={() => void save({ audience: draft.audience })}
@@ -335,11 +358,32 @@ export function UseCaseDetail({
                 </dl>
               ) : <Empty>Not defined yet.</Empty>}
             </Section>
+            )}
 
+            {/* Products and capabilities are one idea — which product this runs
+                on, and what inside it does the work. They were split across the
+                two columns, so neither read as an answer. */}
+            {shows("capabilities") && (
             <Section title="What Lumofy enables" canEdit={canEdit} editing={isOpen("capabilities")} busy={busy}
               onEdit={() => open("capabilities")} onCancel={cancel}
-              onSave={() => void save({ capabilities: draft.capabilities })}
+              onSave={() => void save({ capabilities: draft.capabilities, products: draft.products })}
               form={<>
+                <fieldset className="flex flex-col gap-1.5">
+                  <legend className="font-body text-[12px] font-semibold text-fg">Lumofy products</legend>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {PRODUCTS.map((p) => {
+                      const on = draft.products.includes(p);
+                      return (
+                        <button key={p} type="button" aria-pressed={on}
+                          onClick={() => setDraft({ ...draft, products: on ? draft.products.filter((x) => x !== p) : [...draft.products, p as Product] })}
+                          className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-body text-[12px] transition-colors",
+                            on ? "border-sirius bg-accent-soft font-medium text-sirius" : "border-border text-fg-muted hover:border-sirius")}>
+                          {on && <Check size={10} strokeWidth={3} />} {p}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
                 <span className="font-body text-[11.5px] text-fg-subtle">
                   The capability, and what it does for this use case specifically.
                 </span>
@@ -360,6 +404,15 @@ export function UseCaseDetail({
                   <Plus size={11} /> Add capability
                 </button>
               </>}>
+              {e.products.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {e.products.map((p) => (
+                    <span key={p} className="rounded-full border border-sirius/30 bg-accent-soft px-2.5 py-0.5 font-body text-[12px] font-medium text-sirius">
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              )}
               {e.capabilities.length ? (
                 <div className="overflow-hidden rounded-lg border border-border-subtle">
                   <table className="w-full border-collapse">
@@ -376,7 +429,9 @@ export function UseCaseDetail({
                 </div>
               ) : <Empty>No capabilities listed.</Empty>}
             </Section>
+            )}
 
+            {shows("indicators") && (
             <Section title="Success indicators" canEdit={canEdit} editing={isOpen("indicators")} busy={busy}
               onEdit={() => open("indicators")} onCancel={cancel}
               onSave={() => void save({ successIndicators: draft.successIndicators })}
@@ -401,7 +456,9 @@ export function UseCaseDetail({
                 </ul>
               ) : <Empty>None recorded.</Empty>}
             </Section>
+            )}
 
+            {shows("related") && (
             <Section title="How this differs from related use cases" canEdit={canEdit} editing={isOpen("related")} busy={busy}
               onEdit={() => open("related")} onCancel={cancel}
               onSave={() => void save({ relatedUseCases: draft.relatedUseCases })}
@@ -445,52 +502,67 @@ export function UseCaseDetail({
                 </ul>
               ) : <Empty>None recorded.</Empty>}
             </Section>
+            )}
+
+            {canEdit && hiddenSections.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 border-t border-border-subtle pt-4">
+                <span className="font-body text-[12px] text-fg-subtle">Add:</span>
+                {hiddenSections.map((s) => (
+                  <button key={s.id} onClick={() => open(s.id)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 font-body text-[12px] font-medium text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+                    <Plus size={11} /> {s.short}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
+          {/* The rail carries only what is NOT already on this screen.
+              It previously repeated eight things — category (the eyebrow),
+              status (the header chip), owner, account count and ARR (the
+              header), capabilities and related use cases (their own body
+              sections) — so on an unwritten use case it was a column reading
+              "Not set / Never / None listed / 0 / —". */}
           <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+            {accounts.length > 0 && (
+              <div className="rounded-xl border border-border bg-surface p-4">
+                <h2 className="font-body text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">
+                  Where it&rsquo;s live
+                </h2>
+                <ul className="mt-2 flex flex-col gap-1.5">
+                  {accounts.slice(0, 6).map((a) => (
+                    <li key={a.id} className="flex items-baseline justify-between gap-3">
+                      <Link href={`/clients/${a.id}`} className="font-body text-[12.5px] text-fg hover:text-sirius">{a.name}</Link>
+                      <span className="tabular shrink-0 font-body text-[12px] text-fg-subtle">{a.arr ? money(a.arr) : "—"}</span>
+                    </li>
+                  ))}
+                </ul>
+                {accounts.length > 6 && (
+                  <button onClick={() => setTab("accounts")}
+                    className="mt-2 font-body text-[12px] font-medium text-sirius underline decoration-dotted underline-offset-2">
+                    All {accounts.length} accounts
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="rounded-xl border border-border bg-surface px-4 py-2">
               <h2 className="border-b border-border-subtle py-2 font-body text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">
-                At a glance
+                Definition
               </h2>
-              <Fact label="Category">{categoryLabel}</Fact>
-              <Fact label="Status">{statusLine(entry, today)}</Fact>
               <Fact label="Owner">{e.ownerEmail ?? <span className="text-fg-subtle">Not set</span>}</Fact>
               <Fact label="Last reviewed">
                 {e.lastReviewedAt ? shortDate(e.lastReviewedAt) : <span className="text-fg-subtle">Never</span>}
               </Fact>
-              <Fact label="Lumofy products">
-                {e.products.length ? e.products.join(" · ") : <span className="text-fg-subtle">Not set</span>}
-              </Fact>
-              <Fact label="Relevant capabilities">
-                {e.capabilities.length ? e.capabilities.map((c) => c.name).join(", ") : <span className="text-fg-subtle">None listed</span>}
-              </Fact>
-              <Fact label="Associated accounts"><span className="tabular">{accounts.length}</span></Fact>
-              <Fact label="Associated account ARR"><span className="tabular">{accountArr ? money(accountArr) : "—"}</span></Fact>
-              {e.sourceUrl && (
-                <Fact label="Source">
+              <Fact label="Source">
+                {e.sourceUrl ? (
                   <a href={e.sourceUrl} target="_blank" rel="noreferrer"
                     className="inline-flex items-center gap-1 text-sirius underline decoration-dotted underline-offset-2">
                     Full page <ExternalLink size={10} />
                   </a>
-                </Fact>
-              )}
+                ) : <span className="text-fg-subtle">None linked</span>}
+              </Fact>
             </div>
-
-            {e.relatedUseCases.length > 0 && (
-              <div className="rounded-xl border border-border bg-surface p-4">
-                <h2 className="font-body text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">Related use cases</h2>
-                <ul className="mt-2 flex flex-col gap-1">
-                  {e.relatedUseCases.map((r) => {
-                    const other = allEntries.find((u) => u.id === r.id);
-                    return other ? (
-                      <li key={r.id}>
-                        <Link href={`${basePath}/${r.id}`} className="font-body text-[12.5px] text-fg-muted hover:text-sirius">{other.label}</Link>
-                      </li>
-                    ) : null;
-                  })}
-                </ul>
-              </div>
-            )}
 
             {gaps.length > 0 && (
               <div className="rounded-xl border border-[#C99A14]/30 bg-[#8A6D12]/[0.05] p-4">
@@ -500,6 +572,12 @@ export function UseCaseDetail({
                 <ul className="mt-1.5 flex flex-col gap-0.5">
                   {gaps.map((g) => <li key={g} className="font-body text-[12px] text-[#8A6D12]">· {g}</li>)}
                 </ul>
+                {canEdit && (
+                  <Link href={`${basePath}/write`}
+                    className="mt-2.5 inline-block font-body text-[12px] font-semibold text-[#8A6D12] underline decoration-dotted underline-offset-2">
+                    Write these across the library →
+                  </Link>
+                )}
               </div>
             )}
           </aside>

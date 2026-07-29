@@ -31,7 +31,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Search, LayoutGrid, Table as TableIcon, X, Plus, SlidersHorizontal, ChevronRight,
+  Search, LayoutGrid, Table as TableIcon, X, Plus, SlidersHorizontal, ChevronRight, PenLine,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { AdoptionSummary } from "@/lib/use-case-adoption";
@@ -178,7 +178,14 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
           <span className="tabular font-semibold text-fg">{counts.active}</span> active on accounts
         </p>
         {canEdit && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Sits first because it is the work actually outstanding: filling
+                the definitions, not adding more empty ones. */}
+            <Link href={`${basePath}/write`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-body text-[12.5px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+              <PenLine size={13} /> Write definitions
+              {counts.needsWriting > 0 && <span className="tabular text-fg-subtle">{counts.needsWriting}</span>}
+            </Link>
             <Link href="/use-cases?manage=categories"
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-body text-[12.5px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
               <SlidersHorizontal size={13} /> Manage categories
