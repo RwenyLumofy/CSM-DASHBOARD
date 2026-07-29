@@ -67,7 +67,7 @@ function Bullets({ title, items }: { title: string; items: string[] }) {
  *  invented text can be saved by accident. */
 const blankEntry = (id: string): UseCaseEntry => ({
   id, goal: "", soundsLike: [], delivers: [], confusedWith: [], watchFor: [],
-  modules: [], stakeholderRoles: [], sourceUrl: null,
+  modules: [], stakeholderRoles: [], sourceUrl: null, needsReview: false,
 });
 
 function EditField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {

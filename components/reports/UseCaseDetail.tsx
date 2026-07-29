@@ -74,7 +74,7 @@ function EditField({ label, hint, children }: { label: string; hint?: string; ch
 
 const blank = (id: string): UseCaseEntry => ({
   id, goal: "", soundsLike: [], delivers: [], confusedWith: [], watchFor: [],
-  modules: [], stakeholderRoles: [], sourceUrl: null,
+  modules: [], stakeholderRoles: [], sourceUrl: null, needsReview: false,
 });
 
 export function UseCaseDetail({
@@ -107,6 +107,7 @@ export function UseCaseDetail({
       goal: draft.goal, soundsLike: draft.soundsLike, delivers: draft.delivers,
       confusedWith: draft.confusedWith, watchFor: draft.watchFor,
       modules: draft.modules, stakeholderRoles: draft.stakeholderRoles, sourceUrl: draft.sourceUrl,
+      needsReview: draft.needsReview,
     });
     setBusy(false);
     // The drawer stays open on failure so nothing typed is lost.
@@ -134,6 +135,14 @@ export function UseCaseDetail({
           {option.unresolved && (
             <span className="rounded-full border border-[#C99A14]/30 bg-[#8A6D12]/5 px-2 py-0.5 font-body text-[11px] font-medium text-[#8A6D12]">
               Outside published set
+            </span>
+          )}
+          {/* The most important chip on the page: drafted wording must never be
+              mistaken for reviewed Lumofy material. */}
+          {entry?.needsReview && (
+            <span title="Drafted from domain knowledge, not yet checked by anyone at Lumofy"
+              className="rounded-full border border-[#B23A57]/25 bg-[#B23A57]/[0.07] px-2 py-0.5 font-body text-[11px] font-medium text-[#B23A57]">
+              Draft · not reviewed
             </span>
           )}
         </div>
@@ -343,7 +352,12 @@ export function UseCaseDetail({
                 <section className="flex flex-col gap-1 border-t border-border-subtle pt-4 font-body text-[12.5px] text-fg-subtle">
                   {entry.modules.length > 0 && <p>Runs on {entry.modules.join(" · ")}</p>}
                   {entry.stakeholderRoles.length > 0 && <p>Usually owned by {entry.stakeholderRoles.map((r) => ROLE_LABEL[r]).join(" · ")}</p>}
-                  {entry.sourceUrl && (
+                  {entry.needsReview && (
+                <p className="text-[#B23A57]">
+                  This wording was drafted, not taken from a Lumofy source. Edit it and clear the draft flag once it&rsquo;s right.
+                </p>
+              )}
+              {entry.sourceUrl && (
                     <p><a href={entry.sourceUrl} target="_blank" rel="noreferrer"
                       className="inline-flex items-center gap-1 text-sirius underline decoration-dotted underline-offset-2">
                       Full page in Notion <ExternalLink size={11} />

@@ -160,6 +160,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
   const counts = useMemo(() => ({
     total: rows.length,
     described: rows.filter((r) => r.status === "described").length,
+    drafted: rows.filter((r) => r.entry?.needsReview).length,
     needsDefinition: rows.filter((r) => r.status === "needs_definition").length,
     active: rows.filter((r) => r.accounts > 0).length,
   }), [rows]);
@@ -171,7 +172,7 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
         <p className="font-body text-[13px] text-fg-muted">
           <span className="tabular font-semibold text-fg">{counts.total}</span> use cases ·{" "}
           <span className="tabular font-semibold text-fg">{groups.length}</span> categories ·{" "}
-          <span className="tabular font-semibold text-fg">{counts.described}</span> described ·{" "}
+          <span className="tabular font-semibold text-fg">{counts.described}</span> described{counts.drafted > 0 && <>{" "}(<span className="tabular font-semibold text-[#B23A57]">{counts.drafted}</span> unreviewed)</>} ·{" "}
           <span className="tabular font-semibold text-fg">{counts.active}</span> active on accounts
         </p>
         {canEdit && (
@@ -292,6 +293,12 @@ export function UseCaseLibrary({ rows, groups, canEdit, adoption, basePath = "/u
 
                       {/* Metadata right-aligned in fixed slots so the columns
                           line up down the whole list, Linear-style. */}
+                      {r.entry?.needsReview && (
+                        <span title="Drafted, not yet reviewed by anyone at Lumofy"
+                          className="shrink-0 whitespace-nowrap font-body text-[11px] font-medium text-[#B23A57]">
+                          Draft
+                        </span>
+                      )}
                       {r.option.unresolved && (
                         <span className="hidden shrink-0 whitespace-nowrap font-body text-[11px] text-[#8A6D12] lg:inline">
                           Outside set

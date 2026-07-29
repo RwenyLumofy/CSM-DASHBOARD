@@ -49,6 +49,7 @@ export interface LibraryEditInput {
   modules?: string[];
   stakeholderRoles?: string[];
   sourceUrl?: string | null;
+  needsReview?: boolean;
 }
 
 export async function saveUseCaseEntryAction(id: string, input: LibraryEditInput): Promise<LibraryResult> {
@@ -90,6 +91,7 @@ export async function saveUseCaseEntryAction(id: string, input: LibraryEditInput
     patch.stakeholderRoles = input.stakeholderRoles
       .filter((r): r is StakeholderRole => (STAKEHOLDER_ROLES as readonly string[]).includes(r));
   }
+  if (typeof input.needsReview === "boolean") patch.needsReview = input.needsReview;
   if (input.sourceUrl !== undefined) {
     const u = typeof input.sourceUrl === "string" ? input.sourceUrl.trim() : "";
     if (u && !/^https?:\/\//i.test(u)) return { ok: false, error: "The source link needs to start with https://" };

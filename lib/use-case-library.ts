@@ -71,6 +71,18 @@ export interface UseCaseEntry {
   /** The Notion page, when one exists. Provenance, so a CSM can always reach
    *  the fuller sales/delivery material rather than this summary of it. */
   sourceUrl: string | null;
+
+  /**
+   * True while nobody at Lumofy has checked this wording.
+   *
+   * The distinction that matters most on this page. Three entries were lifted
+   * verbatim from written Notion pages; the rest were drafted from domain
+   * knowledge because no source existed. Both render identically unless the
+   * difference is stored, and a CSM repeating drafted wording to a client
+   * believing it is company doctrine is exactly the failure to avoid. Shown as
+   * a chip on every surface, and cleared by whoever reviews it.
+   */
+  needsReview: boolean;
 }
 
 /** Ships empty. Everything shown is written by the team. */
@@ -115,6 +127,7 @@ export function mergeLibrary(overrides: Record<string, UseCaseOverride> | null |
         : [],
       stakeholderRoles: Array.isArray(o.stakeholderRoles) ? o.stakeholderRoles : [],
       sourceUrl: typeof o.sourceUrl === "string" && o.sourceUrl.trim() ? o.sourceUrl.trim() : null,
+      needsReview: o.needsReview === true,
     }))
     // An override carrying only audit fields, or only metadata, isn't a
     // description — the page should still read as undocumented.
