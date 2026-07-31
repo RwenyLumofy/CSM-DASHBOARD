@@ -16,13 +16,11 @@
 import { useMemo, useState } from "react";
 import { Plus, Pencil, Archive, RotateCcw, Loader2, X, AlertTriangle, FolderPlus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import type { ResolvedUseCase, TaxonomyOverlay } from "@/lib/use-case-overlay";
+import type { ResolvedUseCase } from "@/lib/use-case-overlay";
 import {
   saveUseCaseAction, retireUseCaseAction, restoreUseCaseAction,
-  saveCategoryAction, deleteCategoryAction, restoreCategoryAction,
-  resetCategoryAction, resetTaxonomyAction,
+  saveCategoryAction, deleteCategoryAction, resetTaxonomyAction,
 } from "@/app/(app)/use-cases/taxonomy-actions";
-import { isShippedGroup } from "@/lib/use-case-overlay";
 
 const inputCls =
   "w-full rounded-lg border border-border bg-bg px-2.5 py-2 font-body text-[13px] text-fg outline-none placeholder:text-fg-subtle focus:border-sirius focus:ring-2 focus:ring-sirius/15";
@@ -39,11 +37,10 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-export function TaxonomyManager({ entries, groups, overlay, onClose }: {
+export function TaxonomyManager({ entries, groups, onClose }: {
   /** Includes retired ones — this screen has to show what can be restored. */
   entries: ResolvedUseCase[];
   groups: Group[];
-  overlay: TaxonomyOverlay;
   onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -175,12 +172,6 @@ export function TaxonomyManager({ entries, groups, overlay, onClose }: {
             </button>
             <button type="button" onClick={() => setGroupEdit(null)}
               className="rounded-lg border border-border px-3 py-1.5 font-body text-[12.5px] font-medium text-fg-muted hover:text-fg">Cancel</button>
-            {groupEdit !== "new" && isShippedGroup(groupEdit.id) && (
-              <button type="button" onClick={() => void run(() => resetCategoryAction(groupEdit.id))} disabled={busy}
-                className="ml-auto inline-flex items-center gap-1 font-body text-[12px] font-medium text-fg-subtle underline decoration-dotted underline-offset-2 hover:text-sirius">
-                <RotateCcw size={11} /> Restore shipped name
-              </button>
-            )}
           </div>
         </form>
       )}
@@ -224,11 +215,7 @@ export function TaxonomyManager({ entries, groups, overlay, onClose }: {
         {live.map((u) => (
           <div key={u.id} className="flex items-start gap-2 border-b border-border-subtle px-3 py-2 last:border-0">
             <div className="min-w-0 flex-1">
-              <p className="font-body text-[13px] font-semibold text-fg">
-                {u.label}
-                {u.custom && <span className="ml-1.5 rounded-full bg-accent-soft px-1.5 py-px font-body text-[10px] font-semibold text-sirius">added</span>}
-                {u.edited && <span className="ml-1.5 rounded-full bg-bg-muted px-1.5 py-px font-body text-[10px] font-semibold text-fg-muted">edited</span>}
-              </p>
+              <p className="font-body text-[13px] font-semibold text-fg">{u.label}</p>
               <p className="font-body text-[11.5px] text-fg-subtle">
                 {u.summary || <em>no summary</em>} · {u.groups.map((g) => groups.find((x) => x.id === g)?.label ?? g).join(" · ")}
               </p>
@@ -275,10 +262,7 @@ export function TaxonomyManager({ entries, groups, overlay, onClose }: {
               return (
                 <div key={g.id} className="flex items-start gap-2 border-b border-border-subtle px-3 py-2 last:border-0">
                   <div className="min-w-0 flex-1">
-                    <p className="font-body text-[13px] font-semibold text-fg">
-                      {g.label}
-                      {!isShippedGroup(g.id) && <span className="ml-1.5 rounded-full bg-accent-soft px-1.5 py-px font-body text-[10px] font-semibold text-sirius">added</span>}
-                    </p>
+                    <p className="font-body text-[13px] font-semibold text-fg">{g.label}</p>
                     <p className="font-body text-[11.5px] text-fg-subtle">
                       {g.blurb || <em>no description</em>} · {filed} use case{filed === 1 ? "" : "s"}
                     </p>
@@ -295,27 +279,14 @@ export function TaxonomyManager({ entries, groups, overlay, onClose }: {
               );
             })}
           </div>
-          {(overlay.hiddenGroups ?? []).length > 0 && (
-            <div>
-              <p className="mb-1.5 font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Removed</p>
-              <div className="flex flex-wrap gap-1.5">
-                {(overlay.hiddenGroups ?? []).map((id) => (
-                  <button key={id} onClick={() => void run(() => restoreCategoryAction(id))} disabled={busy}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 font-body text-[12px] text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
-                    <RotateCcw size={11} /> {id}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
 
       <p className="border-t border-border-subtle pt-3 font-body text-[11.5px] text-fg-subtle">
-        Everything here is stored as a change on top of the 23 shipped use cases — nothing overwrites them.{" "}
-        <button onClick={() => { if (window.confirm("Discard every taxonomy change and go back to the shipped 23?")) void run(resetTaxonomyAction); }}
+        Everything here is a plain, team-created row — there is nothing shipped or preset underneath it.{" "}
+        <button onClick={() => { if (window.confirm("Delete every use case and category? This clears the whole database.")) void run(resetTaxonomyAction); }}
           className="font-semibold text-fg-muted underline decoration-dotted underline-offset-2 hover:text-sirius">
-          Reset everything
+          Clear everything
         </button>
       </p>
     </div>

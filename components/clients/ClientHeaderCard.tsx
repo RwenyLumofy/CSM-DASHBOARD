@@ -323,17 +323,26 @@ export function ClientHeaderCard({
           </span>
         </div>
 
-        {/* Use case(s) — auto-rolled up from every tracked deal, read-only */}
+        {/* HANDOVER use cases — what sales sold, rolled up from every tracked
+            deal's HubSpot "Use case" field. Read-only and labelled as such on
+            purpose: this is the handover record, NOT what CS decided the
+            account is actually working on. That second, editable answer lives
+            in the "Use cases" card on the General information tab, and the two
+            are deliberately allowed to differ — the gap between them is the
+            interesting part. */}
         <div className="flex flex-1 flex-col justify-center px-5 py-4">
           <div className="mb-1.5 font-body text-[10.5px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">
-            Use Case(s)
+            Handover Use Case(s)
           </div>
           {useCases.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {useCases.map((uc) => (
-                <Badge key={uc} tone="neutral" className="whitespace-nowrap">{uc}</Badge>
-              ))}
-            </div>
+            <>
+              <div className="flex flex-wrap gap-1">
+                {useCases.map((uc) => (
+                  <Badge key={uc} tone="neutral" className="whitespace-nowrap">{uc}</Badge>
+                ))}
+              </div>
+              <span className="mt-1.5 font-body text-[10.5px] text-fg-subtle">From HubSpot deals</span>
+            </>
           ) : (
             <span className="font-body text-[13px] text-fg-subtle">Not set</span>
           )}

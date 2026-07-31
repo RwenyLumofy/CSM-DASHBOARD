@@ -1,13 +1,21 @@
 "use client";
 
-/* One use case.
+/* One use case — the definition, plus a read-only look at who has it.
+
+   THE ACCOUNTS LIST HERE IS READ-ONLY. Associating an account with a use
+   case, and its account-specific objective/scope/status, is edited only from
+   the client page (components/clients/UseCasePortfolio.tsx) — this component
+   never writes an implementation record. What it DOES show is which accounts
+   already carry this use case, sourced from that same data, so a stakeholder
+   browsing the Universe can see what's actually live and where there's room
+   to extend a use case to more accounts.
 
    ONE COLUMN. A right-hand rail was tried and removed: everything it held was
    already on the page — category in the eyebrow, status in the header chip,
-   owner and account count and ARR in the header line, capabilities and related
-   use cases in their own sections. What remained was three governance
-   one-liners, which now sit in the header where they belong, and the list of
-   gaps, which sits at the foot next to the buttons that close them.
+   capabilities and related use cases in their own sections. What remained was
+   three governance one-liners, which now sit in the header where they belong,
+   and the list of gaps, which sits at the foot next to the buttons that close
+   them.
 
    SECTION-LEVEL EDITING. Each block owns its Edit / Save / Cancel and sends
    only its own fields. Two people editing different sections don't collide, a
@@ -22,12 +30,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Pencil, Loader2, X, Check, ExternalLink, Plus } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { PRODUCTS, blankEntry, missingFields, type UseCaseEntry, type Product } from "@/lib/use-case-library";
+import { PRODUCTS, blankEntry, missingFields, safeHttpUrl, type UseCaseEntry, type Product } from "@/lib/use-case-library";
 import type { ResolvedUseCase } from "@/lib/use-case-overlay";
-import type { AccountRef } from "@/lib/use-case-adoption";
+import {
+  IMPL_STATUS_LABEL, IMPL_STATUS_TONE, type ImplementationWithAccount,
+} from "@/lib/use-case-implementation";
 import { reviewState } from "@/lib/use-case-status";
 import { saveUseCaseSectionAction, type SectionPatch } from "@/app/(app)/use-cases/actions";
-import { UseCaseAccounts, type ImplementationRow } from "@/components/reports/UseCaseAccounts";
 
 const fieldCls =
   "w-full rounded-lg border border-border bg-bg px-3 py-2 font-body text-[13px] leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-sirius focus:ring-2 focus:ring-sirius/15";
@@ -93,17 +102,16 @@ function ClientPhrases({ phrases }: { phrases: string[] }) {
 }
 
 export function UseCaseDetail({
-  option, entry, allEntries, groups, canEdit, confirmed, declaredOnly,
-  implementations, today, basePath = "/use-cases", embedded = false,
+  option, entry, allEntries, groups, canEdit, accounts,
+  today, basePath = "/use-cases", embedded = false,
 }: {
   option: ResolvedUseCase;
   entry: UseCaseEntry | undefined;
   allEntries: ResolvedUseCase[];
   groups: { id: string; label: string; blurb: string }[];
   canEdit: boolean;
-  confirmed: AccountRef[];
-  declaredOnly: AccountRef[];
-  implementations: ImplementationRow[];
+  /** Read-only — who has this use case. See the module header. */
+  accounts: ImplementationWithAccount[];
   today: string;
   basePath?: string;
   /** Rendered inside the Workbench's right pane rather than on its own route:
@@ -112,7 +120,6 @@ export function UseCaseDetail({
    *  identical, so there is one implementation of editing, not two. */
   embedded?: boolean;
 }) {
-  const [tab, setTab] = useState<"overview" | "accounts">("overview");
   const [section, setSection] = useState<string | null>(null);
   const [draft, setDraft] = useState<UseCaseEntry>(entry ?? blankEntry(option.id));
   const [busy, setBusy] = useState(false);
@@ -120,7 +127,6 @@ export function UseCaseDetail({
   const router = useRouter();
 
   const e = entry ?? blankEntry(option.id);
-  const accounts = [...confirmed, ...declaredOnly];
   const gaps = missingFields(entry);
   const categoryLabel = option.groups.map((g) => groups.find((x) => x.id === g)?.label).filter(Boolean).join(" · ");
 
@@ -187,16 +193,48 @@ export function UseCaseDetail({
 
         {/* NO META STRIP. It read "Needs review · 0 accounts · Owner: not set"
             on every entry — three facts already on the screen: the index dot
-            and the footer flag the review, the Accounts tab carries its own
-            count, and the footer names the governance gaps. Only the source
-            link had nowhere else to live, so it stays. */}
-        {e.sourceUrl && (
-          <a href={e.sourceUrl} target="_blank" rel="noreferrer"
+            and the footer flag the review, the accounts section below carries
+            its own count, and the footer names the governance gaps. Only the
+            source link had nowhere else to live, so it stays. */}
+        {/* Re-checked at the render, not trusted from storage: this href is
+            shown to every viewer, and a `javascript:`/`data:` value that got in
+            through some future write path must not become a live link here. */}
+        {safeHttpUrl(e.sourceUrl) && (
+          <a href={safeHttpUrl(e.sourceUrl)!} target="_blank" rel="noreferrer"
             className="inline-flex w-fit items-center gap-1 font-body text-[12px] text-sirius underline decoration-dotted underline-offset-2">
             Source <ExternalLink size={10} />
           </a>
         )}
       </header>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="font-body text-[13px] font-semibold text-fg">
+          Accounts using this
+          {accounts.length > 0 && <span className="tabular ml-1.5 text-fg-subtle">({accounts.length})</span>}
+        </h2>
+        {accounts.length === 0 ? (
+          <Empty>No account has this associated yet — associate one from its profile page.</Empty>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {accounts.map(({ account, implementation }) => (
+              <li key={implementation.id}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-border-subtle px-3 py-2">
+                <Link href={`/clients/${account.id}`} dir="auto"
+                  className="font-body text-[13px] font-semibold text-fg hover:text-sirius">
+                  {account.name}
+                </Link>
+                <span className={cn("whitespace-nowrap rounded-full border px-2 py-0.5 font-body text-[11px] font-medium",
+                  IMPL_STATUS_TONE[implementation.status])}>
+                  {IMPL_STATUS_LABEL[implementation.status]}
+                </span>
+                {implementation.objective && (
+                  <span className="min-w-0 flex-1 truncate font-body text-[12px] text-fg-muted">{implementation.objective}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {error && (
         <p role="alert" className="rounded-lg border border-[#B23A57]/30 bg-[#B23A57]/5 px-3 py-2 font-body text-[12.5px] text-[#B23A57]">
@@ -260,24 +298,10 @@ export function UseCaseDetail({
         </form>
       )}
 
-      <nav role="tablist" aria-label="Sections" className="flex gap-1 border-b border-border-subtle">
-        {(["overview", "accounts"] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-            className={cn("-mb-px border-b-2 px-3 py-2 font-body text-[13px] font-medium capitalize transition-colors",
-              tab === t ? "border-sirius text-sirius" : "border-transparent text-fg-muted hover:text-fg")}>
-            {t}{t === "accounts" && accounts.length > 0 && <span className="tabular ml-1.5 text-fg-subtle">{accounts.length}</span>}
-          </button>
-        ))}
-      </nav>
-
-      {tab === "accounts" ? (
-        <UseCaseAccounts useCaseId={option.id} confirmed={confirmed} declaredOnly={declaredOnly}
-          implementations={implementations} canEdit={canEdit} />
-      ) : (
-        /* Single column. The right rail repeated what the header and the body
-           already said, so the page now runs top to bottom at one readable
-           measure and nothing competes with the prose. */
-        <div className="flex max-w-[70ch] flex-col gap-7">
+      {/* Single column. The right rail repeated what the header and the body
+          already said, so the page now runs top to bottom at one readable
+          measure and nothing competes with the prose. */}
+      <div className="flex max-w-[70ch] flex-col gap-7">
             <Section title="Customer problem" canEdit={canEdit} editing={isOpen("problem")} busy={busy}
               onEdit={() => open("problem")} onCancel={cancel}
               onSave={() => void save({ customerProblem: draft.customerProblem, desiredOutcome: draft.desiredOutcome })}
@@ -552,7 +576,6 @@ export function UseCaseDetail({
               </footer>
             )}
         </div>
-      )}
     </div>
   );
 }

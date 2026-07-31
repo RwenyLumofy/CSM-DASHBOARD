@@ -1991,6 +1991,27 @@ export async function setWorkspaceConfigDb(key: string, value: unknown): Promise
     .onConflictDoUpdate({ target: schema.workspaceConfig.key, set: { value, updatedAt: new Date() } });
 }
 
+/**
+ * Write several config keys as ONE unit.
+ *
+ * For callers whose keys are only meaningful together — the use-case taxonomy
+ * and its definition library, say, where the ids in one reference the other.
+ * Written as two separate upserts, a failure on the second leaves the taxonomy
+ * rewritten against a stale library while the caller reports failure, so the
+ * admin believes nothing happened when half of it landed.
+ */
+export async function setWorkspaceConfigManyDb(entries: { key: string; value: unknown }[]): Promise<void> {
+  const db = getDb();
+  await db.transaction(async (tx) => {
+    for (const { key, value } of entries) {
+      await tx
+        .insert(schema.workspaceConfig)
+        .values({ key, value, updatedAt: new Date() })
+        .onConflictDoUpdate({ target: schema.workspaceConfig.key, set: { value, updatedAt: new Date() } });
+    }
+  });
+}
+
 /* ----------------------------------------------------------- notifications */
 
 type NotificationRow = typeof schema.notifications.$inferSelect;

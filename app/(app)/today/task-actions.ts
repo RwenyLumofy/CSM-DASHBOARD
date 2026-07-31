@@ -93,12 +93,17 @@ export async function createTaskAction(input: {
   if (!category) return { ok: false, error: "Name the focus area." };
   const priority: Priority = PRIORITIES.includes(input.priority as Priority) ? (input.priority as Priority) : "normal";
   const notes = input.notes?.trim() ? input.notes.trim().slice(0, 2000) : null;
-  // Assigning to someone else is admin-only; everyone else owns what they create.
+  /* Assigning to someone else is admin-only. REJECT rather than quietly
+     reassigning to self: a silent downgrade returns {ok:true} and the task
+     lands on the requester's own board, so they believe a teammate was tasked
+     and nobody is. updateTaskAction already refuses this way — same rule, same
+     message, so the two paths cannot drift. */
   let assignee = email;
   const requested = input.assigneeEmail?.trim().toLowerCase();
   if (requested && requested !== email) {
     const role = await getCurrentUserRole();
-    assignee = editsAllClients(role) ? requested : email;
+    if (!editsAllClients(role)) return { ok: false, error: "Only an admin can reassign a task to someone else." };
+    assignee = requested;
   }
   const sourceType = input.sourceType === "signal" || input.sourceType === "commitment" ? input.sourceType : null;
   const sourceId = sourceType && input.sourceId ? input.sourceId : null;

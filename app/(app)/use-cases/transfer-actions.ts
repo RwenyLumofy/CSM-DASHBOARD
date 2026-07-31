@@ -19,7 +19,7 @@
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";
-import { isAdminOrSuper, getCurrentUserEmail } from "@/lib/auth";
+import { isAdminOrSuper, isSuperAdmin, getCurrentUserEmail } from "@/lib/auth";
 import { hasDatabase } from "@/lib/config";
 import { mergeLibrary, LIBRARY_OVERRIDE_KEY, type UseCaseOverride } from "@/lib/use-case-library";
 import {
@@ -29,7 +29,8 @@ import {
 import {
   buildTransferFile, parseTransferFile, planImport, type ImportPlan, type ImportMode,
 } from "@/lib/use-case-transfer";
-import { getUseCaseAdoption } from "@/lib/use-case-adoption";
+import { getClients } from "@/lib/data";
+import { IMPLEMENTATION_KEY, normalizeImplementations } from "@/lib/use-case-implementation";
 
 export interface ExportResult {
   ok: boolean;
@@ -120,15 +121,23 @@ async function buildPlan(json: string, mode: ImportMode): Promise<{ plan: Import
   const { overlay, library } = await load();
 
   /* replace RETIRES what the file omits, so the preview has to say what that
-     costs. Adoption is only loaded for that mode — merge removes nothing, and
-     a full scan of the account book is not free. */
+     costs. The count comes from the client-page "associate" records — the
+     only thing wired to a use case id now — grouped by useCaseId. Only
+     computed for that mode — merge removes nothing, and a full scan of the
+     account book is not free. */
   let accountsById: Map<string, number> | undefined;
   if (mode === "replace") {
     try {
-      const adoption = await getUseCaseAdoption();
-      accountsById = new Map(
-        adoption.rows.map((r) => [r.option.id, r.confirmed.length + r.declaredOnly.length]),
-      );
+      const clients = await getClients();
+      accountsById = new Map();
+      for (const c of clients) {
+        const impls = normalizeImplementations(
+          (c.properties as Record<string, unknown> | undefined)?.[IMPLEMENTATION_KEY],
+        );
+        for (const impl of impls) {
+          accountsById.set(impl.useCaseId, (accountsById.get(impl.useCaseId) ?? 0) + 1);
+        }
+      }
     } catch {
       // Counts are advisory; a failure here must not block the import.
       accountsById = undefined;
@@ -145,6 +154,14 @@ async function buildPlan(json: string, mode: ImportMode): Promise<{ plan: Import
     newGroupId,
     { mode, accountsById },
   );
+  /* A file that names the same use case twice keeps only the first. Say so —
+     it usually means the file was hand-edited or concatenated, and an admin who
+     is not told will read the lower "created" count as data loss. */
+  if (parsed.duplicates.length) {
+    plan.warnings.push(
+      `The file lists ${parsed.duplicates.length === 1 ? "this use case" : "these use cases"} more than once; only the first of each was read: ${parsed.duplicates.join(", ")}.`,
+    );
+  }
   return { plan, exportedAt: parsed.file.exportedAt, exportedBy: parsed.file.exportedBy };
 }
 
@@ -170,23 +187,57 @@ export async function previewImportAction(json: string, mode: ImportMode = "merg
   };
 }
 
-export async function applyImportAction(json: string, mode: ImportMode = "merge"): Promise<ApplyResult> {
+export async function applyImportAction(
+  json: string,
+  mode: ImportMode = "merge",
+  /* The removals the admin was shown and typed a confirmation against. Apply
+     re-plans against a freshly read overlay, so between preview and apply
+     someone else can add a use case — and in replace mode that newcomer gets
+     retired too, beyond anything the confirmation covered. Re-validating the
+     plan against what was previewed closes that window. Optional so an older
+     client still works, just without the check. */
+  expectedRemoved?: string[],
+): Promise<ApplyResult> {
   if (!hasDatabase()) return { ok: false, error: "No database configured." };
-  if (!(await isAdminOrSuper())) return { ok: false, error: "Admin access required to import." };
+  /* Destructive, and lib/auth.ts reserves destructive actions for the crown:
+     a replace import rewrites the whole taxonomy and retires whatever the file
+     omits. Preview stays at isAdminOrSuper — reading a plan harms nothing. */
+  if (!(await isSuperAdmin())) return { ok: false, error: "Super-admin access required to import." };
 
   const built = await buildPlan(json, mode);
   if ("error" in built) return { ok: false, error: built.error };
   const { plan } = built;
 
+  if (expectedRemoved) {
+    const now = [...plan.removed.map((r) => r.name)].sort();
+    const then = [...expectedRemoved].sort();
+    if (now.length !== then.length || now.some((n, i) => n !== then[i])) {
+      const extra = now.filter((n) => !then.includes(n));
+      return {
+        ok: false,
+        error: extra.length
+          ? `The library changed since you previewed this — it would now also retire: ${extra.join(", ")}. Preview again.`
+          : "The library changed since you previewed this. Preview again.",
+      };
+    }
+  }
+
   try {
-    const { setWorkspaceConfigDb } = await import("@/lib/repo/drizzle");
-    // Taxonomy first: a definition keyed on an id whose use case doesn't exist
-    // yet would be dropped by mergeLibrary on the next read.
-    await setWorkspaceConfigDb(TAXONOMY_KEY, plan.taxonomy);
-    await setWorkspaceConfigDb(LIBRARY_OVERRIDE_KEY, plan.library);
+    const { setWorkspaceConfigManyDb } = await import("@/lib/repo/drizzle");
+    /* ONE transaction. Taxonomy first: a definition keyed on an id whose use
+       case doesn't exist yet would be dropped by mergeLibrary on the next read.
+       Both or neither — a partial import leaves ids in one key that the other
+       doesn't know about, and in replace mode the taxonomy rewrite has already
+       retired things by then. */
+    await setWorkspaceConfigManyDb([
+      { key: TAXONOMY_KEY, value: plan.taxonomy },
+      { key: LIBRARY_OVERRIDE_KEY, value: plan.library },
+    ]);
 
     revalidatePath("/use-cases");
-    revalidatePath("/clients");
+    // "layout" so every /clients/[id] is invalidated too — an import can change
+    // the label a profile renders for a use case an account already carries.
+    revalidatePath("/clients", "layout");
     return {
       ok: true,
       updated: plan.updated.length,

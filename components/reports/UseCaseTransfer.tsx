@@ -9,6 +9,14 @@
    something to do on a mis-click — and in "replace everything" mode the
    preview also reports how many accounts each retirement touches.
 
+   REPLACE RETIRES WHAT IT OMITS, NEVER HARD-DELETES. An account's client-page
+   association points at a use-case id, and deleting the id outright would
+   orphan it. So a use case the file leaves out is retired — its id keeps
+   resolving — but its written definition (customer problem, outcome, every
+   other field) is cleared, since the library is rebuilt from the file only.
+   That loss is real and has no undo besides the automatic backup, which is
+   why this still warrants the same typed confirmation as an outright delete.
+
    The summary leads with CREATED, not updated. An unexpected "create" almost
    always means a name drifted between the two environments — the file says
    "Certification Prep" and this side says "Certification Preparation" — and
@@ -70,9 +78,10 @@ export function UseCaseTransfer({ onClose }: { onClose: () => void }) {
     if (!pending) return;
     setBusy("apply"); setError(null);
 
-    /* A replace destroys whatever is here. Take a snapshot of the CURRENT
-       state to the user's downloads first — one click of insurance against a
-       file that turns out to be the wrong one, since there is no undo. */
+    /* A replace clears whatever definitions are here for anything the file
+       omits. Take a snapshot of the CURRENT state to the user's downloads
+       first — one click of insurance against a file that turns out to be the
+       wrong one, since there is no other undo. */
     if (pending.summary.mode === "replace") {
       const backup = await exportUseCaseUniverseAction();
       if (backup.ok && backup.json) {
@@ -84,12 +93,17 @@ export function UseCaseTransfer({ onClose }: { onClose: () => void }) {
       }
     }
 
-    const r = await applyImportAction(pending.json, pending.summary.mode);
+    /* Send the removals the admin actually saw and typed against. The server
+       re-plans against a fresh read, so if the library moved underneath us it
+       refuses rather than retiring something this confirmation never covered. */
+    const r = await applyImportAction(
+      pending.json, pending.summary.mode, pending.summary.removed.map((x) => x.name),
+    );
     setBusy(null);
     if (!r.ok) { setError(r.error ?? "Couldn't apply the import."); return; }
     setPending(null);
     setTyped("");
-    setNote(`Imported — ${r.updated} updated, ${r.created} created${r.removed ? `, ${r.removed} deleted` : ""}.`);
+    setNote(`Imported — ${r.updated} updated, ${r.created} created${r.removed ? `, ${r.removed} retired` : ""}.`);
     // Full reload: the taxonomy underneath every list on the page just changed.
     setTimeout(() => window.location.reload(), 700);
   }
@@ -128,7 +142,7 @@ export function UseCaseTransfer({ onClose }: { onClose: () => void }) {
           <legend className="font-body text-[12px] font-semibold text-fg">On import</legend>
           {([
             ["merge", "Add and update only", "Anything here but missing from the file is left alone."],
-            ["replace", "Delete everything and re-import", "Rebuild from the file. Use cases the file omits are deleted, along with their definitions."],
+            ["replace", "Rebuild everything from the file", "Use cases the file omits are retired, not deleted — their id keeps resolving, but their written definition is cleared."],
           ] as const).map(([k, label, hint]) => (
             <label key={k} className={cn("flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition-colors",
               mode === k ? "border-sirius bg-accent-soft/40" : "border-border hover:border-sirius/50")}>
@@ -143,10 +157,11 @@ export function UseCaseTransfer({ onClose }: { onClose: () => void }) {
             <p className="flex items-start gap-2 rounded-lg border border-[#B23A57]/30 bg-[#B23A57]/[0.05] px-2.5 py-2 font-body text-[11.5px] leading-relaxed text-[#B23A57]">
               <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden />
               <span>
-                There is no undo. Accounts recorded against a deleted use case stop resolving and
-                will read as unmapped. The preview names every deletion and how many accounts it
-                costs, and a backup of the current library downloads automatically before anything
-                is written.
+                A use case the file omits is retired, not deleted — it keeps resolving for any
+                account already associated with it, but its written definition is cleared, and
+                there is no undo for that besides the backup. The preview names every one and how
+                many accounts it affects, and a backup of the current library downloads
+                automatically before anything is written.
               </span>
             </p>
           )}
@@ -180,11 +195,11 @@ export function UseCaseTransfer({ onClose }: { onClose: () => void }) {
           {s.removed.length > 0 && (
             <div>
               <p className="font-body text-[12px] font-semibold text-[#B23A57]">
-                Delete {s.removed.length} use case{s.removed.length === 1 ? "" : "s"} not in the file
+                Retire {s.removed.length} use case{s.removed.length === 1 ? "" : "s"} not in the file
               </p>
               <p className="mt-0.5 font-body text-[11.5px] leading-relaxed text-fg-subtle">
-                Gone from the picker, every list and every report, along with their definitions.
-                Accounts carrying one will read it as unmapped.
+                Hidden from the picker, and their written definition cleared. An account already
+                associated with one keeps resolving — it isn&rsquo;t orphaned.
               </p>
               <ul className="mt-1 flex max-h-40 flex-col gap-0.5 overflow-y-auto">
                 {s.removed.map((r) => (
@@ -225,14 +240,14 @@ export function UseCaseTransfer({ onClose }: { onClose: () => void }) {
               </span>
               <span className="font-body text-[11.5px] leading-relaxed text-fg-muted">
                 {s.removed.length > 0
-                  ? `${s.removed.length} use case${s.removed.length === 1 ? "" : "s"} will be deleted${
+                  ? `${s.removed.length} use case${s.removed.length === 1 ? "" : "s"} will be retired${
                       s.removed.some((r) => r.accounts > 0)
                         ? `, ${s.removed.filter((r) => r.accounts > 0).length} of which ${
                             s.removed.filter((r) => r.accounts > 0).length === 1 ? "is" : "are"
                           } still on accounts`
                         : ""
                     }.`
-                  : "Nothing would be deleted by this file, but the library is still rebuilt from it."}
+                  : "Nothing would be retired by this file, but the library is still rebuilt from it."}
               </span>
               <input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off"
                 spellCheck={false} placeholder="DELETE YES I AM SURE"
@@ -248,7 +263,7 @@ export function UseCaseTransfer({ onClose }: { onClose: () => void }) {
               {busy === "apply" && <Loader2 size={12} className="animate-spin" />}
               {busy === "apply"
                 ? "Applying…"
-                : s.mode === "replace" ? "Delete everything and re-import" : "Apply this import"}
+                : s.mode === "replace" ? "Retire what's missing and rebuild" : "Apply this import"}
             </button>
             <button onClick={() => { setPending(null); setError(null); setTyped(""); }} disabled={busy === "apply"}
               className="rounded-lg border border-border px-3 py-1.5 font-body text-[12.5px] font-medium text-fg-muted hover:text-fg">

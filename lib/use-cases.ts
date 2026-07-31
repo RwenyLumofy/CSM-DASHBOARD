@@ -132,6 +132,10 @@ const ALIASES: Record<string, string> = {
   "product knowledge": "products_services_knowledge",
   "service knowledge": "products_services_knowledge",
   "compliance and regulatory requirements": "compliance_training",
+  // An earlier import stored this one already slugified ("compliance_regulatory"),
+  // which matched neither the full HubSpot label above nor any canonical id, so
+  // it resolved to nothing on the accounts carrying it.
+  "compliance regulatory": "compliance_training",
   "compliance training": "compliance_training",
   "functional knowledge": "technical_skills",
   "technical skills training": "technical_skills",
@@ -188,30 +192,21 @@ export interface ResolvedUseCases {
 }
 
 /**
- * `extra` lets a caller that has loaded the editable taxonomy resolve ids this
- * module cannot know about on its own:
- *
- *   known   ids that exist after the overlay is applied — without it, every
- *           use case the team ADDED reads as unmapped, so an account confirmed
- *           against one is never counted anywhere.
- *   follow  merge resolution. Retiring with `mergedInto` is how a merge is
- *           performed; without following it, accounts on the retired id stop
- *           being attributed to its successor.
- *
- * Both are optional so the pure, taxonomy-only call sites are unchanged.
+ * Resolves raw stored strings (account-confirmed ids, or HubSpot deal values)
+ * against the shipped taxonomy ONLY — the 26 ids in USE_CASES plus ALIASES.
+ * This module is deliberately unaware of the separate, editable Use Case
+ * database: an id that only exists there is exactly as unresolvable here as
+ * one that doesn't exist anywhere, and is reported in `unmapped` rather than
+ * silently accepted. The two systems do not share ids.
  */
-export function normalizeUseCases(
-  raw: unknown,
-  extra?: { known?: ReadonlySet<string>; follow?: (id: string) => string },
-): ResolvedUseCases {
+export function normalizeUseCases(raw: unknown): ResolvedUseCases {
   const list = Array.isArray(raw) ? raw : [];
   const ids = new Set<string>();
   const unmapped: string[] = [];
   for (const v of list) {
     if (typeof v !== "string" || !v.trim()) continue;
     const raw0 = v.trim();
-    const followed = extra?.follow ? extra.follow(raw0) : raw0;
-    const id = resolveUseCase(followed) ?? (extra?.known?.has(followed) ? followed : null);
+    const id = resolveUseCase(raw0);
     if (id) ids.add(id);
     else if (!unmapped.includes(raw0)) unmapped.push(raw0);
   }
