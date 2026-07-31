@@ -41,7 +41,12 @@ next-env.d.ts
 .idea/
 
 # Claude Code local session/tool config — not part of the app
-.claude/
+# (`.claude/*`, not `.claude/`, so the negation below can take effect — git will
+#  not re-include a file whose parent directory is itself excluded.)
+.claude/*
+# ...except the shared, project-scoped agent definitions, which ARE part of the
+# repo: they encode how documentation is maintained and must survive a clone.
+!.claude/agents/
 
 # ad-hoc local debugging scripts — not part of the app
 /scratchpad/

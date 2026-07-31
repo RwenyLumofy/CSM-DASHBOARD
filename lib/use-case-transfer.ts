@@ -1,13 +1,13 @@
 /* =========================================================================
    Moving the Use Case Universe between environments.
 
-   WHY NAMES AND NOT IDS. Shipped use cases have stable ids, but anything the
-   team ADDS gets `uc_<random>` — generated independently in each environment.
-   Export local, import to production, and those ids would never line up: every
-   custom use case would arrive as a duplicate. So the file identifies a use
-   case by its NAME, and the same goes for everything that points at one:
-   categories are referenced by label, related use cases by name, and a merge
-   target by name. Nothing in the file is an id.
+   WHY NAMES AND NOT IDS. Every entry gets `uc_<random>` — generated
+   independently in each environment. Export local, import to production, and
+   those ids would never line up: every entry would arrive as a duplicate. So
+   the file identifies a use case by its NAME, and the same goes for
+   everything that points at one: categories are referenced by label, related
+   use cases by name, and a merge target by name. Nothing in the file is an
+   id.
 
    MATCHING IS FORGIVING, NOT CLEVER. Names match case-insensitively, with
    surrounding and repeated whitespace ignored, because "Certification
@@ -20,23 +20,21 @@
      merge    (default) A use case present here but absent from the file is
               left exactly as it is. "Apply these definitions."
 
-     replace  Delete everything and re-import. The overlay and the library are
-              rebuilt FROM THE FILE, not merged into what is here — a use case
-              the file omits is gone from the picker, the list and every
-              report.
+     replace  Rebuild the overlay and the library FROM THE FILE, not merged
+              into what is here — a use case the file omits disappears from
+              the picker and every list.
 
-              One mechanical caveat, because the data model leaves no choice:
-              a use case that ships in code (lib/use-cases.ts) cannot be
-              deleted from the overlay, since the overlay is a delta ON TOP of
-              that code list. Omitting it from `added` would resurrect it. The
-              only representation of "this shipped entry is gone" is a
-              `retired` marker, so that is what an omitted shipped entry gets.
-              It disappears from the picker and every list exactly as a deleted
-              one does. Team-added entries are genuinely dropped.
+              RETIRED, NOT HARD-DELETED, same as everywhere else a use case
+              can be removed (see decision in lib/use-case-overlay.ts): an
+              account's implementation record on the client page points at
+              this id, and hard-deleting it would silently orphan that
+              record. An omitted entry is re-stated as retired instead —
+              including one that was already retired, so a replace can never
+              silently un-retire something by rebuilding the overlay empty.
 
-              Accounts recorded against a deleted id stop resolving and read as
-              unmapped. The preview says how many accounts each deletion costs
-              BEFORE anything is written, and the UI takes a typed confirmation.
+              The preview says how many accounts each retirement affects
+              BEFORE anything is written, and the UI takes a typed
+              confirmation.
 
    planImport() is pure. The preview the user approves and the write that
    follows are computed by the same function from the same inputs, so the
@@ -44,10 +42,9 @@
    ========================================================================= */
 
 import {
-  PRODUCTS, LIFECYCLE_STATUSES, EMPTY_AUDIENCE,
+  PRODUCTS, LIFECYCLE_STATUSES, EMPTY_AUDIENCE, safeHttpUrl,
   type UseCaseEntry, type UseCaseOverride, type Product, type LifecycleStatus,
 } from "@/lib/use-case-library";
-import { isShippedGroup as isShippedGroupId } from "@/lib/use-case-overlay";
 import type { ResolvedUseCase, TaxonomyOverlay } from "@/lib/use-case-overlay";
 
 export const TRANSFER_KIND = "lumofy.use-case-universe";
@@ -64,7 +61,7 @@ export interface TransferUseCase {
   summary: string;
   /** Category NAMES, not ids. */
   categories: string[];
-  retired?: { reason?: string; mergedIntoName?: string } | null;
+  retired?: { reason?: string; mergedIntoName?: string; retiredAt?: string; retiredBy?: string } | null;
 
   oneLiner: string;
   customerProblem: string;
@@ -136,6 +133,12 @@ export function buildTransferFile(
               reason: o.retired.reason,
               // Resolved to a name so the pointer survives the id change.
               mergedIntoName: o.retired.mergedInto ? nameById.get(o.retired.mergedInto) : undefined,
+              // Carried so a round trip doesn't rewrite WHEN and BY WHOM
+              // something was retired. Provenance only — nothing reads these to
+              // make a decision — but silently resetting an audit trail on
+              // every export/import is worse than not having one.
+              retiredAt: o.retired.retiredAt,
+              retiredBy: o.retired.retiredBy,
             }
           : null,
         oneLiner: e?.oneLiner ?? "",
@@ -164,7 +167,9 @@ export function buildTransferFile(
 
 /* ---------------------------------------------------------------- parse */
 
-export function parseTransferFile(raw: unknown): { file: TransferFile } | { error: string } {
+/** `duplicates` names every entry dropped because the file listed it twice, so
+ *  the preview can surface them rather than silently keeping the first. */
+export function parseTransferFile(raw: unknown): { file: TransferFile; duplicates: string[] } | { error: string } {
   if (!raw || typeof raw !== "object") return { error: "That file isn't JSON we recognise." };
   const r = raw as Record<string, unknown>;
   if (r.kind !== TRANSFER_KIND) {
@@ -183,14 +188,17 @@ export function parseTransferFile(raw: unknown): { file: TransferFile } | { erro
     : [];
 
   const seen = new Set<string>();
+  const duplicates: string[] = [];
   const useCases: TransferUseCase[] = [];
   for (const v of r.useCases as Record<string, unknown>[]) {
     if (!v || typeof v !== "object") continue;
     const name = str(v.name, 200);
     if (!name) continue;
     // A file naming the same use case twice would apply both and keep whichever
-    // landed last — arbitrary. First wins, and the count difference is reported.
-    if (seen.has(nameKey(name))) continue;
+    // landed last — arbitrary. First wins, and the dropped names are collected
+    // so the preview can SAY so; the comment used to claim a count was reported
+    // while nothing was.
+    if (seen.has(nameKey(name))) { duplicates.push(name); continue; }
     seen.add(nameKey(name));
 
     const a = (v.audience ?? {}) as Record<string, unknown>;
@@ -202,6 +210,8 @@ export function parseTransferFile(raw: unknown): { file: TransferFile } | { erro
         ? {
             reason: str((v.retired as Record<string, unknown>).reason, 400) || undefined,
             mergedIntoName: str((v.retired as Record<string, unknown>).mergedIntoName, 200) || undefined,
+            retiredAt: str((v.retired as Record<string, unknown>).retiredAt, 40) || undefined,
+            retiredBy: str((v.retired as Record<string, unknown>).retiredBy, 200) || undefined,
           }
         : null,
       oneLiner: str(v.oneLiner, 400),
@@ -230,7 +240,9 @@ export function parseTransferFile(raw: unknown): { file: TransferFile } | { erro
             .filter((c) => c.name)
         : [],
       delivers: strList(v.delivers, 400),
-      sourceUrl: strOrNull(v.sourceUrl),
+      // Not strOrNull: an imported `javascript:`/`data:` value would render as
+      // a live href on the detail page for everyone. See safeHttpUrl.
+      sourceUrl: safeHttpUrl(v.sourceUrl),
       ownerEmail: strOrNull(v.ownerEmail),
       updatedAt: strOrNull(v.updatedAt),
       updatedBy: strOrNull(v.updatedBy),
@@ -249,6 +261,7 @@ export function parseTransferFile(raw: unknown): { file: TransferFile } | { erro
       categories,
       useCases,
     },
+    duplicates,
   };
 }
 
@@ -262,8 +275,8 @@ export interface ImportPlan {
   updated: string[];
   /** Names not present here, created as new use cases. */
   created: string[];
-  /** replace only: here but not in the file, so deleted. `accounts` is how
-   *  many client records still reference it — the cost of the deletion. */
+  /** replace only: here but not in the file, so retired. `accounts` is how
+   *  many client records still reference it — the cost of the retirement. */
   removed: { name: string; accounts: number }[];
   /** New categories the file needs. */
   newCategories: string[];
@@ -295,27 +308,30 @@ export function planImport(
      would carry forward every entry the file dropped, which is the opposite of
      what replace means. */
   const overlay: TaxonomyOverlay = mode === "replace"
-    ? { renamed: {}, added: {}, retired: {}, groups: {}, hiddenGroups: [] }
+    ? { added: {}, retired: {}, groups: {} }
     : {
-        renamed: { ...(currentOverlay.renamed ?? {}) },
         added: { ...(currentOverlay.added ?? {}) },
         retired: { ...(currentOverlay.retired ?? {}) },
         groups: { ...(currentOverlay.groups ?? {}) },
-        hiddenGroups: [...(currentOverlay.hiddenGroups ?? [])],
       };
   /* replace starts from an EMPTY library, so a definition absent from the file
      is gone rather than lingering under an entry the file no longer describes.
      The taxonomy is still edited in place — retiring needs the existing rows. */
   const library: Record<string, UseCaseOverride> = mode === "replace" ? {} : { ...currentLibrary };
 
+  /* Read against the ORIGINAL overlay, not the rebuilt one: in replace the
+     latter starts empty, and the removal loop below needs the original
+     createdAt/createdBy to re-state a row without inventing provenance. */
+  const currentAdded = currentOverlay.added ?? {};
+
   /* -- categories: resolve by label, create what's missing -- */
   const groupIdByName = new Map(currentGroups.map((g) => [nameKey(g.label), g.id]));
   for (const c of file.categories) {
     const existing = groupIdByName.get(nameKey(c.name));
     if (existing) {
-      // Reuse the id — including a shipped one — so replace doesn't mint a
-      // duplicate "Enablement" alongside the real one. In replace the override
-      // has to be re-stated, since the overlay was rebuilt empty.
+      // Reuse the id so replace doesn't mint a duplicate "Enablement" alongside
+      // the real one. In replace the row has to be re-stated, since the
+      // overlay was rebuilt empty.
       if (mode === "replace") overlay.groups![existing] = { id: existing, label: c.name, blurb: c.blurb };
       continue;
     }
@@ -328,9 +344,6 @@ export function planImport(
   /* -- use cases: resolve by name in one pass, so relatedUseCases can be
         resolved afterwards against names created in the same import -- */
   const idByName = new Map(currentOptions.map((o) => [nameKey(o.label), o.id]));
-  const isShipped = new Set(
-    currentOptions.filter((o) => !o.custom).map((o) => o.id),
-  );
 
   for (const uc of file.useCases) {
     if (!idByName.has(nameKey(uc.name))) {
@@ -353,27 +366,20 @@ export function planImport(
       })
       .filter((g): g is string => !!g);
 
-    if (created.includes(uc.name)) {
-      overlay.added![id] = {
-        id, label: uc.name, summary: uc.summary, groups: groupIds,
-        createdAt: new Date(0).toISOString(), createdBy: "import",
-      };
-    } else if (isShipped.has(id)) {
-      // A shipped entry is edited through `renamed`, never moved into `added`.
-      overlay.renamed![id] = { label: uc.name, summary: uc.summary, groups: groupIds };
-    } else {
-      overlay.added![id] = {
-        ...(overlay.added![id] ?? { id, createdAt: new Date(0).toISOString(), createdBy: "import" }),
-        id, label: uc.name, summary: uc.summary, groups: groupIds,
-      };
-    }
+    overlay.added![id] = {
+      ...(overlay.added![id] ?? { id, createdAt: new Date(0).toISOString(), createdBy: "import" }),
+      id, label: uc.name, summary: uc.summary, groups: groupIds,
+    };
 
     if (uc.retired) {
       const target = uc.retired.mergedIntoName ? idByName.get(nameKey(uc.retired.mergedIntoName)) : undefined;
       if (uc.retired.mergedIntoName && !target) {
         warnings.push(`"${uc.name}": merge target "${uc.retired.mergedIntoName}" isn't in this file or here, so the merge pointer was dropped.`);
       }
-      overlay.retired![id] = { reason: uc.retired.reason, mergedInto: target };
+      overlay.retired![id] = {
+        reason: uc.retired.reason, mergedInto: target,
+        retiredAt: uc.retired.retiredAt, retiredBy: uc.retired.retiredBy,
+      };
     } else {
       delete overlay.retired![id];
     }
@@ -418,28 +424,32 @@ export function planImport(
     for (const o of currentOptions) {
       if (inFile.has(nameKey(o.label))) continue;
 
-      // Only entries that were VISIBLE count as a deletion — one already out
+      // Only entries that were VISIBLE count as a removal — one already out
       // of the picker isn't news.
       if (!o.retired) removed.push({ name: o.label, accounts: opts?.accountsById?.get(o.id) ?? 0 });
 
-      /* A team-added entry simply isn't in the rebuilt `added` map — deleted.
-         A SHIPPED entry lives in code, so a retired marker is the only way to
-         remove it (see the note at the top of this file).
+      /* The `added` row has to be re-stated alongside the retirement marker,
+         not just the marker. resolveTaxonomy emits ONLY from overlay.added, so
+         a retired-only entry resolves to nothing even with includeRetired —
+         and every account already carrying that id renders blank on its profile
+         and 404s on /use-cases/[id]. Retire-never-orphan is the invariant this
+         module claims; retireUseCaseAction honours it by leaving `added`
+         untouched, and replace has to do the same against its empty overlay. */
+      overlay.added![o.id] = {
+        id: o.id, label: o.label, summary: o.summary, groups: o.groups,
+        createdAt: currentAdded[o.id]?.createdAt,
+        createdBy: currentAdded[o.id]?.createdBy,
+      };
 
-         This must run even when the entry was ALREADY retired: the overlay was
-         rebuilt empty, so skipping it would drop the marker and the code list
-         would bring the entry back — a replace that resurrects what someone
-         retired months ago. The original reason is preserved. */
-      if (!o.custom) {
-        overlay.retired![o.id] = o.retired ?? { reason: "Deleted by a replace import." };
-      }
+      /* This must run even when the entry was ALREADY retired: the overlay was
+         rebuilt empty, so skipping it would drop the marker — a replace that
+         resurrects what someone retired months ago. The original reason is
+         preserved. */
+      overlay.retired![o.id] = o.retired ?? { reason: "Removed by a replace import." };
     }
-    // Categories the file doesn't mention go too.
-    const fileCats = new Set(file.categories.map((c) => nameKey(c.name)));
-    for (const g of currentGroups) {
-      if (fileCats.has(nameKey(g.label))) continue;
-      if (isShippedGroupId(g.id)) overlay.hiddenGroups!.push(g.id);
-    }
+    // Categories the file doesn't mention are already gone: replace's
+    // overlay.groups started empty and only ever gained rows from
+    // file.categories above, so an omitted one was never re-added.
   }
 
   return { mode, updated, created, removed, newCategories, warnings, taxonomy: overlay, library };

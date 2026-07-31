@@ -99,8 +99,17 @@ export function AddTaskModal({ prefill, onClose, onCreated }: { prefill: AddTask
   const titleRef = useRef<HTMLInputElement>(null);
 
   const categories = useMemo(() => {
-    const custom = [...new Set([...localTasks, ...getTasks()].map((t) => t.category))].filter((id) => !DEFAULT_CATEGORY_IDS.includes(id));
-    return [...DEFAULT_CATEGORIES.map((c) => ({ id: c.id, label: c.label })), ...custom.map((id) => ({ id, label: id }))];
+    // "reminder" is a real, always-offered focus area — not one of the five
+    // board work-lanes (DEFAULT_CATEGORIES), so it doesn't get a Focus Areas
+    // box of its own, but it should never depend on a reminder already
+    // existing somewhere just to appear as an option here.
+    const custom = [...new Set([...localTasks, ...getTasks()].map((t) => t.category))]
+      .filter((id) => !DEFAULT_CATEGORY_IDS.includes(id) && id !== "reminder");
+    return [
+      { id: "reminder", label: "Reminder" },
+      ...DEFAULT_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
+      ...custom.map((id) => ({ id, label: id })),
+    ];
   }, [localTasks]);
 
   const [title, setTitle] = useState(prefill.title ?? "");

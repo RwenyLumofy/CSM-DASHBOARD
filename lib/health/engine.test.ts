@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { calculateAccountHealth, bandFor, momentumFor } from "./engine";
 import { evalFormula } from "./formula";
+import { normalizePulse, PULSE_RISK_FLAGS, PULSE_COVERAGE } from "./pulse";
+import { buildAccountFacts } from "./facts";
 import { validateModelVersion } from "./validate";
 import { MODEL_V1_1 } from "./model-v1";
 import type { AccountFacts, HealthModelVersion, MetricBag } from "./model";
@@ -213,4 +215,76 @@ test("§28.2 momentum reflects score change", () => {
   const r = calculateAccountHealth(M, facts({ previousScore: 60 }), TS);
   assert.ok(r.scoreDelta! > 5);
   assert.equal(r.momentum, "Improving");
+});
+
+/* ---------------------------- pulse coverage: unknown ≠ "no" -------------- */
+
+test("unanswered sponsor access does NOT cap the account — unknown is not a No", () => {
+  // sponsor_access omitted entirely: computeFacts leaves it null so the
+  // r_no_sponsor `isFalse` rule can't fire on an unanswered question.
+  const r = calculateAccountHealth(M, facts({ signals: { sponsor_access: null } }), TS);
+  assert.equal(r.appliedStatus, "Healthy");
+  assert.ok(!r.activeStatusRules.some((x) => x.ruleId === "r_no_sponsor"), "no-sponsor rule must not fire on unknown");
+});
+
+test("an explicit No on sponsor access DOES cap the account to Watch", () => {
+  const r = calculateAccountHealth(M, facts({ signals: { sponsor_access: false } }), TS);
+  assert.equal(r.appliedStatus, "Watch");
+  assert.ok(r.activeStatusRules.some((x) => x.ruleId === "r_no_sponsor"), "an affirmative No must still penalise");
+});
+
+
+
+test("normalizePulse keeps coverage answers three-state, so 'not sure' survives to the engine", () => {
+  const unanswered = normalizePulse({ ratings: {}, signals: {}, updatedAt: TS })!;
+  assert.equal(unanswered.signals.sponsorAccess, undefined, "absent must stay undefined, never coerce to false");
+  assert.equal(unanswered.signals.economicBuyerKnown, undefined);
+
+  const answered = normalizePulse({ ratings: {}, signals: { sponsorAccess: false, economicBuyerKnown: true }, updatedAt: TS })!;
+  assert.equal(answered.signals.sponsorAccess, false, "an explicit No is preserved");
+  assert.equal(answered.signals.economicBuyerKnown, true);
+
+  // Risk flags are three-state too, so computeFacts can tell "the CSM said no"
+  // from "the CSM didn't answer" — the latter lets single_threaded fall back to
+  // the derived contact-count read instead of being overridden by a false.
+  assert.equal(unanswered.signals.singleThreaded, undefined);
+  assert.equal(unanswered.signals.championLeft, undefined);
+  assert.equal(unanswered.signals.competitiveReplacement, undefined);
+
+  const flagged = normalizePulse({ ratings: {}, signals: { singleThreaded: true, championLeft: false }, updatedAt: TS })!;
+  assert.equal(flagged.signals.singleThreaded, true);
+  assert.equal(flagged.signals.championLeft, false, "an explicit 'not happening' is preserved, not collapsed to unknown");
+});
+
+test("an unanswered single-threaded flag lets the contact-count fallback decide", () => {
+  const base = { clientId: "acc1", status: "active", renewalDate: null, primaryContactCount: 1 };
+
+  // Unanswered → derived from the contact record (1 primary contact ⇒ true).
+  const derived = buildAccountFacts({ ...base, pulse: { ratingsByMetricKey: {} } }, new Date(TS));
+  assert.equal(derived.signals.single_threaded, true, "one primary contact should read as single-threaded");
+
+  // An explicit No from the CSM overrides that derived read.
+  const asserted = buildAccountFacts(
+    { ...base, pulse: { ratingsByMetricKey: {}, singleThreaded: false } }, new Date(TS),
+  );
+  assert.equal(asserted.signals.single_threaded, false, "the CSM's explicit answer wins over the derived one");
+});
+
+/* --- the drawer's "caps status at X" hints must match the real rules -------- */
+
+test("every pulse signal's advertised cap matches the status rule that enforces it", () => {
+  const rules = new Map(M.statusRules.map((r) => [r.id, r]));
+
+  for (const s of [...PULSE_RISK_FLAGS, ...PULSE_COVERAGE]) {
+    const rule = rules.get(s.ruleId);
+    assert.ok(rule, `${s.id}: rule ${s.ruleId} no longer exists — the drawer hint is now a lie`);
+    assert.equal(rule!.targetStatus, s.capsTo,
+      `${s.id}: drawer says it caps to "${s.capsTo}" but ${s.ruleId} targets "${rule!.targetStatus}"`);
+    // Polarity: a risk fires on the fact being TRUE, coverage on it being FALSE.
+    const cond = (rule!.when as Record<string, { isTrue?: boolean; isFalse?: boolean }>)[s.fact];
+    assert.ok(cond, `${s.id}: ${s.ruleId} no longer reads the "${s.fact}" fact`);
+    const firesOnRisk = (PULSE_RISK_FLAGS as readonly { id: string }[]).some((r) => r.id === s.id);
+    assert.equal(firesOnRisk ? cond.isTrue === true : cond.isFalse === true, true,
+      `${s.id}: rule polarity flipped — the Yes/No colouring in the drawer would be backwards`);
+  }
 });

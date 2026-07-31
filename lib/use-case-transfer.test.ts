@@ -5,6 +5,7 @@ import {
   TRANSFER_KIND, TRANSFER_VERSION, type TransferFile, type TransferUseCase,
 } from "./use-case-transfer";
 import type { ResolvedUseCase, TaxonomyOverlay } from "./use-case-overlay";
+import { resolveTaxonomy } from "./use-case-overlay";
 import type { UseCaseEntry, UseCaseOverride } from "./use-case-library";
 import { EMPTY_AUDIENCE } from "./use-case-library";
 
@@ -27,8 +28,8 @@ const file = (useCases: TransferUseCase[], categories: { name: string; blurb: st
   categories, useCases,
 });
 
-const option = (id: string, label: string, groups: string[] = ["enablement"], custom = false): ResolvedUseCase =>
-  ({ id, label, summary: "", groups, custom } as unknown as ResolvedUseCase);
+const option = (id: string, label: string, groups: string[] = ["enablement"]): ResolvedUseCase =>
+  ({ id, label, summary: "", groups } as unknown as ResolvedUseCase);
 
 const GROUPS = [{ id: "enablement", label: "Enablement", blurb: "" }];
 
@@ -61,13 +62,13 @@ test("an unknown name is created with a fresh id", () => {
   assert.deepEqual(plan.taxonomy.added!.uc_new1.groups, ["enablement"]);
 });
 
-test("editing a SHIPPED entry goes through `renamed`, never `added`", () => {
+test("editing an existing entry rewrites it in place via `added`", () => {
   const plan = planImport(
     file([uc({ name: "Certification Preparation", summary: "s", categories: ["Enablement"] })]),
     {}, [option("certification_prep", "Certification Preparation")], GROUPS, {}, ids(), gids(),
   );
-  assert.ok(plan.taxonomy.renamed!.certification_prep, "shipped ids belong in renamed");
-  assert.equal(plan.taxonomy.added!.certification_prep, undefined);
+  assert.ok(plan.taxonomy.added!.certification_prep, "every write is a direct `added` write — nothing is shipped");
+  assert.equal(plan.taxonomy.added!.certification_prep.summary, "s");
 });
 
 /* ---- never deletes --------------------------------------------------- */
@@ -222,9 +223,29 @@ test("replace retires what the file omits — it never hard-deletes", () => {
   // Retired, not removed from the taxonomy — accounts recorded against the id
   // must keep resolving.
   assert.ok(plan.taxonomy.retired!.orphan, "an omitted entry is retired");
-  assert.equal(plan.taxonomy.added!.orphan, undefined);
+  /* The `added` row SURVIVES. resolveTaxonomy emits only from overlay.added, so
+     asserting it is absent — as this test used to — locks in an orphaning bug:
+     every account on the id would render blank and 404. */
+  assert.ok(plan.taxonomy.added!.orphan, "the taxonomy row survives so the id still resolves");
+  assert.equal(plan.taxonomy.added!.orphan.label, "Orphan", "and keeps its name, not a raw id");
   assert.equal(plan.library.orphan, undefined, "its definition is wiped");
   assert.ok(plan.library.alpha, "the file's own entries still land");
+});
+
+test("a replace-omitted use case still resolves, so accounts on it never orphan", () => {
+  const plan = planImport(
+    file([uc({ name: "Alpha" })]), {},
+    [option("alpha", "Alpha"), option("orphan", "Orphan")],
+    GROUPS, {}, ids(), gids(),
+    { mode: "replace", accountsById: new Map([["orphan", 4]]) },
+  );
+  // The end-to-end guarantee, asserted through the reader the app actually uses.
+  assert.equal(resolveTaxonomy(plan.taxonomy).some((u) => u.id === "orphan"), false,
+    "it is gone from the live picker");
+  const withRetired = resolveTaxonomy(plan.taxonomy, true).find((u) => u.id === "orphan");
+  assert.ok(withRetired, "but an account carrying the id can still resolve it");
+  assert.equal(withRetired.label, "Orphan");
+  assert.ok(withRetired.retired, "and it reads as retired");
 });
 
 test("replace reports the account cost of each retirement", () => {
@@ -239,7 +260,7 @@ test("replace reports the account cost of each retirement", () => {
   assert.equal(byName["Unused One"], 0);
 });
 
-test("replace keeps an already-retired shipped entry retired — it must not resurrect", () => {
+test("replace keeps an already-retired entry retired — it must not resurrect", () => {
   const already = { id: "old", label: "Old Thing", summary: "", groups: ["enablement"], retired: { reason: "earlier" } } as unknown as ResolvedUseCase;
   const plan = planImport(
     file([uc({ name: "Alpha", categories: ["Enablement"] })], [{ name: "Enablement", blurb: "" }]),
@@ -247,9 +268,8 @@ test("replace keeps an already-retired shipped entry retired — it must not res
     [option("alpha", "Alpha"), already],
     GROUPS, {}, ids(), gids(), { mode: "replace" },
   );
-  assert.deepEqual(plan.removed, [], "already out of the picker, so not reported as a new deletion");
-  // The overlay is rebuilt empty; without re-stating this the shipped code list
-  // would bring the entry back.
+  assert.deepEqual(plan.removed, [], "already out of the picker, so not reported as a new retirement");
+  // The overlay is rebuilt empty; without re-stating the marker it would be lost.
   assert.equal(plan.taxonomy.retired!.old.reason, "earlier", "its original reason is preserved");
 });
 
@@ -266,43 +286,50 @@ test("a replace round trip of an unchanged export removes nothing", () => {
 
 /* ---- replace is a real rebuild, not a merge ---------------------------- */
 
-test("replace DELETES a team-added entry the file omits — no trace left", () => {
-  const custom = { id: "uc_abc", label: "Custom Thing", summary: "", groups: ["enablement"], custom: true } as unknown as ResolvedUseCase;
+test("replace RETIRES an entry the file omits — no distinction between team-added and anything else", () => {
+  const existing = { id: "uc_abc", label: "Custom Thing", summary: "", groups: ["enablement"] } as unknown as ResolvedUseCase;
   const plan = planImport(
     file([uc({ name: "Alpha", categories: ["Enablement"] })], [{ name: "Enablement", blurb: "" }]),
     { added: { uc_abc: { id: "uc_abc", label: "Custom Thing", summary: "", groups: ["enablement"] } } },
-    [option("alpha", "Alpha"), custom],
+    [option("alpha", "Alpha"), existing],
     GROUPS, { uc_abc: { oneLiner: "gone" } }, ids(), gids(),
     { mode: "replace" },
   );
   assert.deepEqual(plan.removed.map((r) => r.name), ["Custom Thing"]);
-  assert.equal(plan.taxonomy.added!.uc_abc, undefined, "a team-added entry is genuinely deleted");
-  assert.equal(plan.taxonomy.retired!.uc_abc, undefined, "and NOT retired");
-  assert.equal(plan.library.uc_abc, undefined, "its definition goes with it");
+  assert.ok(plan.taxonomy.retired!.uc_abc, "retired, not hard-deleted — an account association must keep resolving");
+  // Retiring is only meaningful if the row it points at still exists: the
+  // marker alone resolves to nothing, which IS a hard delete from the app's
+  // point of view.
+  assert.ok(plan.taxonomy.added!.uc_abc, "and the row it retires stays, so the id resolves");
+  assert.equal(plan.library.uc_abc, undefined, "its definition is wiped");
 });
 
-test("replace carries nothing forward from the previous overlay", () => {
+test("replace carries forward only the taxonomy rows a retirement needs", () => {
   const before = {
-    renamed: { certification_prep: { label: "Stale Name", summary: "stale", groups: ["enablement"] } },
     added: { uc_old: { id: "uc_old", label: "Old", summary: "", groups: ["enablement"] } },
   };
   const plan = planImport(
     file([uc({ name: "Alpha", categories: ["Enablement"] })], [{ name: "Enablement", blurb: "" }]),
     before,
-    [option("alpha", "Alpha")],
+    [option("alpha", "Alpha"), option("uc_old", "Old")],
     GROUPS, { uc_old: { oneLiner: "x" } }, ids(), gids(),
     { mode: "replace" },
   );
-  assert.equal(plan.taxonomy.renamed!.certification_prep, undefined, "a stale rename must not survive a replace");
-  assert.equal(plan.taxonomy.added!.uc_old, undefined);
+  /* An omitted entry keeps its taxonomy row so its id still resolves, but
+     nothing else survives: the definition is wiped and the entry is retired, so
+     it is gone from the picker while old associations still read. */
+  assert.ok(plan.taxonomy.added!.uc_old, "the row survives for resolution");
+  assert.ok(plan.taxonomy.retired!.uc_old, "and is retired");
   assert.deepEqual(Object.keys(plan.library), ["alpha"], "the library is exactly the file");
+  assert.deepEqual(resolveTaxonomy(plan.taxonomy).map((u) => u.id), ["alpha"], "the live picker is exactly the file");
 });
 
-test("replace reuses the shipped category id rather than duplicating it", () => {
+test("replace reuses an existing category id rather than duplicating it", () => {
   const plan = planImport(
     file([uc({ name: "Alpha", categories: ["Enablement"] })], [{ name: "Enablement", blurb: "b" }]),
     {}, [option("alpha", "Alpha")], GROUPS, {}, ids(), gids(), { mode: "replace" },
   );
   assert.deepEqual(plan.newCategories, [], "an existing category name is not re-created");
-  assert.deepEqual(plan.taxonomy.added!.uc_new1 ?? plan.taxonomy.renamed!.alpha!.groups, ["enablement"]);
+  assert.equal(Object.keys(plan.taxonomy.groups!).length, 1);
+  assert.deepEqual(plan.taxonomy.added!.alpha.groups, ["enablement"]);
 });

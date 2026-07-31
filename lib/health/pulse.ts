@@ -81,12 +81,60 @@ export const CS_PULSE_DIMENSIONS: PulseDimension[] = [
 ];
 
 /** Boolean risk-signal fields the CSM can flag. */
-export const PULSE_SIGNALS = [
-  { id: "singleThreaded", name: "Single-threaded", desc: "Only one real stakeholder relationship", risk: true },
-  { id: "championLeft", name: "Champion left", desc: "Champion gone without a replacement", risk: true },
-  { id: "sponsorAccess", name: "Sponsor / economic-buyer access", desc: "We can reach a credible sponsor", risk: false },
-  { id: "economicBuyerKnown", name: "Economic buyer known", desc: "We know who signs the renewal", risk: false },
-  { id: "competitiveReplacement", name: "Competitive replacement underway", desc: "A credible competitor process is active", risk: true },
+/* =========================================================================
+   The pulse's qualitative signals, SPLIT BY POLARITY.
+
+   These used to be one flat PULSE_SIGNALS list rendered as five identical
+   checkboxes under a heading that said "Risk signals" — but two of them are
+   the opposite of a risk. Ticking "Economic buyer known" is GOOD NEWS, and
+   under that heading, next to "Champion left", it read as flagging a problem.
+   The `risk` flag distinguishing them existed in this file all along and the
+   UI ignored it. Two lists, so the UI cannot mix them up again.
+   ========================================================================= */
+
+/**
+ * Bad news: a Yes here is the risk. Same three states as coverage below —
+ * these were checkboxes, which was wrong for two reasons.
+ *
+ * `singleThreaded` is the sharp one: computeFacts falls back to a DERIVED
+ * value when it's unanswered (`?? (primaryContactCount <= 1)`), i.e. "if the
+ * CSM didn't say, read it off the contact record". A checkbox can't be
+ * unanswered — unticked serialises as `false` — so that fallback could never
+ * fire and an untouched box silently asserted "not single-threaded", beating
+ * the system's own read of the data.
+ *
+ * For the other two, No and Not sure score identically (their rules fire on
+ * `isTrue`), but "I checked and it isn't happening" and "I have no idea
+ * whether a competitor is in here" are different things to record, and a
+ * uniform control is easier to read than two kinds of input side by side.
+ */
+export const PULSE_RISK_FLAGS = [
+  { id: "singleThreaded", fact: "single_threaded", ruleId: "r_single_threaded", capsTo: "Watch",
+    name: "Single-threaded", desc: "Only one real stakeholder relationship" },
+  { id: "championLeft", fact: "champion_left", ruleId: "r_champion_left", capsTo: "Watch",
+    name: "Champion left", desc: "Champion gone without a replacement" },
+  { id: "competitiveReplacement", fact: "competitive_replacement", ruleId: "r_competitor", capsTo: "At Risk",
+    name: "Competitive replacement underway", desc: "A credible competitor process is active" },
+] as const;
+
+/**
+ * Relationship coverage. THREE-STATE, not a checkbox, because "we don't know"
+ * and "no" are different facts that the engine scores differently:
+ *
+ *   yes      → the coverage exists; no rule fires
+ *   no       → r_no_sponsor / r_renewal_eb_unknown cap the account to Watch
+ *   unknown  → nothing fires; the question is simply unanswered
+ *
+ * A checkbox could only express yes/no, so leaving one untouched was recorded
+ * as an affirmative "no" and quietly capped the account. See normalizePulse.
+ */
+export const PULSE_COVERAGE = [
+  { id: "sponsorAccess", fact: "sponsor_access", ruleId: "r_no_sponsor", capsTo: "Watch",
+    name: "Sponsor / economic-buyer access", desc: "Can we reach a credible sponsor?", capWhen: null },
+  { id: "economicBuyerKnown", fact: "economic_buyer_known", ruleId: "r_renewal_eb_unknown", capsTo: "Watch",
+    name: "Economic buyer known", desc: "Do we know who signs the renewal?",
+    // This rule is conditional: it only fires inside the renewal window.
+    capWhen: "only within 90 days of renewal" },
 ] as const;
 
 export const PULSE_VALIDITY_DAYS = 30;
@@ -155,14 +203,23 @@ export function normalizePulse(raw: unknown): StoredPulse | null {
   // Keep any rating keyed by a dimension id — dimensions are dynamic config.
   for (const [k, v] of Object.entries(r)) if (typeof v === "string") ratings[k] = v;
   const s = (o.signals ?? {}) as Record<string, unknown>;
+  /* Coverage answers keep their THIRD state. Collapsing these to `=== true`
+     was a scoring bug, not just a typing shortcut: computeFacts does
+     `p?.sponsorAccess ?? null` precisely so an unanswered question stays null
+     and its `isFalse` rule can't fire (see the comment there) — but a boolean
+     coercion here meant the `?? null` could never trigger, so "nobody
+     answered" arrived at the engine as an affirmative "no" and capped the
+     account to Watch. Undefined has to survive this function. */
+  const triState = (v: unknown): boolean | undefined =>
+    v === true ? true : v === false ? false : undefined;
   return {
     ratings,
     signals: {
-      singleThreaded: s.singleThreaded === true,
-      championLeft: s.championLeft === true,
-      sponsorAccess: s.sponsorAccess === true,
-      economicBuyerKnown: s.economicBuyerKnown === true,
-      competitiveReplacement: s.competitiveReplacement === true,
+      singleThreaded: triState(s.singleThreaded),
+      championLeft: triState(s.championLeft),
+      competitiveReplacement: triState(s.competitiveReplacement),
+      sponsorAccess: triState(s.sponsorAccess),
+      economicBuyerKnown: triState(s.economicBuyerKnown),
       renewalIntent: (["positive", "neutral", "negative"].includes(s.renewalIntent as string) ? s.renewalIntent : null) as StoredPulse["signals"]["renewalIntent"],
     },
     updatedAt: typeof o.updatedAt === "string" ? o.updatedAt : new Date(0).toISOString(),

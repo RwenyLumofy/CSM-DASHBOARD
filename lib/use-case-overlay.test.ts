@@ -1,42 +1,39 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { USE_CASES } from "./use-cases";
 import {
   normalizeOverlay, resolveTaxonomy, resolveGroups, resolveThroughMerges,
-  newUseCaseId, isShippedGroup, type TaxonomyOverlay,
+  newUseCaseId, newGroupId, type TaxonomyOverlay,
 } from "./use-case-overlay";
 
-test("an empty overlay is exactly the shipped list", () => {
-  const t = resolveTaxonomy({});
-  assert.equal(t.length, USE_CASES.length);
-  assert.deepEqual(t.map((u) => u.id), USE_CASES.map((u) => u.id));
+/* ---- a fresh workspace is genuinely empty, not seeded ------------------- */
+
+test("an empty overlay has no use cases and no categories", () => {
+  assert.deepEqual(resolveTaxonomy({}), []);
+  assert.deepEqual(resolveGroups({}), []);
 });
 
-test("renaming a shipped entry changes the label but not the id", () => {
-  const t = resolveTaxonomy({ renamed: { tna: { label: "Skills Gap Analysis" } } });
-  const tna = t.find((u) => u.id === "tna")!;
-  assert.equal(tna.label, "Skills Gap Analysis");
-  assert.equal(tna.id, "tna", "the id must survive a rename — accounts are recorded against it");
-  assert.equal(tna.edited, true);
-});
-
-test("recategorising replaces the categories rather than adding to them", () => {
-  const t = resolveTaxonomy({ renamed: { tna: { groups: ["assessment"] } } });
-  assert.deepEqual(t.find((u) => u.id === "tna")!.groups, ["assessment"]);
-});
-
-test("an added use case appears and is flagged as custom", () => {
+test("an added use case appears in the live list", () => {
   const t = resolveTaxonomy({
     added: { uc_qiwa: { id: "uc_qiwa", label: "Qiwa Disclosure", summary: "Saudi disclosure.", groups: ["readiness"] } },
   });
-  const q = t.find((u) => u.id === "uc_qiwa")!;
-  assert.equal(q.label, "Qiwa Disclosure");
-  assert.equal(q.custom, true);
-  assert.equal(t.length, USE_CASES.length + 1);
+  assert.equal(t.length, 1);
+  assert.equal(t[0].label, "Qiwa Disclosure");
+  assert.equal(t[0].id, "uc_qiwa");
+});
+
+test("editing an added use case updates it in place, keeping its id", () => {
+  const first = { added: { uc_x: { id: "uc_x", label: "TNA", summary: "", groups: ["assessment"] } } };
+  const edited: TaxonomyOverlay = { added: { uc_x: { ...first.added.uc_x, label: "Skills Gap Analysis" } } };
+  const t = resolveTaxonomy(edited);
+  assert.equal(t[0].id, "uc_x", "the id must survive an edit — accounts are recorded against it");
+  assert.equal(t[0].label, "Skills Gap Analysis");
 });
 
 test("a retired entry leaves the live list but is still retrievable", () => {
-  const o: TaxonomyOverlay = { retired: { tna: { reason: "folded into discovery" } } };
+  const o: TaxonomyOverlay = {
+    added: { tna: { id: "tna", label: "TNA", summary: "", groups: [] } },
+    retired: { tna: { reason: "folded into discovery" } },
+  };
   assert.equal(resolveTaxonomy(o).some((u) => u.id === "tna"), false, "gone from the picker");
   const all = resolveTaxonomy(o, true);
   assert.equal(all.find((u) => u.id === "tna")!.retired!.reason, "folded into discovery", "still visible to the manager");
@@ -66,67 +63,49 @@ test("an id with no merge pointer resolves to itself", () => {
   assert.equal(resolveThroughMerges("tna", { retired: { tna: { reason: "x" } } }), "tna");
 });
 
-/* ---- categories ------------------------------------------------------- */
+/* ---- categories: plain, team-created, no seed -------------------------- */
 
-test("team categories are appended to the shipped six", () => {
+test("a created category appears", () => {
   const g = resolveGroups({ groups: { grp_x: { id: "grp_x", label: "Someone is moving", blurb: "trigger" } } });
-  assert.equal(g.length, 7);
-  assert.equal(g[g.length - 1].label, "Someone is moving");
+  assert.equal(g.length, 1);
+  assert.equal(g[0].label, "Someone is moving");
 });
 
-/* ---- normalisation ---------------------------------------------------- */
+test("editing a category updates it in place, keeping its id", () => {
+  const g = resolveGroups({ groups: { grp_a: { id: "grp_a", label: "Operating model", blurb: "how L&D runs" } } });
+  assert.equal(g.find((x) => x.id === "grp_a")!.label, "Operating model");
+  assert.equal(g.length, 1, "editing must not create a duplicate");
+});
+
+test("a deleted category is simply gone", () => {
+  const g = resolveGroups({ groups: {} });
+  assert.equal(g.length, 0);
+});
+
+/* ---- normalisation ------------------------------------------------------ */
 
 test("an added entry with no label is dropped rather than rendering blank", () => {
   const o = normalizeOverlay({ added: { x: { id: "x", summary: "no name" } } });
   assert.equal(Object.keys(o.added ?? {}).length, 0);
 });
 
+test("a category with no label is dropped rather than rendering blank", () => {
+  const o = normalizeOverlay({ groups: { x: { id: "x", blurb: "no name" } } });
+  assert.equal(Object.keys(o.groups ?? {}).length, 0);
+});
+
 test("malformed overlays never throw", () => {
-  for (const bad of [null, undefined, "nope", 7, { renamed: "wrong" }, { added: [1, 2] }]) {
+  for (const bad of [null, undefined, "nope", 7, { added: "wrong" }, { added: [1, 2] }, { groups: "wrong" }, { retired: 5 }]) {
     assert.doesNotThrow(() => resolveTaxonomy(normalizeOverlay(bad)));
   }
 });
 
-test("generated ids are unique and cannot collide with a shipped id", () => {
+test("generated ids are unique", () => {
   const ids = new Set(Array.from({ length: 200 }, newUseCaseId));
   assert.equal(ids.size, 200);
-  for (const id of ids) assert.equal(USE_CASES.some((u) => u.id === id), false);
 });
 
-/* ---- categories are fully editable, shipped ones included -------------- */
-
-test("a shipped category can be renamed, keeping its id", () => {
-  const g = resolveGroups({ groups: { enablement: { id: "enablement", label: "Operating model", blurb: "how L&D runs" } } });
-  const e = g.find((x) => x.id === "enablement")!;
-  assert.equal(e.label, "Operating model");
-  assert.equal(g.length, 6, "renaming must not create a duplicate");
-});
-
-test("renaming without a blurb keeps the shipped one", () => {
-  const g = resolveGroups({ groups: { enablement: { id: "enablement", label: "Operating model", blurb: "" } } });
-  assert.ok(g.find((x) => x.id === "enablement")!.blurb.length > 0);
-});
-
-test("a removed shipped category disappears but its id still exists in code", () => {
-  const g = resolveGroups({ hiddenGroups: ["engagement"] });
-  assert.equal(g.length, 5);
-  assert.equal(g.some((x) => x.id === "engagement"), false);
-});
-
-test("renaming a removed category brings it back", () => {
-  // saveCategoryAction clears the hidden flag; this asserts the resolver agrees.
-  const g = resolveGroups({ hiddenGroups: [], groups: { engagement: { id: "engagement", label: "People", blurb: "" } } });
-  assert.equal(g.find((x) => x.id === "engagement")!.label, "People");
-});
-
-test("team categories sit after the shipped ones and are removable", () => {
-  const withCustom = resolveGroups({ groups: { grp_a: { id: "grp_a", label: "Someone is moving", blurb: "" } } });
-  assert.equal(withCustom.length, 7);
-  assert.equal(withCustom[6].id, "grp_a");
-  assert.equal(resolveGroups({ groups: { grp_a: { id: "grp_a", label: "X", blurb: "" } }, hiddenGroups: ["grp_a"] }).length, 6);
-});
-
-test("isShippedGroup tells the two apart", () => {
-  assert.equal(isShippedGroup("enablement"), true);
-  assert.equal(isShippedGroup("grp_whatever"), false);
+test("generated group ids are unique", () => {
+  const ids = new Set(Array.from({ length: 200 }, newGroupId));
+  assert.equal(ids.size, 200);
 });

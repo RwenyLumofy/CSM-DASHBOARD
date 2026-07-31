@@ -18,6 +18,8 @@
    without thinking, which is the only kind that stays accurate.
    ========================================================================= */
 
+import { resolveThroughMerges, type TaxonomyOverlay } from "@/lib/use-case-overlay";
+
 export const IMPLEMENTATION_KEY = "use_case_implementations";
 
 export const IMPLEMENTATION_STATUSES = ["exploring", "planning", "live", "paused", "completed"] as const;
@@ -112,11 +114,52 @@ export function normalizeImplementations(raw: unknown): UseCaseImplementation[] 
 
 export const newImplementationId = (): string => `uci_${globalThis.crypto.randomUUID().slice(0, 8)}`;
 
+/** One account's implementation, joined to the account it belongs to — the
+ *  shape the Use Case Universe's read-only "accounts using this" view needs. */
+export interface ImplementationWithAccount {
+  account: { id: string; name: string };
+  implementation: UseCaseImplementation;
+}
+
+/**
+ * Groups every account's implementations by use-case id. This is what makes
+ * the Universe a real directory — for each use case, who has it — without
+ * making the Universe itself accounts-editable: this is a read view built
+ * from the client page's own data, nothing more.
+ */
+export function groupImplementationsByUseCase(
+  clients: { id: string; name: string; properties?: unknown }[],
+  /* Pass the taxonomy to bucket through merge pointers. Without it, retiring
+     A into B drops A's accounts out of the directory entirely and B never
+     absorbs them — the account is recorded against A's raw id, A is no longer
+     live, and nothing maps one to the other. That silently contradicts what
+     the merge UI promises ("accounts move to the successor"). Optional so
+     callers that genuinely want raw ids keep working. */
+  overlay?: TaxonomyOverlay,
+): Map<string, ImplementationWithAccount[]> {
+  const byUseCase = new Map<string, ImplementationWithAccount[]>();
+  for (const c of clients) {
+    const impls = normalizeImplementations((c.properties as Record<string, unknown> | undefined)?.[IMPLEMENTATION_KEY]);
+    for (const implementation of impls) {
+      const key = overlay ? resolveThroughMerges(implementation.useCaseId, overlay) : implementation.useCaseId;
+      const list = byUseCase.get(key) ?? [];
+      list.push({ account: { id: c.id, name: c.name }, implementation });
+      byUseCase.set(key, list);
+    }
+  }
+  return byUseCase;
+}
+
 /** What is missing before this implementation is useful to anyone else. */
 export function implementationGaps(i: UseCaseImplementation): string[] {
   const gaps: string[] = [];
   if (!i.objective) gaps.push("no objective");
   if (!i.scope) gaps.push("scope not defined");
-  if (!i.nextStep && i.status !== "completed") gaps.push("no next step");
+  /* NO "no next step" GAP. The next action for an account is a task now
+     (components/clients/AccountTasks.tsx → today_tasks): assignable, dated,
+     completable and visible on the Today board, which a text field here never
+     was. `nextStep` is no longer edited, so counting its absence as a gap would
+     flag every card with something nobody can fix. The field stays on the
+     record so existing values survive. */
   return gaps;
 }

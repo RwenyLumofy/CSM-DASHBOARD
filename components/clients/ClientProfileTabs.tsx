@@ -110,10 +110,9 @@ import type {
 import { normalizeStakeholderMappings, type StakeholderMapping } from "@/lib/stakeholders";
 import { normalizeStakeholderProfiles, normalizeStakeholderLinks, PROFILES_KEY, LINKS_KEY } from "@/lib/stakeholders/profile";
 import { StakeholdersTab } from "@/components/clients/stakeholders/StakeholdersTab";
-import { AccountUseCases } from "@/components/clients/AccountUseCases";
-import { AccountReminders, type AccountReminder } from "@/components/clients/AccountReminders";
-import { computeUseCasesRollup } from "@/lib/deal-overrides";
-import { ACCOUNT_USE_CASES_KEY } from "@/lib/use-cases";
+import { UseCasePortfolio } from "@/components/clients/UseCasePortfolio";
+import type { ResolvedUseCase } from "@/lib/use-case-overlay";
+import type { UseCaseImplementation } from "@/lib/use-case-implementation";
 import { ActionFeed } from "@/components/actions/ActionFeed";
 import { NotesTab } from "@/components/clients/notes/NotesTab";
 import type { Note } from "@/lib/notes/types";
@@ -161,15 +160,23 @@ interface Props {
   canEditClient: boolean;
   /** Assignable Lumofy owners for a stakeholder relationship. */
   teamEmails: { email: string; name: string | null }[];
-  /** Account-scoped reminders — today_tasks in the "reminder" focus area. */
-  reminders: AccountReminder[];
   /** Server-resolved date, so the coverage rules can't drift with the
    *  viewer's clock or time zone. */
   today: string;
+  /** Use Case Universe entries for the client-page "associate" picker — live
+   *  (non-retired) only, offered when choosing new use cases for this account. */
+  liveUseCaseEntries: ResolvedUseCase[];
+  /** Use Case Universe categories, so the client-page picker can group. */
+  useCaseGroups: { id: string; label: string; blurb: string }[];
+  /** Same database, including retired — so an existing association on this
+   *  account still resolves a label even if its use case was later retired. */
+  allUseCaseEntries: ResolvedUseCase[];
+  /** This account's own use-case associations (client.properties.use_case_implementations). */
+  useCaseImplementations: UseCaseImplementation[];
 }
 
 export function ClientProfileTabs(props: Props) {
-  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthConfig, canEditClient, teamEmails, today, reminders } = props;
+  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthConfig, canEditClient, teamEmails, today, liveUseCaseEntries, allUseCaseEntries, useCaseGroups, useCaseImplementations } = props;
   const [active, setActive] = useState<TabKey>("general");
 
   const stakeholderProfiles = useMemo(
@@ -182,6 +189,22 @@ export function ClientProfileTabs(props: Props) {
       new Set(stakeholderProfiles.map((p) => p.id)),
     ),
     [client.properties, stakeholderProfiles],
+  );
+
+  /* Stakeholder options for the Use cases card's owner picker. Built from the
+     same profiles the Stakeholders tab renders, so the two can never disagree
+     about someone's name. Falls back to the email when there's no name on the
+     profile yet — an unnamed-but-emailed contact is still pickable. */
+  const stakeholderOptions = useMemo(
+    () => stakeholderProfiles
+      .map((p) => ({
+        id: p.id,
+        name: [p.preferredName ?? p.firstName, p.lastName].filter(Boolean).join(" ").trim() || p.email || "Unnamed",
+        email: p.email,
+        jobTitle: p.jobTitle,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [stakeholderProfiles],
   );
 
   const commCount = contacts.length + emails.length + meetings.length;
@@ -235,21 +258,15 @@ export function ClientProfileTabs(props: Props) {
       <div className="min-w-0 flex flex-col gap-5">
         {active === "general" && (
           <>
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <AccountUseCases
-                clientId={client.id}
-                accountUseCases={((client.properties as Record<string, unknown> | undefined)?.[ACCOUNT_USE_CASES_KEY] as { ids?: unknown } | undefined)?.ids}
-                dealUseCases={computeUseCasesRollup(deals.filter((d) => d.tracked !== false))}
-                canEdit={canEditClient}
-              />
-              <AccountReminders
-                clientId={client.id}
-                clientName={client.name}
-                initial={reminders}
-                canEdit={canEditClient}
-                today={today}
-              />
-            </div>
+            <UseCasePortfolio
+              clientId={client.id}
+              canEdit={canEditClient}
+              liveEntries={liveUseCaseEntries}
+              allEntries={allUseCaseEntries}
+              groups={useCaseGroups}
+              stakeholders={stakeholderOptions}
+              implementations={useCaseImplementations}
+            />
             <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} />
           </>
         )}

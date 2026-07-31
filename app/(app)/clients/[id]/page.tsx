@@ -5,6 +5,7 @@ import { ClientProfileTabs } from "@/components/clients/ClientProfileTabs";
 import { ClientHeaderCard } from "@/components/clients/ClientHeaderCard";
 import { ChurnReasonBanner } from "@/components/clients/ChurnReasonBanner";
 import { CsPulsePanel } from "@/components/clients/CsPulsePanel";
+import { AccountTasks } from "@/components/clients/AccountTasks";
 import {
   getAttachmentsForClient,
   getClientForProfile,
@@ -21,7 +22,7 @@ import {
 import { getAccountHealth, getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
 import { normalizePulse } from "@/lib/health/pulse";
 import { getCurrentUserRole, isSuperAdmin, isAdminOrSuper, canEditClient, getCurrentUserEmail } from "@/lib/auth";
-import { permissionRole } from "@/lib/roles";
+import { permissionRole, editsAllClients } from "@/lib/roles";
 import { getProjectBoard, getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getNotesForClient } from "@/lib/notes/data";
 import { hasDatabase, integrations } from "@/lib/config";
@@ -30,6 +31,8 @@ import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { getSupabaseProjectUrl } from "@/lib/integrations/supabase-storage";
 import { getClientHealthConfig } from "@/lib/assignment/config";
+import { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy, resolveGroups } from "@/lib/use-case-overlay";
+import { IMPLEMENTATION_KEY, normalizeImplementations } from "@/lib/use-case-implementation";
 
 // Per-request data + auth-gated — never static-generate this route.
 export const dynamic = "force-dynamic";
@@ -49,24 +52,41 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   // only decides what the Stakeholders tab renders.
   const mayEditClient = await canEditClient(client);
 
-  // Reminders are today_tasks in the "reminder" focus area scoped to this
-  // account — same rows the Today board reads, so one set of data, two views.
+  // Account tasks are today_tasks scoped to this account, any focus area —
+  // same rows the Today board reads, so one set of data, two views.
   const viewerEmail = await getCurrentUserEmail();
-  const reminders = await (async () => {
+  const accountTasks = await (async () => {
     if (!hasDatabase() || !viewerEmail) return [];
     try {
       const { getTodayTasksVisibleDb } = await import("@/lib/repo/drizzle");
       const rows = await getTodayTasksVisibleDb(viewerEmail, [id]);
       return rows
-        .filter((t) => t.accountId === id && t.category === "reminder")
-        .map((t) => ({ id: t.id, title: t.title, dueDate: t.dueDate ?? null, notes: t.notes ?? null, status: t.status, ownerEmail: t.ownerEmail ?? null }));
+        .filter((t) => t.accountId === id)
+        .map((t) => ({
+          id: t.id, title: t.title, category: t.category, dueDate: t.dueDate ?? null,
+          notes: t.notes ?? null, status: t.status, ownerEmail: t.ownerEmail ?? null,
+          priority: t.priority ?? null,
+        }));
     } catch {
-      // A reminder read failing must not blank the whole profile.
+      // A task read failing must not blank the whole profile.
       return [];
     }
   })();
 
-  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, accountHealth, pulseDimensions, pulseTiers] =
+  // Best-effort: a failed read degrades to an empty database rather than
+  // blanking the whole profile — the Use Case Portfolio card just shows
+  // nothing to pick from.
+  const readUseCaseTaxonomy = async () => {
+    if (!hasDatabase()) return normalizeOverlay({});
+    try {
+      const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
+      return normalizeOverlay(await getWorkspaceConfigFromDb(TAXONOMY_KEY));
+    } catch {
+      return normalizeOverlay({});
+    }
+  };
+
+  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, accountHealth, pulseDimensions, pulseTiers, useCaseTaxonomy] =
     await Promise.all([
       getNotesForClient(id),
       getAttachmentsForClient(id),
@@ -90,8 +110,18 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       getAccountHealth(id),
       getCsPulseDimensions(),
       getCsPulseTiers(),
+      readUseCaseTaxonomy(),
     ]);
+  const useCaseImplementations = normalizeImplementations(
+    (client.properties as Record<string, unknown> | undefined)?.[IMPLEMENTATION_KEY],
+  );
   const ownerOptions = (ms: typeof csmMembers) => ms.map((m) => ({ email: m.email, name: m.name ?? m.email, role: m.role }));
+  /* Assignable people. DEDUPED BY EMAIL: the CSM and implementation directories
+     overlap (plenty of people are in both), and feeding the raw concatenation
+     into a <select> rendered two <option>s with the same key per person. */
+  const assignableTeam = [...new Map(
+    [...csmMembers, ...implMembers].map((m) => [m.email, { email: m.email, name: m.name }]),
+  ).values()];
   // Project owner/implementer/task-owner pickers use the same team directories.
   const projectMembers = (ms: typeof csmMembers) => ms.map((m) => ({ email: m.email, name: m.name ?? m.email }));
 
@@ -171,17 +201,34 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         onboardingLabel={onboardingLabel}
       />
 
-      {/* ── Client health — live score + CS Pulse capture ────────────── */}
-      {client.status !== "onboarding" && (
-        <CsPulsePanel
+      {/* ── Account actions — one row of triggers, each opening a sidebar.
+             Health and tasks were both full-width cards here; they are the two
+             things a CSM dips into rather than reads continuously, so they
+             collapse to buttons and give the vertical space back to the tab
+             content. ───────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {client.status !== "onboarding" && (
+          <CsPulsePanel
+            clientId={client.id}
+            health={accountHealth}
+            pulse={normalizePulse(props.cs_pulse)}
+            dimensions={pulseDimensions}
+            tiers={pulseTiers}
+            canEdit={permissionRole(role) !== "guest"}
+          />
+        )}
+        <AccountTasks
           clientId={client.id}
-          health={accountHealth}
-          pulse={normalizePulse(props.cs_pulse)}
-          dimensions={pulseDimensions}
-          tiers={pulseTiers}
-          canEdit={permissionRole(role) !== "guest"}
+          clientName={client.name}
+          initial={accountTasks}
+          canEdit={mayEditClient}
+          today={new Date().toISOString().slice(0, 10)}
+          teamEmails={assignableTeam}
+          // The same predicate createTaskAction enforces, so the picker is
+          // shown exactly when the server would accept the assignment.
+          canAssignOthers={editsAllClients(role)}
         />
-      )}
+      </div>
 
       {/* ── Churn reason — classify why a churned account left ────────── */}
       {client.status === "churned" && (
@@ -214,13 +261,16 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         projectConfig={projectConfig}
         projectTemplates={projectTemplates.map((t) => ({ id: t.id, name: t.name }))}
         canEditClient={mayEditClient}
-        reminders={reminders}
-        teamEmails={[...csmMembers, ...implMembers].map((m) => ({ email: m.email, name: m.name }))}
+        teamEmails={assignableTeam}
         today={new Date().toISOString().slice(0, 10)}
         projectCsms={projectMembers(csmMembers)}
         projectImplementers={projectMembers(implMembers)}
         projectCanManage={role !== null}
         projectDbEnabled={hasDatabase()}
+        liveUseCaseEntries={resolveTaxonomy(useCaseTaxonomy)}
+        allUseCaseEntries={resolveTaxonomy(useCaseTaxonomy, true)}
+        useCaseGroups={resolveGroups(useCaseTaxonomy)}
+        useCaseImplementations={useCaseImplementations}
       />
     </div>
   );

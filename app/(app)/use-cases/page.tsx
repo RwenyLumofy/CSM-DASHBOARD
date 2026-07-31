@@ -1,31 +1,29 @@
-import { UseCaseWorkbench, type WorkbenchRow } from "@/components/reports/UseCaseWorkbench";
-import { getUseCaseAdoption } from "@/lib/use-case-adoption";
+import { UseCaseDirectory, type DirectoryRow } from "@/components/reports/UseCaseDirectory";
 import { mergeLibrary, LIBRARY_OVERRIDE_KEY, type UseCaseOverride } from "@/lib/use-case-library";
 import { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy, resolveGroups } from "@/lib/use-case-overlay";
 import { statusLine } from "@/lib/use-case-status";
 import { hasDatabase } from "@/lib/config";
 import { isAdminOrSuper } from "@/lib/auth";
 import { getClients } from "@/lib/data";
-import { IMPLEMENTATION_KEY, normalizeImplementations } from "@/lib/use-case-implementation";
-import type { ImplementationRow } from "@/components/reports/UseCaseAccounts";
+import { groupImplementationsByUseCase } from "@/lib/use-case-implementation";
 
 export const metadata = { title: "Use Cases · Lumofy Signals" };
 export const dynamic = "force-dynamic";
 
 /**
- * Use Case Library — index and definition side by side.
+ * Use Case Universe — a flat, admin-curated database of definitions and
+ * categories, plus a read-only directory of which accounts have adopted
+ * each one. No shipped seed, and no editing of account linkage here: which
+ * accounts carry a use case, and their account-specific objective/scope/
+ * status, is edited only on the client page
+ * (components/clients/UseCasePortfolio.tsx) — this route only reads that
+ * same data to show it.
  *
  * Everything the /use-cases/[id] route needs is loaded for EVERY entry here,
- * because selection is client-side and must be instant. That costs one extra
- * pass over accounts already in memory, not another query: implementations
- * live on the client record, so they are gathered while walking the same list
- * adoption is computed from.
+ * because selection is client-side and must be instant.
  *
- * The [id] route stays — a link pasted into a QBR deck six months ago has to
- * keep opening, and it renders the same component this pane does.
- *
- * A failed workspace_config read degrades to the shipped taxonomy rather than
- * an empty page — the taxonomy lives in code and is the thing worth showing.
+ * A failed workspace_config read degrades to an empty database rather than an
+ * error page — there is no shipped fallback to degrade to any more.
  */
 async function readConfig<T>(key: string, fallback: T): Promise<T> {
   if (!hasDatabase()) return fallback;
@@ -39,8 +37,7 @@ async function readConfig<T>(key: string, fallback: T): Promise<T> {
 }
 
 export default async function UseCasesPage() {
-  const [adoption, overridesRaw, taxonomyRaw, canEdit, clients] = await Promise.all([
-    getUseCaseAdoption(),
+  const [overridesRaw, taxonomyRaw, canEdit, clients] = await Promise.all([
     readConfig<Record<string, UseCaseOverride>>(LIBRARY_OVERRIDE_KEY, {}),
     readConfig<unknown>(TAXONOMY_KEY, {}),
     isAdminOrSuper(),
@@ -51,55 +48,31 @@ export default async function UseCasesPage() {
   const groups = resolveGroups(taxonomy);
   const today = new Date().toISOString().slice(0, 10);
   const entries = new Map(mergeLibrary(overridesRaw).map((e) => [e.id, e]));
-  const adoptionById = new Map(adoption.rows.map((r) => [r.option.id, r]));
+  // With the taxonomy, so accounts on a merged-away id count toward its
+  // successor instead of disappearing from the directory.
+  const implByUseCase = groupImplementationsByUseCase(clients, taxonomy);
 
-  // One pass over the accounts in scope, bucketed by use case.
-  const implByUseCase = new Map<string, ImplementationRow[]>();
-  for (const c of clients) {
-    const impls = normalizeImplementations(
-      (c.properties as Record<string, unknown> | undefined)?.[IMPLEMENTATION_KEY],
-    );
-    for (const implementation of impls) {
-      const row: ImplementationRow = {
-        account: { id: c.id, name: c.name, arr: c.arr ?? 0, csm: c.csm?.email ?? null },
-        implementation,
-      };
-      implByUseCase.set(implementation.useCaseId, [...(implByUseCase.get(implementation.useCaseId) ?? []), row]);
-    }
-  }
-  for (const list of implByUseCase.values()) list.sort((a, b) => b.account.arr - a.account.arr);
-
-  const rows: WorkbenchRow[] = resolveTaxonomy(taxonomy).map((option) => {
+  const rows: DirectoryRow[] = resolveTaxonomy(taxonomy).map((option) => {
     const entry = entries.get(option.id);
-    const a = adoptionById.get(option.id);
-    return {
-      option,
-      entry,
-      statusText: statusLine(entry, today),
-      confirmed: a?.confirmed ?? [],
-      declaredOnly: a?.declaredOnly ?? [],
-      // Account ARR: the contract value of accounts carrying this use case.
-      // Not revenue attributed to it — no attribution data exists.
-      accountArr: a?.totalArr ?? 0,
-      implementations: implByUseCase.get(option.id) ?? [],
-    };
+    return { option, entry, statusText: statusLine(entry, today), accounts: implByUseCase.get(option.id) ?? [] };
   });
+
+  /* Every account in scope, for the link picker and the adoption read-out. Role
+     scoped by getClients(), so a CSM only ever sees — and can only ever link —
+     their own book; saveImplementationAction re-checks per client regardless. */
+  const directoryClients = clients
+    .map((c) => ({ id: c.id, name: c.name, arr: Number(c.arr) || 0, industry: c.industry ?? "" }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className="flex flex-col gap-5 p-5 md:p-8">
-      <header>
-        <h1 className="h2">Use Cases</h1>
-        <p className="mt-1 max-w-2xl font-body text-[13px] leading-relaxed text-fg-muted">
-          The customer problems Lumofy addresses, how we enable value, and where each use case is active.
-        </p>
-      </header>
-      <UseCaseWorkbench
+      <UseCaseDirectory
         rows={rows}
         groups={groups}
         allEntries={resolveTaxonomy(taxonomy, true)}
-        overlay={taxonomy}
         canEdit={canEdit}
         today={today}
+        clients={directoryClients}
       />
     </div>
   );

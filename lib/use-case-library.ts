@@ -39,6 +39,25 @@ import type { StakeholderRole } from "@/lib/stakeholders/profile";
  *  advisory services, Authoring, reporting, integrations, custom content — are
  *  deliberately NOT products. They are how the work is done, and the
  *  capability list already says so. */
+/**
+ * A link that is safe to put in an href, or null.
+ *
+ * sourceUrl renders as a bare `<a href>` on the detail page for every viewer,
+ * so a `javascript:` or `data:` value is stored XSS. The section-edit action
+ * checks the scheme, but that is only ONE of the ways a value gets in — an
+ * imported transfer file reaches the same field without passing through it.
+ * Validating on the READ means no write path can bypass it, whatever writes
+ * next.
+ */
+export function safeHttpUrl(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (!t) return null;
+  // Scheme-only check, deliberately strict: anything that is not plainly http
+  // or https is dropped rather than sanitised into something else.
+  return /^https?:\/\//i.test(t) ? t.slice(0, 500) : null;
+}
+
 export const PRODUCTS = ["Foundation", "Perform", "Develop", "Engage", "Analyze"] as const;
 export type Product = (typeof PRODUCTS)[number];
 
@@ -176,7 +195,7 @@ export function mergeLibrary(overrides: Record<string, UseCaseOverride> | null |
       lastReviewedAt: strOrNull(o.lastReviewedAt),
       reviewedBy: strOrNull(o.reviewedBy),
       delivers: lines(o.delivers),
-      sourceUrl: strOrNull(o.sourceUrl),
+      sourceUrl: safeHttpUrl(o.sourceUrl),
     }))
     // Audit or metadata alone isn't a definition — the page should still read
     // as undocumented.

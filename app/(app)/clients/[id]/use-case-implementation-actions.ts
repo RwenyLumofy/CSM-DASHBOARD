@@ -2,7 +2,15 @@
 
 /* =========================================================================
    Associating an account with a use case, and recording what that account is
-   actually trying to do.
+   actually trying to do. This is the "associate" flow.
+
+   DRIVEN FROM BOTH ENDS. The client page's Use Case Portfolio section is where
+   the account-specific detail — objective, scope, status, target date — is
+   written. The Use Case Universe directory can also create and remove a bare
+   link from its per-card menu, because "put this use case on that client" is a
+   question people ask while looking at the use case. Both call the actions
+   below, so there is one record and one permission check rather than two
+   implementations that can drift.
 
    Gated on canEditClient, NOT on the admin gate that guards definitions. These
    are two different jobs: curating the canonical wording is a taxonomy
@@ -92,7 +100,11 @@ export async function saveImplementationAction(
     clientOwner: text(input.clientOwner, 200),
     targetDate: targetDate || null,
     nextStep: text(input.nextStep, 500),
-    missionId: text(input.missionId, 100) || null,
+    // Falls back to the prior value like csmEmail above: the edit form never
+    // sends missionId, so without this every save silently wipes whatever was
+    // linked. Latent today — nothing writes it yet — but a data-loss bug the
+    // moment something does.
+    missionId: text(input.missionId, 100) || prior?.missionId || null,
     notes: text(input.notes, 4000),
     updatedAt: new Date().toISOString(),
     updatedBy: (await getCurrentUserEmail()) ?? null,
@@ -101,8 +113,6 @@ export async function saveImplementationAction(
   try {
     await upsertJsonbArrayElementForClientDb(clientId, IMPLEMENTATION_KEY, implementation.id, implementation);
     revalidatePath(`/clients/${clientId}`);
-    revalidatePath(`/use-cases/${input.useCaseId}`);
-    revalidatePath("/use-cases");
     return { ok: true, implementation };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -123,7 +133,6 @@ export async function removeImplementationAction(clientId: string, implementatio
     const { deleteJsonbArrayElementForClientDb } = await import("@/lib/repo/drizzle");
     await deleteJsonbArrayElementForClientDb(clientId, IMPLEMENTATION_KEY, implementationId);
     revalidatePath(`/clients/${clientId}`);
-    revalidatePath("/use-cases");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
