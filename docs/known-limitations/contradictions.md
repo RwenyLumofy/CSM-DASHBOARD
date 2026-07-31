@@ -78,25 +78,18 @@ Decision record [0006](../decisions/0006-two-unlinked-use-case-taxonomies.md)
 
 ---
 
-## Use-case module headers describe gates and boundaries the code no longer has
+## ~~Use-case module headers describe gates and boundaries the code no longer has~~ — RESOLVED
 
-**Severity:** Low for users, medium for maintainers — this repository treats module headers
-as decision evidence, so a stale one is a source of wrong documentation.
+**Resolved in commit `498db1f`.** Kept as a record because this repository treats module
+headers as decision evidence, and the failure mode is worth naming: a documentation pass
+found three headers that commit `7f731b7` had left behind, and the risk was that the next
+reader — human or agent — would document the header rather than the code.
 
-Three headers were left behind by commit `7f731b7`:
-
-| File | Header says | Code does |
+| File | Header said | Now |
 |---|---|---|
-| `app/(app)/use-cases/transfer-actions.ts` | *"ADMIN ONLY, both directions… Same gate as `saveUseCaseSectionAction`"* | `applyImportAction` requires `isSuperAdmin()`; only export and preview are `isAdminOrSuper()`. The inline comment at the gate itself is correct — the file header is not |
-| `app/(app)/clients/[id]/use-case-implementation-actions.ts` | the associate flow is *"driven from the client page's Use Case Portfolio section, not the Use Case Universe, which has no accounts awareness at all"* | `UseCaseDirectory`'s link dialog calls `saveImplementationAction` directly, and both `/use-cases` pages read adoption |
-| `lib/use-case-overlay.ts` | *"the two never share an id"* | True of the code, not of the data — see above |
-
-Nothing user-facing is wrong. The risk is that the next reader — human or agent — documents
-the header rather than the code, which is exactly the failure this documentation set exists
-to prevent.
-
-**Needs a decision from:** whoever next touches these files. Fixing the comments is a code
-change and out of scope for documentation.
+| `app/(app)/use-cases/transfer-actions.ts` | *"ADMIN ONLY, both directions… Same gate as `saveUseCaseSectionAction`"* | Accurate again. `applyImportAction` was briefly `isSuperAdmin()`; that was reverted, so admin-only in both directions is once more true, and the header now also records why the destructive mode is not narrowed further |
+| `app/(app)/clients/[id]/use-case-implementation-actions.ts` | the associate flow is *"driven from the client page's Use Case Portfolio section, not the Use Case Universe, which has no accounts awareness at all"* | Rewritten: the flow is driven from **both** ends, and both call these actions so there is one record and one permission check |
+| `lib/use-case-overlay.ts` | *"the two never share an id"* | Rewritten to state that the ids are **not** guaranteed disjoint in workspaces carried over from the delta model, and to name what depends on that |
 
 **Files:** `app/(app)/use-cases/transfer-actions.ts` ·
 `app/(app)/clients/[id]/use-case-implementation-actions.ts` · `lib/use-case-overlay.ts`

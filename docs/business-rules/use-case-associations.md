@@ -298,8 +298,8 @@ account write gate.
 | Edit a definition section | `isAdminOrSuper()` | `app/(app)/use-cases/actions.ts` |
 | Export the Universe | `isAdminOrSuper()` | `exportUseCaseUniverseAction` |
 | **Preview** an import | `isAdminOrSuper()` | `previewImportAction` — reading a plan harms nothing |
-| **Apply** an import | **`isSuperAdmin()`** | `applyImportAction` |
-| **Reset the whole database** | **`isSuperAdmin()`** | `resetTaxonomyAction` |
+| **Apply** an import | `isAdminOrSuper()` | `applyImportAction` |
+| **Reset the whole database** | `isAdminOrSuper()` | `resetTaxonomyAction` — via `guard()` |
 | Link a use case to an account, edit or remove the implementation | `denyClientWrite(clientId)` | `app/(app)/clients/[id]/use-case-implementation-actions.ts` |
 
 **The gate does not move with the surface.** Linking from the Use Case Universe directory
@@ -316,9 +316,11 @@ a retired id must remain editable. No UI offers one: the directory and the profi
 both list live entries only. One implementation per (account, use case); a second is
 refused rather than splitting the objective across two records.
 
-**Changed in commit `7f731b7`:** apply-import and reset moved from `isAdminOrSuper` to
-`isSuperAdmin`. See
-[permissions-and-scoping R11](permissions-and-scoping.md#r11--destructive-use-case-universe-actions-are-super-admin-only).
+**Every Universe write is one gate — `isAdminOrSuper`.** The destructive paths are not
+narrowed to super-admin, deliberately: curating the taxonomy is the Admin's job, and the
+safety on a replace or a reset is procedural (preview, typed confirmation, automatic
+backup, removal re-validation) plus the orphan-preserving behaviour in R2. See
+[permissions-and-scoping R11](permissions-and-scoping.md#r11--destructive-use-case-universe-actions-stay-admin-by-product-decision).
 
 ---
 

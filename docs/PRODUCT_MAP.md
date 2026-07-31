@@ -173,8 +173,8 @@ Actions: change period, compare mode, owner/segment filters. **Read-only.**
 Sections: hero + search · checkbox filter rail (Category / Product / Adoption) · card grid
 ordered by most-adopted · definition drawer · taxonomy manager · transfer (export/import).
 Actions: create/edit/retire definitions · manage categories · **link a use case to an
-account** · export the Universe · preview an import · apply an import *(Super Admin)* ·
-reset the database *(Super Admin)*.
+account** · export the Universe · preview an import · apply an import · reset the database.
+Every Universe write, destructive included, is `isAdminOrSuper`.
 Affects: `workspace_config.use_case_taxonomy`, `workspace_config.use_case_library`, and —
 via the link dialog — `clients.properties.use_case_implementations`.
 

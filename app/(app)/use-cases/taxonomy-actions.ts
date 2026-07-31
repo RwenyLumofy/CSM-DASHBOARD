@@ -12,7 +12,7 @@
    fall back to, so every save here writes (or removes) a row directly. */
 
 import { revalidatePath } from "next/cache";
-import { isAdminOrSuper, isSuperAdmin, getCurrentUserEmail } from "@/lib/auth";
+import { isAdminOrSuper, getCurrentUserEmail } from "@/lib/auth";
 import { hasDatabase } from "@/lib/config";
 import {
   TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy, resolveGroups,
@@ -197,9 +197,11 @@ export async function deleteCategoryAction(id: string): Promise<TaxonomyResult> 
  * from zero.
  */
 export async function resetTaxonomyAction(): Promise<TaxonomyResult> {
-  /* Destructive, so the crown rather than any admin — lib/auth.ts reserves
-     destructive actions for isSuperAdmin. */
-  if (!(await isSuperAdmin())) return { ok: false, error: "Super-admin access required." };
+  /* The same admin gate as every other taxonomy write. Destructive, but the
+     taxonomy is the admin's to own, and the orphan-preserving logic below is
+     what makes a wipe survivable — not a narrower role. */
+  const denied = await guard();
+  if (denied) return { ok: false, error: denied };
 
   const { getClients } = await import("@/lib/data");
   const { groupImplementationsByUseCase } = await import("@/lib/use-case-implementation");

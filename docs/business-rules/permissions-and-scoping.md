@@ -194,36 +194,47 @@ open, and `.env.example` never prompted for the variable.
 
 ---
 
-## R11 — Destructive Use Case Universe actions are Super Admin only
+## R11 — Destructive Use Case Universe actions stay Admin, by product decision
 
 **Status: Partially verified** — gates read at their call sites; no tests.
 
-**Definition.** Two Universe actions rewrite the taxonomy every CSM classifies against and
-are reserved for `super_admin`:
+**Definition.** Every Universe write, destructive or not, gates on `isAdminOrSuper`:
 
-| Action | Code |
-|---|---|
-| Apply an import (`merge` **or** `replace`) | `applyImportAction`, `app/(app)/use-cases/transfer-actions.ts` |
-| Reset the whole use-case database | `resetTaxonomyAction`, `app/(app)/use-cases/taxonomy-actions.ts` |
+| Action | Gate | Code |
+|---|---|---|
+| Export the library | `isAdminOrSuper` | `exportUseCaseUniverseAction`, `app/(app)/use-cases/transfer-actions.ts` |
+| Preview an import | `isAdminOrSuper` | `previewImportAction`, same file |
+| Apply an import (`merge` **or** `replace`) | `isAdminOrSuper` | `applyImportAction`, same file |
+| Reset the whole use-case database | `isAdminOrSuper` (via `guard()`) | `resetTaxonomyAction`, `app/(app)/use-cases/taxonomy-actions.ts` |
 
-**Reading is not restricted the same way.** Export and import **preview** remain
-`isAdminOrSuper` — a preview writes nothing, and refusing to let an admin read a plan buys
-nothing.
+**This is an exception to the general rule, and a deliberate one.** `lib/auth.ts` states
+the split in `isAdminOrSuper`'s own header: *"Admin runs the workspace; the crown (managing
+admins, integrations, destructive actions) stays gated by `isSuperAdmin()`."* A replace
+import and a reset are destructive by that definition, so the general rule would put them
+with the crown.
 
-**Why.** `lib/auth.ts` states the split in `isAdminOrSuper`'s own header: *"Admin runs the
-workspace; the crown (managing admins, integrations, destructive actions) stays gated by
-`isSuperAdmin()`."* These two were the exception.
+They are not, because **curating the taxonomy is the Admin's job**, and moving it between
+environments or starting it over is part of curating it. What makes the destructive mode
+safe here is procedural rather than role-based, and all four controls are implemented:
 
-### This is a breaking change for Admins
+1. Preview before apply — `previewImportAction` writes nothing and reports what would change.
+2. A typed confirmation naming the cost — the replace path requires the exact phrase and
+   shows how many accounts each retirement affects.
+3. An automatic backup export taken immediately before a replace, and the import is
+   abandoned if that backup fails (`components/reports/UseCaseTransfer.tsx`).
+4. Removal re-validation at apply time — if the library changed since the preview, the
+   action refuses and names what would additionally be retired.
 
-**Changed in commit `7f731b7`.** Both actions previously gated on `isAdminOrSuper`. An
-Admin who could apply an import or reset the database yesterday now sees
-*"Super-admin access required to import."* / *"Super-admin access required."* The UI
-control is still reachable — the refusal is server-side, at the action.
+Plus the orphan-preserving behaviour in [R2](use-case-associations.md), which means even a
+completed reset leaves every account link resolving.
 
-**Code.** `app/(app)/use-cases/transfer-actions.ts:205` ·
-`app/(app)/use-cases/taxonomy-actions.ts:202` · `lib/auth.ts` → `isSuperAdmin`,
-`isAdminOrSuper`.
+**History.** Commit `7f731b7` briefly tightened both actions to `isSuperAdmin`; this was
+reverted after a product decision that Admins retain these rights. If the decision is
+revisited, `applyImportAction` and `resetTaxonomyAction` are the two call sites.
+
+**Code.** `app/(app)/use-cases/transfer-actions.ts` → `applyImportAction` ·
+`app/(app)/use-cases/taxonomy-actions.ts` → `resetTaxonomyAction`, `guard()` ·
+`lib/auth.ts` → `isAdminOrSuper`.
 
 ---
 

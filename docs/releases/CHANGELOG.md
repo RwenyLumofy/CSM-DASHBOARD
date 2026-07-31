@@ -64,28 +64,28 @@ left to promote. Such an id has to be re-created by hand or re-imported.
 **Commit:** `7f731b7` · **Decisions:**
 [0008](../decisions/0008-a-retirement-marker-is-not-enough-keep-the-taxonomy-row.md)
 
-### Import hardened; import and reset now require Super Admin
-**Roles affected:** Admin (loses import-apply and reset), Super Admin
+### Import hardened
+**Roles affected:** Admin, Super Admin
 **Before:** `sourceUrl` was scheme-checked only on the section-edit path, so an imported
 `javascript:` value became a live link for every viewer of the detail page. Import wrote
 its two `workspace_config` keys as separate statements, so a failure on the second left the
 taxonomy rewritten against a stale library while reporting failure. Apply re-planned against
 a fresh read, so a use case added between preview and apply could be retired beyond what the
-typed confirmation covered. Both destructive actions gated on `isAdminOrSuper`.
+typed confirmation covered.
 **After:** `safeHttpUrl()` validates on read, on import and at render. Both keys are written
 in one transaction. Apply re-validates the previewed removals and refuses on mismatch,
 naming what would additionally be retired. Duplicates the file drops are reported instead of
-being silently skipped. Apply and reset require `isSuperAdmin`, matching the intent recorded
-in [`lib/auth.ts`](../../lib/auth.ts).
-**⚠ Permission change — this one breaks people.** An **Admin** who could apply an import or
-reset the use-case database yesterday now receives a server-side refusal
-(*"Super-admin access required to import."*). Export and import **preview** are unchanged at
-`isAdminOrSuper`. The UI control is still reachable; the refusal happens at the action.
+being silently skipped.
+**No permission change.** `7f731b7` briefly moved apply-import and reset to `isSuperAdmin`
+on the reading that `lib/auth.ts` reserves destructive actions for the crown. That was
+reverted in `498db1f` by product decision: **Admins keep both rights.** Curating the
+taxonomy is the Admin's job, and importing or resetting it is part of curating it — the
+safety on those paths is procedural (preview, typed confirmation, automatic backup before a
+replace, removal re-validation) and reinforced by the orphan-preserving behaviour above.
+Net effect across the branch: every Universe gate is `isAdminOrSuper`, exactly as before.
 **Known limitations:** Not exercised in a browser — verified by unit tests over the pure
-functions and by reading the server actions. The module header of
-`app/(app)/use-cases/transfer-actions.ts` still says "ADMIN ONLY, both directions" and is
-now stale.
-**Commit:** `7f731b7` · **Decisions:**
+functions and by reading the server actions.
+**Commit:** `7f731b7`, permission revert in `498db1f` · **Decisions:**
 [0009](../decisions/0009-validate-outbound-urls-on-read-not-only-on-write.md)
 
 ### Client profile: rejected actions are now visible

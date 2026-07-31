@@ -8,12 +8,17 @@
    by NAME rather than id, because ids for team-added use cases are generated
    per environment and would never line up. See lib/use-case-transfer.ts.
 
-   ADMIN TO READ, SUPER-ADMIN TO WRITE. Export and preview gate on
-   isAdminOrSuper — the file is the entire internal library, and reading a plan
-   changes nothing. applyImportAction gates on isSuperAdmin instead: it rewrites
-   the taxonomy every CSM classifies against, and in replace mode retires
-   whatever the file omits, which is the "destructive action" lib/auth.ts
-   reserves for the crown.
+   ADMIN ONLY, both directions. Export because the file is the entire internal
+   library; import because it rewrites the taxonomy every CSM classifies
+   against. Same gate as saveUseCaseSectionAction.
+
+   Deliberately NOT isSuperAdmin, even though lib/auth.ts frames destructive
+   actions as super-admin territory and replace mode retires whatever the file
+   omits. Curating the taxonomy is the workspace admin's job, and moving it
+   between environments is part of curating it. What makes the destructive mode
+   safe is procedural, not role-based: preview before apply, a typed
+   confirmation naming the cost, an automatic backup export taken before a
+   replace, and the removal re-validation below.
 
    TWO STEPS, ALWAYS. previewImportAction reports what would change and writes
    nothing; applyImportAction does it. Both call the same pure planImport(), so
@@ -24,7 +29,7 @@
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";
-import { isAdminOrSuper, isSuperAdmin, getCurrentUserEmail } from "@/lib/auth";
+import { isAdminOrSuper, getCurrentUserEmail } from "@/lib/auth";
 import { hasDatabase } from "@/lib/config";
 import { mergeLibrary, LIBRARY_OVERRIDE_KEY, type UseCaseOverride } from "@/lib/use-case-library";
 import {
@@ -204,10 +209,13 @@ export async function applyImportAction(
   expectedRemoved?: string[],
 ): Promise<ApplyResult> {
   if (!hasDatabase()) return { ok: false, error: "No database configured." };
-  /* Destructive, and lib/auth.ts reserves destructive actions for the crown:
-     a replace import rewrites the whole taxonomy and retires whatever the file
-     omits. Preview stays at isAdminOrSuper — reading a plan harms nothing. */
-  if (!(await isSuperAdmin())) return { ok: false, error: "Super-admin access required to import." };
+  /* isAdminOrSuper, not isSuperAdmin. lib/auth.ts describes destructive actions
+     as super-admin territory, but importing the use-case library is the
+     workspace admin's job by product decision — an admin curates the taxonomy,
+     and transferring it between environments is part of curating it. The safety
+     here is the two-step preview, the typed confirmation, the automatic backup
+     before a replace, and the removal re-validation below — not the role. */
+  if (!(await isAdminOrSuper())) return { ok: false, error: "Admin access required to import." };
 
   const built = await buildPlan(json, mode);
   if ("error" in built) return { ok: false, error: built.error };

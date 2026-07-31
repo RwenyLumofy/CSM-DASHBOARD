@@ -139,13 +139,12 @@ The current list of crown-only actions:
 | Reassign either owner slot on an account | `app/(app)/clients/[id]/owner-actions.ts` |
 | Grant, edit or remove `super_admin` | `app/(app)/settings/user-actions.ts` |
 | Integration secrets and a full re-sync | Settings → Integrations |
-| Apply a Use Case Universe import | `app/(app)/use-cases/transfer-actions.ts` |
-| Reset the Use Case Universe database | `app/(app)/use-cases/taxonomy-actions.ts` |
 
-The last two moved here from `isAdminOrSuper` in commit `7f731b7` — a **breaking change for
-Admins**, who previously could do both. Export and import *preview* remain
-`isAdminOrSuper`. See
-[permissions-and-scoping R11](../../business-rules/permissions-and-scoping.md#r11--destructive-use-case-universe-actions-are-super-admin-only).
+**The Use Case Universe is not on this list**, including its destructive paths. Applying an
+import and resetting the whole use-case database are both `isAdminOrSuper` — briefly
+narrowed to `isSuperAdmin` in `7f731b7`, reverted in `498db1f` by product decision. See
+[permissions-and-scoping R11](../../business-rules/permissions-and-scoping.md#r11--destructive-use-case-universe-actions-stay-admin-by-product-decision)
+for why, and for the four procedural safeguards that stand in place of a narrower role.
 
 ## Route-level protection
 

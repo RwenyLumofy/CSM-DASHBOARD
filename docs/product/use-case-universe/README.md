@@ -315,13 +315,18 @@ permission tests.
 | Edit a definition section | `isAdminOrSuper()` — `actions.ts` |
 | Export the Universe | `isAdminOrSuper()` |
 | **Preview** an import | `isAdminOrSuper()` |
-| **Apply** an import (`merge` or `replace`) | **`isSuperAdmin()`** |
-| **Reset** the whole database | **`isSuperAdmin()`** |
+| **Apply** an import (`merge` or `replace`) | `isAdminOrSuper()` |
+| **Reset** the whole database | `isAdminOrSuper()` — `guard()` |
 | Link a use case to an account; edit or remove the implementation | `denyClientWrite(clientId)` |
 
-Apply and reset were **tightened from `isAdminOrSuper` to `isSuperAdmin` in commit
-`7f731b7`** — an Admin who could do either yesterday now gets a server-side refusal. See
-[permissions-and-scoping R11](../../business-rules/permissions-and-scoping.md#r11--destructive-use-case-universe-actions-are-super-admin-only).
+**One gate for every Universe write, including the destructive ones.** Commit `7f731b7`
+briefly narrowed apply and reset to `isSuperAdmin`; `498db1f` reverted that by product
+decision — curating the taxonomy is the Admin's job, and importing or resetting it is part
+of curating it. The protection on those paths is procedural rather than role-based: preview
+before apply, a typed confirmation naming how many accounts each retirement costs, an
+automatic backup export before a replace (the import is abandoned if the backup fails), and
+apply-time re-validation of the previewed removals. See
+[permissions-and-scoping R11](../../business-rules/permissions-and-scoping.md#r11--destructive-use-case-universe-actions-stay-admin-by-product-decision).
 
 **The account-linking gate does not move with the surface.** Linking from the directory's
 per-card menu and linking from the client profile both call `saveImplementationAction` and
