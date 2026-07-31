@@ -37,20 +37,32 @@ accounts and has not been exercised against real data.
 
 ### Destructive taxonomy paths no longer orphan account links
 **Roles affected:** Super Admin
-**Before:** Three paths broke the module's own "retire, never orphan" rule. A `replace`
-import wrote the retirement marker but not the taxonomy row, and
-[`resolveTaxonomy`](../../lib/use-case-overlay.ts) reads only from `added` — so every
-account carrying a removed use case rendered blank on its profile and 404'd on
-`/use-cases/[id]`. `resetTaxonomyAction` wiped ids out from under live account records the
-same way. And retiring A into B never moved A's accounts onto B, despite the merge UI
-saying it would, because links were bucketed by their raw stored id.
+**Before:** The use-case database stopped being a delta layered on the code-shipped list in
+this same commit, and three paths did not survive the change intact.
+[`resolveTaxonomy`](../../lib/use-case-overlay.ts) now reads **only** from `overlay.added`,
+so a retirement marker written without its `added` row resolves to nothing — the account
+carrying that id renders blank on its profile and 404s on `/use-cases/[id]`.
+A `replace` import wrote exactly that. Previously it was safe for entries the code list
+still supplied, and *deliberately* destructive for team-added ones (`4214349` disclosed
+that in the UI three times); with the seed gone, it became blanket orphaning.
+`resetTaxonomyAction` was a plain wipe of both keys — that one orphaned live account
+records from the day it shipped. And retiring A into B never moved A's accounts onto B,
+despite the merge UI saying it would, because links were bucketed by their raw stored id and
+`resolveThroughMerges` had no production caller.
 **After:** All three preserve resolution. Replace and reset keep a *retired* taxonomy row
 for anything an account still references — gone from every picker, still resolvable —
 and adoption is bucketed through merge pointers, giving `resolveThroughMerges()` its first
 production caller.
-**Migration/data:** None. Environments already affected can be repaired with
-[`scripts/restore-orphaned-use-cases.mjs`](../../scripts/restore-orphaned-use-cases.mjs).
-**Commit:** `7f731b7`
+**Migration/data:** None going forward.
+[`scripts/restore-orphaned-use-cases.mjs`](../../scripts/restore-orphaned-use-cases.mjs)
+repairs the *other* orphaning case — definitions left in `use_case_library` with no
+taxonomy row when the overlay stopped being a delta on the shipped list — by promoting each
+into a real row under its original id. **It cannot recover a use case removed by the old
+`replace` or reset paths**, because those wiped the definition as well; there is nothing
+left to promote. Such an id has to be re-created by hand or re-imported.
+**Known limitations:** Verified by unit test and code reading only — see below.
+**Commit:** `7f731b7` · **Decisions:**
+[0008](../decisions/0008-a-retirement-marker-is-not-enough-keep-the-taxonomy-row.md)
 
 ### Import hardened; import and reset now require Super Admin
 **Roles affected:** Admin (loses import-apply and reset), Super Admin
@@ -65,8 +77,16 @@ in one transaction. Apply re-validates the previewed removals and refuses on mis
 naming what would additionally be retired. Duplicates the file drops are reported instead of
 being silently skipped. Apply and reset require `isSuperAdmin`, matching the intent recorded
 in [`lib/auth.ts`](../../lib/auth.ts).
-**Known limitations:** Not exercised in a browser — verified by unit tests and code reading.
-**Commit:** `7f731b7`
+**⚠ Permission change — this one breaks people.** An **Admin** who could apply an import or
+reset the use-case database yesterday now receives a server-side refusal
+(*"Super-admin access required to import."*). Export and import **preview** are unchanged at
+`isAdminOrSuper`. The UI control is still reachable; the refusal happens at the action.
+**Known limitations:** Not exercised in a browser — verified by unit tests over the pure
+functions and by reading the server actions. The module header of
+`app/(app)/use-cases/transfer-actions.ts` still says "ADMIN ONLY, both directions" and is
+now stale.
+**Commit:** `7f731b7` · **Decisions:**
+[0009](../decisions/0009-validate-outbound-urls-on-read-not-only-on-write.md)
 
 ### Client profile: rejected actions are now visible
 **Roles affected:** CSM, Admin
@@ -74,9 +94,13 @@ in [`lib/auth.ts`](../../lib/auth.ts).
 teammate's task failed silently — the server correctly refused, and the checkbox just
 bounced back. Separately, a non-admin could pick an assignee; the server quietly reassigned
 the task to them and returned success, so they believed a teammate had been tasked.
-**After:** The rejection message renders in both states. `createTaskAction` refuses a
-non-admin reassignment with the same wording `updateTaskAction` already used, and the picker
-is gated on the predicate the server enforces.
+**After:** The rejection message renders in both states — the error element moved out of the
+add-task block, which is the only place it had ever been rendered. `createTaskAction`
+refuses a non-admin reassignment with the same wording `updateTaskAction` already used, and
+the picker is gated on the predicate the server enforces (`editsAllClients(role)`).
+**Also in this commit:** editing a use-case implementation no longer nulls `missionId`. The
+edit form never sends the field, so every save silently wiped whatever was linked. Latent
+today — nothing writes `missionId` yet — but a data-loss bug the moment something does.
 **Commit:** `7f731b7` ([`AccountTasks.tsx`](../../components/clients/AccountTasks.tsx))
 
 ### Existing adoption backfilled into the new store
@@ -91,14 +115,40 @@ resolves both sources through the existing alias table in
 and creates one record per (account, use case) at status **exploring** with a note naming
 the source. Deliberately not "live" — nobody has confirmed delivery.
 **Migration/data:** Dry-run by default; `--yes` to write. Idempotent, and never modifies an
-existing record. Applied to the clone: **63 associations across 32 accounts, 17 of 29 use
-cases**. Only `Unclear` and `Other` were skipped, which name no use case. **Not yet run
-against production.**
-**Known limitations:** One alias was added for a stored slug variant
-(`compliance_regulatory`) that previously resolved to nothing. Other stale slugs may exist
-in environments this has not been run against — the script reports them rather than
-guessing.
+existing record. Applied to the **clone database**: 63 associations across 32 accounts,
+covering 17 of 29 use cases. **Not yet run against production** — until it is, the Universe
+there still reads "No clients yet" for most of the library. *(The run figures are reported
+from that execution; they cannot be reproduced from this repository.)*
+**Known limitations:** The script depends on the taxonomy being keyed by the same canonical
+slugs `lib/use-cases.ts` uses — true of this workspace for historical reasons, not
+guaranteed by the code
+([use-case-universe §2](../product/use-case-universe/README.md)). One alias was added for a
+stored slug variant (`compliance_regulatory`) that previously resolved to nothing on the
+accounts carrying it. Other stale slugs may exist elsewhere; the script reports every value
+it could not confidently match rather than guessing.
 **Commit:** `7f731b7`
+
+### Documentation set, repo instructions, and a no-database notice
+**Roles affected:** Everyone (the notice); Engineering and anyone maintaining Signal (the
+rest)
+**Before:** There was no product documentation in the repository, and an app booted without
+`DATABASE_URL` rendered the full shell with empty tables — indistinguishable from a
+workspace that genuinely has no data, now that `lib/data.ts` no longer falls back to a
+sample seed.
+**After:** `/docs` lands with 48 documents (product map, per-area features, business rules,
+data model, architecture, decision records, known limitations, this changelog), plus
+`CLAUDE.md`, the `signal-product-documenter` agent definition, and
+[`scripts/docs-check.mjs`](../../scripts/docs-check.mjs), which validates every internal
+link, every cited repository path, and required verification metadata. An unconfigured
+deployment now renders a plain notice naming `DATABASE_URL` instead of empty tables, and
+does no data work at all — the check runs before the layout's reads.
+**Migration/data:** None. Also newly *tracked* (not newly written, and not wired to
+anything): the health-engine schema `lib/db/health-schema.ts` and `drizzle/health-*.sql`,
+`lib/metrics/team.ts`, and several maintenance scripts.
+**Known limitations:** The health-engine schema has **no writer** and is not referenced by
+shipped code. Do not read its presence as the engine being live — see
+[health-engine.md](../health-engine.md).
+**Commit:** `15329e3`
 
 ---
 
@@ -115,8 +165,14 @@ so no account's recorded implementation is orphaned). The preview states how man
 each retirement affects **before** anything is written, and a destructive replace takes a
 typed confirmation.
 **Data impact:** Writes `workspace_config.use_case_taxonomy` and the definition library.
-**Limitations:** A "delete everything and re-import" path (`4214349`) is **unverified**.
-**Commits:** `c831c6f`, `4214349`
+**Limitations at the time:** under the delta model then in force, `replace` **genuinely
+deleted a team-added entry** the file omitted — no retirement, no trace, no restore — and
+the UI said so in three places, including per-entry account counts. Only entries shipped in
+`lib/use-cases.ts` were retired instead, because the code list kept them resolving.
+`resetTaxonomyAction` was a plain `save({})` wipe, gated at Admin. Both behaviours were
+changed by `7f731b7` when the shipped seed was removed — see 2026-07-31 above.
+**Commits:** `c831c6f`, `4214349` · **Decision:**
+[0010](../decisions/0010-transfer-the-universe-by-name-never-by-id.md)
 
 ### Security: closed a middleware bypass, an IDOR, and fail-open secret checks
 **Roles affected:** Everyone — this one matters

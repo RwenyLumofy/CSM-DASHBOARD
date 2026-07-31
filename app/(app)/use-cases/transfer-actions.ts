@@ -8,14 +8,19 @@
    by NAME rather than id, because ids for team-added use cases are generated
    per environment and would never line up. See lib/use-case-transfer.ts.
 
-   ADMIN ONLY, both directions. Export because the file is the entire internal
-   library; import because it rewrites the taxonomy every CSM classifies
-   against. Same gate as saveUseCaseSectionAction.
+   ADMIN TO READ, SUPER-ADMIN TO WRITE. Export and preview gate on
+   isAdminOrSuper — the file is the entire internal library, and reading a plan
+   changes nothing. applyImportAction gates on isSuperAdmin instead: it rewrites
+   the taxonomy every CSM classifies against, and in replace mode retires
+   whatever the file omits, which is the "destructive action" lib/auth.ts
+   reserves for the crown.
 
    TWO STEPS, ALWAYS. previewImportAction reports what would change and writes
    nothing; applyImportAction does it. Both call the same pure planImport(), so
    the summary someone approved cannot describe a different change from the one
-   that lands.
+   that lands — but apply re-plans against a freshly read overlay, so it also
+   re-validates the previewed removals and refuses if the library moved
+   underneath the confirmation.
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";

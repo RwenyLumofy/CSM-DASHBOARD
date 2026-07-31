@@ -3,9 +3,37 @@
 Honest list of what Signal does not do, does badly, or does inconsistently — including
 things nobody has filed.
 
-**Last verified:** 2026-07-31 · **Commit:** `4214349`
+**Last verified:** 2026-07-31 · **Commit:** `15329e3`
 
 Contradictions have their own file: [contradictions.md](contradictions.md).
+
+---
+
+## Outstanding work that has landed in code but not in production
+
+| Item | Detail |
+|---|---|
+| **The use-case adoption backfill has not been run against production** | [`scripts/backfill-use-case-implementations.mjs`](../../scripts/backfill-use-case-implementations.mjs) has been applied to the **clone database only** — 63 associations across 32 accounts, covering 17 of 29 use cases. Until it runs against production, the Use Case Universe there reads "No clients yet" for most of the library while the workspace has known the answer for months. The script is dry-run by default (`--yes` to write), idempotent, and never modifies an existing record, so a production run is repeatable and cannot overwrite a CSM's own objective. Landed in `7f731b7` |
+| **`scripts/restore-orphaned-use-cases.mjs` is a one-off repair, not a migration** | It exists to rescue environments damaged by the pre-`7f731b7` orphaning bug. Whether any environment other than the clone still needs it has not been established |
+| **The health-engine schema is tracked but unwired** | `lib/db/health-schema.ts` and the `drizzle/health-*.sql` files were committed in `15329e3`. Nothing shipped writes them. See [health-engine.md](../health-engine.md) |
+
+## Verified by reading and unit test, never exercised in a browser
+
+These behaviours are covered by tests over their pure functions and by reading the server
+actions end to end. **Nobody has run them against a real workspace through the UI**, and the
+guards, transactions and cache revalidation around them have no test at all.
+
+| Flow | Code |
+|---|---|
+| Use Case Universe `replace` import, including the account-cost preview and the typed confirmation | `app/(app)/use-cases/transfer-actions.ts` → `previewImportAction`, `applyImportAction` |
+| Apply-time re-validation of the previewed removal list | `applyImportAction` |
+| Reset the use-case database (retained retired rows for referenced ids) | `app/(app)/use-cases/taxonomy-actions.ts` → `resetTaxonomyAction` |
+| Linking an account to a use case from the directory's link dialog | `components/reports/UseCaseDirectory.tsx` → `LinkDialog` |
+
+The invariants underneath them **are** tested — see
+[use-case-associations R2 / R2a](../business-rules/use-case-associations.md#r2--retire-never-orphan)
+and [decision 0008](../decisions/0008-a-retirement-marker-is-not-enough-keep-the-taxonomy-row.md).
+What is untested is everything between the button and the pure function.
 
 ---
 
@@ -68,11 +96,14 @@ Contradictions have their own file: [contradictions.md](contradictions.md).
 
 ## Testing
 
-Six test files: four use-case modules, the health engine, stakeholder coverage.
+Seven test files, 124 tests: five use-case modules (`use-cases`, `use-case-overlay`,
+`use-case-status`, `use-case-transfer`, `use-case-implementation`), the health engine, and
+stakeholder coverage.
 
 **Untested:** every permission gate · every ARR and retention formula · the live health
 formula · the signal engine · the assignment engine · the import parser · every page and
-server action.
+**every server action** — including the destructive Use Case Universe actions, whose pure
+functions are tested but whose guards, transactions and revalidation are not.
 
 Several of these were **written as pure functions specifically to be testable** and simply
 have no tests.

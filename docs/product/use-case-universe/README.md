@@ -57,7 +57,7 @@ unlinked and share no ids*.
 |---|---|---|
 | What | The published "Lumofy Use Cases by Category" — 23 use cases across 6 categories, shipped in code | An admin-curated database stored in `workspace_config.use_case_taxonomy` |
 | Ships with content | Yes, hardcoded | **No** — a fresh workspace has zero categories and zero use cases |
-| Ids | Canonical slugs (`talent_strategy_activation`, …) | `newUseCaseId()` mints `uc_<random>`, but **the ids actually stored are the same canonical slugs** — see below |
+| Ids | Canonical slugs (`talent_strategy_activation`, …) | `newUseCaseId()` mints `uc_<random>`, but **most ids actually stored are the same canonical slugs** — see below |
 | Used by | The account-level "confirmed vs declared" picker | The Use Case Universe pages and the profile's associate feature |
 | Tested | Yes (`lib/use-cases.test.ts`) | Yes (`lib/use-case-overlay.test.ts`) |
 
@@ -73,22 +73,44 @@ other. Tracked in
 
 ### The ids overlap in practice, even though the code does not
 
-`newUseCaseId()` generates `uc_<random>`, so this document previously recorded the two id
-spaces as disjoint. **They are not.** Every one of the 29 entries in the live
-`use_case_taxonomy` is keyed by the same canonical slug `lib/use-cases.ts` uses —
-`certification_prep`, `employee_onboarding`, `competency_framework` and so on — because the
-library was imported from the same published source rather than created one at a time
-through **Add use case**. Verified by reading `workspace_config.use_case_taxonomy` directly
-and comparing its keys against `USE_CASES`.
+**Status: Partially verified.** The *mechanism* below is verifiable from the repository.
+The *count* is a database observation and cannot be reproduced from the code.
 
-This is a property of the *data*, not a guarantee of the *code*: anything created through
-the UI from now on gets a random id, so the overlap will erode. It is recorded because one
-thing already depends on it —
+`newUseCaseId()` generates `uc_<random>`, so this document previously recorded the two id
+spaces as disjoint. **They are not.** The live `use_case_taxonomy` is keyed largely by the
+same canonical slugs `lib/use-cases.ts` uses — `certification_prep`, `employee_onboarding`,
+`competency_framework` and so on.
+
+**Why, and this is the part the code proves.** The overlay used to be a *delta layered on
+top of the code-shipped list*, not a database. At commit `4214349`
+`lib/use-case-overlay.ts` imported `USE_CASES` and said so in its header: *"the code list
+is a SEED, and everything the team does is recorded as a delta in `workspace_config`"* —
+`renamed[id]` overrode a shipped entry, `added[id]` held team-created ones, `retired[id]`
+took entries out of the picker. Definitions written by the team were therefore keyed on
+**shipped ids**, i.e. canonical slugs.
+
+Commit `7f731b7` rewrote the overlay as a flat, preset-free database: no seed, no
+`renamed`, `resolveTaxonomy` emitting only from `added`. That left every definition keyed
+on a shipped id with no taxonomy row to attach to.
+[`scripts/restore-orphaned-use-cases.mjs`](../../../scripts/restore-orphaned-use-cases.mjs)
+promotes each of those into a real `added` row **reusing the same id**, precisely so the
+definition stays attached and any account association recorded against that id keeps
+resolving. The canonical slugs in `workspace_config` are the fossil of the old delta model.
+
+So the overlap is a property of the *data*, inherited, not a guarantee of the *code*:
+anything created through **Add use case** from now on gets `uc_<random>`, so the overlap
+erodes from here. `29` live entries were counted by reading
+`workspace_config.use_case_taxonomy` directly; that figure is **not verifiable from this
+repository** and will change.
+
+It is recorded because one thing already depends on it —
 [`scripts/backfill-use-case-implementations.mjs`](../../../scripts/backfill-use-case-implementations.mjs)
 resolves HubSpot deal values through `lib/use-cases.ts` aliases and then looks the result up
 in the taxonomy. That only works while the slugs coincide, and the script checks each
 resolved id against the live taxonomy rather than assuming it (skipping, and reporting,
-anything that misses).
+anything that misses). **A workspace whose Universe was built through the UI rather than
+inherited from the delta model would resolve nothing and the backfill would be a no-op** —
+correctly, and visibly.
 
 ### What `lib/use-cases.ts` gets right (worth preserving in any resolution)
 
@@ -132,6 +154,15 @@ Delivery descriptors (advisory services, Authoring, reporting, integrations, cus
 content) are deliberately **not** products — they are *how* the work is done, and the
 capability list already says so.
 
+**`sourceUrl` is validated on read, not only on write.** It renders as a bare `<a href>` on
+the detail page for every viewer, so a stored `javascript:` or `data:` value is stored XSS.
+`safeHttpUrl()` in `lib/use-case-library.ts` accepts only `http`/`https` and is applied at
+three points — on read of the stored library (`mergeLibrary`), on transfer import
+(`parseTransferFile`), and at render (`UseCaseDetail`) — so no write path can bypass it.
+Anything else resolves to `null` and no link renders. Added in commit `7f731b7`;
+**tested** in `lib/use-case-implementation.test.ts`. See
+[decision 0009](../../decisions/0009-validate-outbound-urls-on-read-not-only-on-write.md).
+
 ### Status model
 `lib/use-case-status.ts` — **tested**.
 
@@ -146,14 +177,22 @@ capability list already says so.
 **An active, recently reviewed use case shows no chip at all.** A chip should mean "look at
 this"; if everything wears one, nothing does.
 
-### Retire, never delete
+### Retire, never orphan
 A use case is **retired**, not deleted, because the profile's associate feature records an
 account's implementation against a use-case id — deleting the id would silently orphan that
-record. Retiring keeps the id resolving (via `resolveThroughMerges`) and removes it from
-the active picker; it can be restored.
+record. Retiring removes it from the active picker while the id keeps resolving to a
+**named** entry, so the account's profile and `/use-cases/[id]` still work. It can be
+restored.
+
+The trap, and the reason this was broken on three paths until commit `7f731b7`:
+`resolveTaxonomy` emits **only** from `overlay.added`. Writing the `retired` marker without
+keeping the `added` row is a hard delete as far as the application is concerned. Both the
+`replace` import and the database reset now keep the row. Merged use cases hand their
+accounts to the successor. Full rule and code paths:
+[use-case-associations R2 / R2a](../../business-rules/use-case-associations.md#r2--retire-never-orphan).
 
 **Categories may be deleted outright** — `TaxonomyManager` refuses to delete one while any
-live use case still lists it, so a delete that succeeds is genuinely empty.
+use case, live or retired, still lists it, so a delete that succeeds is genuinely empty.
 
 **Ids are never reused.**
 
@@ -199,7 +238,7 @@ An implementation may carry a linked project/mission id when one exists.
 
 ## 5. Transfer — moving the Universe between environments
 
-`lib/use-case-transfer.ts` (419 lines) — **tested** (`lib/use-case-transfer.test.ts`).
+`lib/use-case-transfer.ts` — **tested** (`lib/use-case-transfer.test.ts`).
 
 **Matched by name, never by id.** Ids are generated per environment; exporting locally and
 importing to production would make every entry arrive as a duplicate. So a use case is
@@ -222,20 +261,73 @@ computed by the same function from the same inputs. The preview states how many 
 each retirement affects **before** anything is written, and the UI takes a typed
 confirmation.
 
-A newer capability, "delete everything and re-import", was added in the current HEAD commit
-(`4214349`) — **its behaviour has not been verified in this baseline.**
+### Apply-time safety (commit `7f731b7`)
+
+Three problems in the apply path were closed:
+
+1. **The taxonomy could be rewritten against a stale library.** The two `workspace_config`
+   keys were written as separate statements; a failure on the second reported failure while
+   the first had already landed — and in `replace` mode the taxonomy rewrite has retired
+   things by then. Both keys now go through `setWorkspaceConfigManyDb` in **one
+   transaction**, taxonomy first.
+2. **The typed confirmation could be outrun.** Apply re-plans against a freshly read
+   overlay, so a use case someone added between preview and apply would be retired beyond
+   what was confirmed. Apply now compares the recomputed removal list against the previewed
+   one and refuses on mismatch, naming what would additionally be retired.
+3. **`sourceUrl` was only scheme-checked on the section-edit path**, so an imported
+   `javascript:` value became a live href for every viewer of the detail page. See §3.
+
+A file that names the same use case twice keeps the first and **reports** the dropped
+names, rather than silently lowering the "created" count.
+
+### What a `replace` still costs
+
+Retiring is not free. The entry keeps its id, name, summary and categories, but its
+**written definition is cleared** — customer problem, desired outcome, capabilities, success
+indicators, everything — because the library is rebuilt from the file alone. That loss is
+real and has no undo other than the automatic backup.
+
+Before a `replace` writes anything, `UseCaseTransfer` exports the current Universe and
+downloads it as `use-case-universe-BACKUP-before-replace-<date>.json`. **If the backup
+cannot be produced, the import is refused** rather than proceeding. The confirmation is the
+exact case-sensitive phrase `DELETE YES I AM SURE`; the button stays disabled until it is
+typed, and it is red rather than blue.
+
+### Resetting the database
+
+`resetTaxonomyAction` clears both keys the Universe owns. There is no shipped baseline to
+reset *to*, so this is a genuine wipe — with one exception, which is the whole point:
+**any id an account is still recorded against keeps its taxonomy row** (and its categories),
+marked retired, so the association keeps resolving. The definitions go regardless. Super
+Admin only.
 
 ---
 
 ## 6. Permissions
 
-- **View definitions:** everyone.
-- **Create / edit / retire definitions, manage categories:** Admin and Super Admin via the
-  Universe pages. *Not separately verified for operator restriction — see Open questions.*
-- **Associate a use case to an account, record an implementation:** the client write gate —
-  operators on their own accounts, not Guests.
-- **Export / import the Universe:** a destructive replace takes a typed confirmation. The
-  server-side role gate on transfer actions was **not verified in this pass**.
+**Status: Partially verified** — every gate below was read at its call site; Signal has no
+permission tests.
+
+| Action | Server gate |
+|---|---|
+| View definitions and adoption | Session only |
+| Create / edit / retire / restore a definition; add, rename, delete a category | `isAdminOrSuper()` — `guard()` in `taxonomy-actions.ts` |
+| Edit a definition section | `isAdminOrSuper()` — `actions.ts` |
+| Export the Universe | `isAdminOrSuper()` |
+| **Preview** an import | `isAdminOrSuper()` |
+| **Apply** an import (`merge` or `replace`) | **`isSuperAdmin()`** |
+| **Reset** the whole database | **`isSuperAdmin()`** |
+| Link a use case to an account; edit or remove the implementation | `denyClientWrite(clientId)` |
+
+Apply and reset were **tightened from `isAdminOrSuper` to `isSuperAdmin` in commit
+`7f731b7`** — an Admin who could do either yesterday now gets a server-side refusal. See
+[permissions-and-scoping R11](../../business-rules/permissions-and-scoping.md#r11--destructive-use-case-universe-actions-are-super-admin-only).
+
+**The account-linking gate does not move with the surface.** Linking from the directory's
+per-card menu and linking from the client profile both call `saveImplementationAction` and
+are both checked by `denyClientWrite`. The directory's client list is itself role-scoped by
+`getClients()`, so a CSM only sees — and can only link — their own book; the action
+re-checks per client regardless.
 
 ## 7. Business rules
 
@@ -257,13 +349,17 @@ See [use-case-associations](../../business-rules/use-case-associations.md).
 | Admin overlay | `lib/use-case-overlay.ts` + `lib/use-case-overlay.test.ts` |
 | Definition fields | `lib/use-case-library.ts` |
 | Status model | `lib/use-case-status.ts` + `lib/use-case-status.test.ts` |
-| Client implementations | `lib/use-case-implementation.ts` |
+| Client implementations | `lib/use-case-implementation.ts` + `lib/use-case-implementation.test.ts` |
 | Transfer | `lib/use-case-transfer.ts` + `lib/use-case-transfer.test.ts` |
-| Pages | `app/(app)/use-cases/{page,write/page,[id]/page}.tsx` |
-| Actions | `app/(app)/use-cases/{actions,taxonomy-actions,transfer-actions}.ts` |
-| UI | `components/reports/UseCase{Workbench,Detail,Directory,Transfer,Writer}.tsx`, `TaxonomyManager.tsx` |
-| Profile side | `components/clients/{AccountUseCases,UseCasePortfolio}.tsx`, `app/(app)/clients/[id]/use-case-*.ts` |
-| Loader script | `scripts/load-use-case-definition-library.mjs` |
+| Pages | `app/(app)/use-cases/page.tsx`, `app/(app)/use-cases/[id]/page.tsx`, `app/(app)/use-cases/write/page.tsx` |
+| Actions | `app/(app)/use-cases/actions.ts`, `app/(app)/use-cases/taxonomy-actions.ts`, `app/(app)/use-cases/transfer-actions.ts` |
+| UI | `components/reports/UseCaseDirectory.tsx`, `UseCaseDetail.tsx`, `UseCaseTransfer.tsx`, `UseCaseWriter.tsx`, `TaxonomyManager.tsx` |
+| Profile side | `components/clients/UseCasePortfolio.tsx`, `components/clients/AccountUseCases.tsx`, `app/(app)/clients/[id]/use-case-actions.ts`, `app/(app)/clients/[id]/use-case-implementation-actions.ts` |
+| Scripts | `scripts/load-use-case-definition-library.mjs` (definition loader) · `scripts/restore-orphaned-use-cases.mjs` (one-off repair) · `scripts/backfill-use-case-implementations.mjs` (adoption backfill) |
+
+**Deleted in commit `7f731b7`** — `UseCaseWorkbench.tsx`, `UseCaseLibrary.tsx` and
+`UseCaseAccounts.tsx` under `components/reports/`, and the `use-case-adoption` module under
+`lib/`. Any document or comment still naming them is stale.
 
 ## 10. Analytics and observability
 
@@ -280,24 +376,43 @@ None. No events on definition creation, review, or association.
    an open taxonomy decision.
 5. **The Universe has no review workflow** beyond the derived review status — nothing
    assigns a reviewer or a due date.
-6. The current HEAD commit's "delete everything and re-import" path is unverified.
+6. **The destructive paths have never been exercised in a browser.** `replace` import,
+   apply-time re-validation and the database reset are covered by unit tests over
+   `planImport` and by reading the server actions. The guards, the transaction and the
+   revalidation have no test and no manual run against a real workspace.
+7. **Adoption is only as good as the implementation records.** A card reads "No clients yet"
+   for a use case that accounts genuinely run but nobody has recorded. The backfill
+   (`scripts/backfill-use-case-implementations.mjs`) closes most of that gap — **it has
+   been run against the clone database only, not production.**
+8. **The industry concentration read-out** ("3 of 4 are Financial Institutions") renders
+   only at two or more accounts and has not been exercised against real data.
+9. **Two module headers are now stale** and describe boundaries the code no longer has —
+   see [contradictions](../../known-limitations/contradictions.md#use-case-module-headers-describe-gates-and-boundaries-the-code-no-longer-has).
 
 ## 12. Open questions
 
 - Which taxonomy is canonical? Until answered, every downstream document must hedge.
-- What is the server-side role gate on definition editing and on a destructive transfer
-  replace?
 - Should Qiwa Disclosure become a 24th published use case?
 - Is `delivers` intended to return to the UI, or should it be exported and dropped?
+- Should a circular merge chain be rejected when it is written, rather than tolerated when
+  it is read?
+- Does an Admin losing import-apply and reset (§6) match the intended operating model, or
+  should there be a middle tier?
+
+**Answered since the baseline:** the server-side gates on definition editing and on a
+destructive transfer replace are enumerated in §6.
 
 ## Source references
 
 `lib/use-cases.ts` · `lib/use-case-overlay.ts` · `lib/use-case-library.ts` ·
 `lib/use-case-status.ts` · `lib/use-case-implementation.ts` · `lib/use-case-transfer.ts` ·
-their four test files · `app/(app)/use-cases/*` · `components/reports/UseCase*.tsx`
+their five test files · `app/(app)/use-cases/page.tsx` ·
+`app/(app)/use-cases/taxonomy-actions.ts` · `app/(app)/use-cases/transfer-actions.ts` ·
+`app/(app)/clients/[id]/use-case-implementation-actions.ts` ·
+`components/reports/UseCaseDirectory.tsx` · `components/reports/UseCaseDetail.tsx`
 
 ---
 
-**Documentation status:** Partially verified — the four tested modules are `Verified`;
-page-level behaviour and permissions are not
-**Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+**Documentation status:** Partially verified — the five tested modules are `Verified`;
+page-level behaviour and permissions are read-only-verified, with no tests
+**Last verified:** 2026-07-31 · **Commit:** `15329e3` · **Owner:** Unassigned

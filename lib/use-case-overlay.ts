@@ -6,10 +6,20 @@
 
    THIS MODULE IS DELIBERATELY UNLINKED FROM lib/use-cases.ts. That file owns
    the separate, older, shipped-26 taxonomy that the account-level "confirmed
-   vs declared" picker uses — it is not a seed for this one, and the two never
-   share an id. A use case created here is invisible to that picker, and vice
-   versa. This was coupled once, by mistake, and un-coupling it is the reason
-   this file no longer imports anything from lib/use-cases.ts.
+   vs declared" picker uses — it is not a seed for this one. A use case created
+   here is invisible to that picker, and vice versa. This was coupled once, by
+   mistake, and un-coupling it is the reason this file no longer imports
+   anything from lib/use-cases.ts.
+
+   THE IDS ARE NOT GUARANTEED DISJOINT, THOUGH — a stronger claim that used to
+   stand here and is false in existing workspaces. This overlay was once a
+   delta layered ON the shipped list, so entries the team edited back then were
+   keyed by shipped slugs, and scripts/restore-orphaned-use-cases.mjs
+   deliberately re-states those under their original ids so their definitions
+   and account links keep resolving. So a workspace carried over from that era
+   holds canonical slugs here, not `uc_<random>`. Nothing in this file depends
+   on that; scripts/backfill-use-case-implementations.mjs does, and it checks
+   every id against the live taxonomy rather than assuming the overlap holds.
 
    RETIRE, NEVER DELETE (for use cases). The client-page "associate" feature
    records an account's implementation against a use-case id from this

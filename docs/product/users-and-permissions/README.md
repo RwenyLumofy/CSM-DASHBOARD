@@ -128,6 +128,25 @@ makes even a Super Admin look like "no access".
 Admins cannot create, edit, or grant `super_admin` — **in either direction** — and the
 check is server-side in `app/(app)/settings/user-actions.ts:30-56`. This is absolute.
 
+## What only a Super Admin can do
+
+`isAdminOrSuper()`'s own header states the split: *"Admin runs the workspace; the crown
+(managing admins, integrations, destructive actions) stays gated by `isSuperAdmin()`."*
+The current list of crown-only actions:
+
+| Action | Code |
+|---|---|
+| Reassign either owner slot on an account | `app/(app)/clients/[id]/owner-actions.ts` |
+| Grant, edit or remove `super_admin` | `app/(app)/settings/user-actions.ts` |
+| Integration secrets and a full re-sync | Settings → Integrations |
+| Apply a Use Case Universe import | `app/(app)/use-cases/transfer-actions.ts` |
+| Reset the Use Case Universe database | `app/(app)/use-cases/taxonomy-actions.ts` |
+
+The last two moved here from `isAdminOrSuper` in commit `7f731b7` — a **breaking change for
+Admins**, who previously could do both. Export and import *preview* remain
+`isAdminOrSuper`. See
+[permissions-and-scoping R11](../../business-rules/permissions-and-scoping.md#r11--destructive-use-case-universe-actions-are-super-admin-only).
+
 ## Route-level protection
 
 [`middleware.ts`](../../../middleware.ts) uses Clerk's canonical matcher. Everything is
@@ -215,4 +234,6 @@ No audit log of role or scope changes. No alerting on privilege escalation attem
 ---
 
 **Documentation status:** Verified against implementation; **no tests exist**
-**Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+**Last verified:** 2026-07-31 · **Commit:** `15329e3` — only the crown-only action list and
+the task-assignment rule were re-verified at this commit; the rest of the document was last
+read end to end at `4214349` · **Owner:** Unassigned

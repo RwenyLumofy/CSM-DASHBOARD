@@ -2,9 +2,15 @@
 
 /* =========================================================================
    Associating an account with a use case, and recording what that account is
-   actually trying to do. This is the "associate" flow — driven from the
-   client page's Use Case Portfolio section, not the Use Case Universe, which
-   has no accounts awareness at all.
+   actually trying to do. This is the "associate" flow.
+
+   DRIVEN FROM BOTH ENDS. The client page's Use Case Portfolio section is where
+   the account-specific detail — objective, scope, status, target date — is
+   written. The Use Case Universe directory can also create and remove a bare
+   link from its per-card menu, because "put this use case on that client" is a
+   question people ask while looking at the use case. Both call the actions
+   below, so there is one record and one permission check rather than two
+   implementations that can drift.
 
    Gated on canEditClient, NOT on the admin gate that guards definitions. These
    are two different jobs: curating the canonical wording is a taxonomy

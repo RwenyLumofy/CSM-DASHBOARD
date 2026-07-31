@@ -15,8 +15,11 @@ but the reason is not, the record says *"Rationale requires confirmation from th
 | [0003](0003-arr-is-an-event-ledger-not-a-synced-field.md) | ARR is an event ledger, not a synced field | Accepted | Unknown |
 | [0004](0004-four-flat-permission-tiers-with-server-side-write-gates.md) | Four flat permission tiers; the write gate is distinct from the read gate | Accepted | 2026-07-29 |
 | [0005](0005-drop-draft-and-derive-review-state.md) | Drop "Draft"; derive review state from `lastReviewedAt` | Accepted | 2026-07-29 |
-| [0006](0006-two-unlinked-use-case-taxonomies.md) | Uncouple the admin-curated overlay from the shipped taxonomy | Accepted; **end state unresolved** | Unknown |
+| [0006](0006-two-unlinked-use-case-taxonomies.md) | Uncouple the admin-curated overlay from the shipped taxonomy | Accepted; **end state unresolved**; carries a 2026-07-31 correction on ids | Unknown |
 | [0007](0007-define-health-risk-renewal-and-churn-separately.md) | Define health, risk, renewal confidence and churn separately | Accepted; **implementation contradictory** | Ongoing |
+| [0008](0008-a-retirement-marker-is-not-enough-keep-the-taxonomy-row.md) | A retirement marker is not enough — the taxonomy row has to survive it | Accepted | 2026-07-31 |
+| [0009](0009-validate-outbound-urls-on-read-not-only-on-write.md) | Validate an outbound URL on read, not only on the write path that happens to exist | Accepted | 2026-07-31 |
+| [0010](0010-transfer-the-universe-by-name-never-by-id.md) | Move the Use Case Universe between environments by name, never by id | Accepted | 2026-07-29 |
 
 ## Decisions that are evident but not yet recorded
 
@@ -29,5 +32,14 @@ Candidates with real evidence, awaiting a pass. Listed here rather than written 
   seed sets kept commented out. The reason is not stated.
 - **Deal edits as overrides, never written back to HubSpot** — the mechanism is clear; the
   decision behind one-way sync is not evidenced.
-- **Transfer matches by name, not id** — well argued in `lib/use-case-transfer.ts`; arguably
-  a consequence of 0006 rather than its own decision.
+- **Five implementation statuses, not a maturity model** — argued in the header of
+  `lib/use-case-implementation.ts` (*"a maturity model nobody maintains collapses to
+  whatever each record was created as"*). Currently documented as business rule R3 only.
+- **Product state on the client rather than on the entity it describes** — the header of
+  `lib/use-case-implementation.ts` gives three reasons (account permission scope inherited
+  for free, atomic JSONB helpers already exist, a retired use case must not take a client's
+  objective with it). Overlaps the `clients.properties` candidate above; one record should
+  cover both.
+
+*Written since this list was last revised:* transfer-matches-by-name is now
+[0010](0010-transfer-the-universe-by-name-never-by-id.md).

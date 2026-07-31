@@ -3,7 +3,7 @@
 Places where different parts of Signal implement or describe **different behaviour**. Each
 is preserved for a human to resolve — none has been silently decided here.
 
-**Last verified:** 2026-07-31 · **Commit:** `4214349`
+**Last verified:** 2026-07-31 · **Commit:** `15329e3`
 
 ---
 
@@ -47,20 +47,59 @@ its 19 tables migrated in production?
 
 **Severity:** High — a CSM can record a use case in one place that is invisible in the other.
 
-`lib/use-cases.ts` (the shipped 23, HubSpot-aliased, canonical slug ids, used by the
-account-level "confirmed vs declared" picker) and `lib/use-case-overlay.ts` (admin-curated,
-`uc_<random>` ids, stored in `workspace_config`, used by the Use Case Universe pages and the
-profile's associate feature) are **deliberately uncoupled and share no ids**.
+`lib/use-cases.ts` (the shipped 23 plus 3 unresolved, HubSpot-aliased, canonical slug ids,
+used by the account-level "confirmed vs declared" picker) and `lib/use-case-overlay.ts`
+(admin-curated, `uc_<random>` ids, stored in `workspace_config`, used by the Use Case
+Universe pages and the profile's associate feature) are **deliberately uncoupled**. An entry
+created in one is invisible to the other.
 
 The uncoupling was a **fix**, not the contradiction — they were coupled once by mistake. The
 contradiction is the resulting end state: two taxonomies, two pickers, and nothing stating
 which is canonical.
+
+**Corrected 2026-07-31 — they do share ids, in the data.** Both `lib/use-cases.ts` and the
+overlay's own module header state the two "never share an id". That is true of the **code**
+and false of the **live workspace**: the overlay used to be a delta seeded from `USE_CASES`,
+so team-written definitions were keyed on canonical slugs, and when commit `7f731b7` rewrote
+it as a flat database `scripts/restore-orphaned-use-cases.mjs` promoted those definitions
+into real rows **reusing the same ids**. New entries created through the UI get
+`uc_<random>`, so the overlap erodes from here. Anyone reading either header will draw the
+wrong conclusion about what is in the database.
+[`scripts/backfill-use-case-implementations.mjs`](../../scripts/backfill-use-case-implementations.mjs)
+depends on the overlap; it checks each resolved id against the live taxonomy rather than
+assuming it. Full reasoning:
+[use-case-universe §2](../product/use-case-universe/README.md).
 
 **Needs a decision from:** Product.
 **Question:** Which taxonomy is canonical, and how do they converge?
 
 **Files:** `lib/use-cases.ts` · `lib/use-case-overlay.ts` · `lib/use-case-library.ts` ·
 Decision record [0006](../decisions/0006-two-unlinked-use-case-taxonomies.md)
+
+---
+
+## Use-case module headers describe gates and boundaries the code no longer has
+
+**Severity:** Low for users, medium for maintainers — this repository treats module headers
+as decision evidence, so a stale one is a source of wrong documentation.
+
+Three headers were left behind by commit `7f731b7`:
+
+| File | Header says | Code does |
+|---|---|---|
+| `app/(app)/use-cases/transfer-actions.ts` | *"ADMIN ONLY, both directions… Same gate as `saveUseCaseSectionAction`"* | `applyImportAction` requires `isSuperAdmin()`; only export and preview are `isAdminOrSuper()`. The inline comment at the gate itself is correct — the file header is not |
+| `app/(app)/clients/[id]/use-case-implementation-actions.ts` | the associate flow is *"driven from the client page's Use Case Portfolio section, not the Use Case Universe, which has no accounts awareness at all"* | `UseCaseDirectory`'s link dialog calls `saveImplementationAction` directly, and both `/use-cases` pages read adoption |
+| `lib/use-case-overlay.ts` | *"the two never share an id"* | True of the code, not of the data — see above |
+
+Nothing user-facing is wrong. The risk is that the next reader — human or agent — documents
+the header rather than the code, which is exactly the failure this documentation set exists
+to prevent.
+
+**Needs a decision from:** whoever next touches these files. Fixing the comments is a code
+change and out of scope for documentation.
+
+**Files:** `app/(app)/use-cases/transfer-actions.ts` ·
+`app/(app)/clients/[id]/use-case-implementation-actions.ts` · `lib/use-case-overlay.ts`
 
 ---
 

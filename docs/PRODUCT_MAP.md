@@ -1,7 +1,7 @@
 # Signal — Product Map
 
 **Status:** Verified (routes, navigation, access gates read directly from source)
-**Last verified:** 2026-07-31 · **Commit:** `4214349`
+**Last verified:** 2026-07-31 · **Commit:** `15329e3`
 
 Answers: *where does this live · how does a user reach it · what else does it affect ·
 which files implement it.*
@@ -79,7 +79,7 @@ Satisfaction indicator · Project Management · Notes · Action list.
 | `/reports/health` | `app/(app)/reports/health/page.tsx` | Health distribution & drag |
 | `/reports/pulse` | `app/(app)/reports/pulse/page.tsx` | CS Pulse coverage |
 | `/reports/churn` | `app/(app)/reports/churn/page.tsx` | Churn analysis |
-| `/use-cases` | `app/(app)/use-cases/page.tsx` | Use Case Universe workbench |
+| `/use-cases` | `app/(app)/use-cases/page.tsx` | Use Case Universe directory |
 | `/use-cases/[id]` | `app/(app)/use-cases/[id]/page.tsx` | Use-case definition detail |
 | `/use-cases/write` | `app/(app)/use-cases/write/page.tsx` | Definition writer |
 | `/settings` | `app/(app)/settings/page.tsx` | Workspace administration |
@@ -170,10 +170,13 @@ churn panels.
 Actions: change period, compare mode, owner/segment filters. **Read-only.**
 
 ### `/use-cases`
-Sections: definition workbench · taxonomy manager · directory · transfer (export/import).
-Actions: create/edit/retire definitions · manage categories · export and import the
-Universe as JSON matched by name.
-Affects: `workspace_config.use_case_taxonomy` and the definition library.
+Sections: hero + search · checkbox filter rail (Category / Product / Adoption) · card grid
+ordered by most-adopted · definition drawer · taxonomy manager · transfer (export/import).
+Actions: create/edit/retire definitions · manage categories · **link a use case to an
+account** · export the Universe · preview an import · apply an import *(Super Admin)* ·
+reset the database *(Super Admin)*.
+Affects: `workspace_config.use_case_taxonomy`, `workspace_config.use_case_library`, and —
+via the link dialog — `clients.properties.use_case_implementations`.
 
 ### `/settings`
 See §2 for tabs and gates. Affects `app_users`, `property_definitions`,
@@ -221,7 +224,9 @@ Enforced server-side. `seesAllClients` / `editsAllClients` / `canSeeClient` /
 | Owner reassignment | **Yes** | No | No | No |
 | Action list | All | All | Own | View only |
 | Insights | All | All | Scoped to visible accounts | All |
-| Use Case Universe | Full | Full | View + associate to own accounts | View |
+| Use Case Universe — definitions | Full | Full | View only | View |
+| Use Case Universe — link an account | All | All *(scope permitting)* | Owned only | **No** |
+| Use Case Universe — apply import, reset | **Yes** | **No** | No | No |
 | Settings → Members / Automations / Health / Churn | Yes | Yes | No | No |
 | Settings → Integrations secrets, full re-sync | **Yes** | No | No | No |
 
@@ -231,4 +236,4 @@ Scope can be narrowed further per user via `app_users.scope` (`all` / `assigned`
 ---
 
 **Documentation status:** Verified
-**Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+**Last verified:** 2026-07-31 · **Commit:** `15329e3` · **Owner:** Unassigned

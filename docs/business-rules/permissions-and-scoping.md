@@ -1,7 +1,7 @@
 # Business rule — Roles, permissions, ownership and scoping
 
 **Status:** Verified against implementation · **No tests exist**
-**Last verified:** 2026-07-31 · **Commit:** `4214349`
+**Last verified:** 2026-07-31 · **Commit:** `15329e3`
 
 Full narrative: [users-and-permissions](../product/users-and-permissions/README.md). This
 document states the rules as rules.
@@ -114,6 +114,34 @@ diverge.
 
 ---
 
+## R6a — Assigning a task to someone else is admin-only, and refused rather than downgraded
+
+**Status: Partially verified** — both call sites read; no tests.
+
+**Definition.** The creator of a task is always the signed-in user. Setting a *different*
+assignee requires `editsAllClients(role)` — Admin or Super Admin.
+
+**Behaviour on refusal.** The action returns
+`"Only an admin can reassign a task to someone else."` and writes nothing.
+
+**Changed in commit `7f731b7`.** `createTaskAction` previously **silently reassigned the
+task to the requester and returned `{ok: true}`** — so an operator believed a teammate had
+been tasked and nobody was. `updateTaskAction` already refused with this exact message; the
+two paths now cannot drift. The assignee picker in the UI is gated on the same predicate the
+server enforces (`AccountTasks`, `AddTaskModal`), so the control is hidden *and* the write
+is refused.
+
+**Related, same commit.** `today_tasks` writes are owner-scoped
+(`mayEditAnyTask()` requires `editsAllClients(role)` **and** an unnarrowed scope), so
+completing a teammate's task from the account Tasks sheet returns `NOT_YOURS`. That
+rejection is now rendered — it previously sat inside the add-task block and never appeared,
+so the checkbox bounced back in silence.
+
+**Code.** `app/(app)/today/task-actions.ts` → `createTaskAction`, `updateTaskAction`,
+`mayEditAnyTask`; `components/clients/AccountTasks.tsx`.
+
+---
+
 ## R7 — Escalation boundary
 
 **Definition.** An `admin` may not create, edit, or grant `super_admin` — **in either
@@ -163,6 +191,39 @@ every signed-in user including Guests. Tracked in
 open, and `.env.example` never prompted for the variable.
 
 **Code.** Each `app/api/cron/*/route.ts`.
+
+---
+
+## R11 — Destructive Use Case Universe actions are Super Admin only
+
+**Status: Partially verified** — gates read at their call sites; no tests.
+
+**Definition.** Two Universe actions rewrite the taxonomy every CSM classifies against and
+are reserved for `super_admin`:
+
+| Action | Code |
+|---|---|
+| Apply an import (`merge` **or** `replace`) | `applyImportAction`, `app/(app)/use-cases/transfer-actions.ts` |
+| Reset the whole use-case database | `resetTaxonomyAction`, `app/(app)/use-cases/taxonomy-actions.ts` |
+
+**Reading is not restricted the same way.** Export and import **preview** remain
+`isAdminOrSuper` — a preview writes nothing, and refusing to let an admin read a plan buys
+nothing.
+
+**Why.** `lib/auth.ts` states the split in `isAdminOrSuper`'s own header: *"Admin runs the
+workspace; the crown (managing admins, integrations, destructive actions) stays gated by
+`isSuperAdmin()`."* These two were the exception.
+
+### This is a breaking change for Admins
+
+**Changed in commit `7f731b7`.** Both actions previously gated on `isAdminOrSuper`. An
+Admin who could apply an import or reset the database yesterday now sees
+*"Super-admin access required to import."* / *"Super-admin access required."* The UI
+control is still reachable — the refusal is server-side, at the action.
+
+**Code.** `app/(app)/use-cases/transfer-actions.ts:205` ·
+`app/(app)/use-cases/taxonomy-actions.ts:202` · `lib/auth.ts` → `isSuperAdmin`,
+`isAdminOrSuper`.
 
 ---
 

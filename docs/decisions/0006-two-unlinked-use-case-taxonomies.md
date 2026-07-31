@@ -59,6 +59,20 @@ Supporting rules adopted at the same time:
 chosen.** Tracked in
 [contradictions](../known-limitations/contradictions.md#two-use-case-taxonomies).
 
+### Correction, 2026-07-31 — the id spaces are disjoint in the code, not in the data
+
+"The two taxonomies never share an id" is what the **code** intends: `newUseCaseId()` mints
+`uc_<random>`. It is not what the **live data** looks like. Under the pre-`7f731b7` delta
+model the overlay seeded from `USE_CASES`, so team-written definitions were keyed on
+canonical slugs; when commit `7f731b7` rewrote the overlay as a flat database,
+`scripts/restore-orphaned-use-cases.mjs` promoted those definitions into real rows
+**reusing the same ids**. The overlap is inherited, and erodes as new entries are created
+through the UI.
+
+This matters because `scripts/backfill-use-case-implementations.mjs` depends on it. Full
+reasoning and evidence:
+[use-case-universe §2](../product/use-case-universe/README.md).
+
 ## Implementation references
 
 `lib/use-case-overlay.ts` · `lib/use-case-overlay.test.ts` · `lib/use-cases.ts` ·

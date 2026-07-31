@@ -39,6 +39,7 @@ This is a documentation backlog, not a product backlog. Product gaps live in
 | 15 | **The 19 health-engine tables**, individually — only worth doing if the engine is going to run | `lib/db/health-schema.ts` |
 | 16 | **Settings managers individually** — 15 components, documented collectively | `components/settings/*` |
 | 17 | **Per-tab workflows on the Client Profile** — 10 tabs, documented as a set | `components/clients/*` |
+| 17a | **The Use Case Portfolio section on the profile** — new and substantial (`7f731b7`), currently covered only by a pointer from the Client Profile doc to the Universe doc. The account-side editing surface for objective, scope, status, owner and target date lives here | `components/clients/UseCasePortfolio.tsx` |
 | 18 | **`lib/metrics/exec.ts` and the Insights panels** individually | `lib/metrics/exec.ts`, `components/reports/*` |
 | 19 | **`employees-consolidation-spec.md`** — verify whether any of it shipped, and label accordingly | `docs/employees-consolidation-spec.md` |
 
@@ -68,6 +69,9 @@ Raised here so they are not lost. They belong in the product backlog.
 | Reconcile `drizzle/meta` so `db:generate` works | Medium |
 | Decide whether `scratch-*` should ship in the production build | Medium |
 | Audit configuration changes, starting with the health formula | Medium |
+| **Run the use-case adoption backfill against production** — applied to the clone only; until then the Universe shows "No clients yet" for most of the library | High |
+| Fix three stale module headers in the use-case modules — they now describe gates and boundaries the code does not have, and this repo treats headers as decision evidence ([contradiction](known-limitations/contradictions.md#use-case-module-headers-describe-gates-and-boundaries-the-code-no-longer-has)) | Medium |
+| Add tests for the destructive Use Case Universe server actions — the pure functions are tested, the guards and the transaction are not | Medium |
 
 ---
 
