@@ -115,10 +115,28 @@ resolves both sources through the existing alias table in
 and creates one record per (account, use case) at status **exploring** with a note naming
 the source. Deliberately not "live" — nobody has confirmed delivery.
 **Migration/data:** Dry-run by default; `--yes` to write. Idempotent, and never modifies an
-existing record. Applied to the **clone database**: 63 associations across 32 accounts,
-covering 17 of 29 use cases. **Not yet run against production** — until it is, the Universe
+existing record. Applied to the **clone database**: 85 associations across 38 accounts,
+covering 19 of 29 use cases. **Not yet run against production** — until it is, the Universe
 there still reads "No clients yet" for most of the library. *(The run figures are reported
 from that execution; they cannot be reproduced from this repository.)*
+
+**19 of 29 is the ceiling from existing data, not a shortfall.** The ten with no links have
+no source to draw on: HubSpot's `use_cases` picklist cannot express them. `lib/use-cases.ts`
+records the same fact — *"11 of the 23 cannot be selected in HubSpot at all (nobody can
+record AI Readiness or Digital Transformation on a deal)"*. Those ten — GDP, IDPs, PIPs, AI
+Readiness, 360° Feedback, Career Coaching, Career Transition Readiness, Culture &
+Engagement, Digital Transformation, Hiring & Role-Based Assessments — can only be populated
+by a CSM recording them on an account.
+
+**A first pass filtered deals to `tracked = true` and under-counted.** `tracked` marks a
+deal dead for ARR purposes; it says nothing about whether the client is still a customer.
+Excluding those deals dropped two live accounts — one `active`, one in `renewal`, roughly
+$84k between them — whose use-case declarations happen to sit on a dead deal, and with them
+the only evidence for Training Needs Analysis and Internal Knowledge Base Development, both
+of which then read "No clients yet". The filter was removed; what a client said they wanted
+is the record, and the commercial state of the deal it was attached to is a separate
+question. **Open:** four churned accounts now carry links from this backfill. Their ARR is
+$0 so no revenue figure is affected, but they do count toward the client counts on a card.
 **Known limitations:** The script depends on the taxonomy being keyed by the same canonical
 slugs `lib/use-cases.ts` uses — true of this workspace for historical reasons, not
 guaranteed by the code

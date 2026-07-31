@@ -72,7 +72,16 @@ const live = new Set(
 console.log(`Live use cases in the taxonomy: ${live.size}\n`);
 
 const clients = await sql`select id, name, properties from clients`;
-const deals = await sql`select client_id, use_cases from client_deals where tracked = true`;
+
+/* EVERY deal, tracked or not. `tracked = false` means the deal is dead and
+   excluded from ARR — it does NOT mean the client is gone. Filtering on it
+   dropped two live accounts (one active, one in renewal, ~$84k between them)
+   whose use-case declarations happen to sit on a dead deal, and with them the
+   only evidence for two use cases, which then read "No clients yet". What the
+   client said they wanted is still the best record of what they wanted; the
+   commercial state of the deal it was recorded against is a separate question,
+   and the account's own status is on screen next to it either way. */
+const deals = await sql`select client_id, use_cases from client_deals`;
 
 const dealsByClient = new Map();
 for (const d of deals) {
