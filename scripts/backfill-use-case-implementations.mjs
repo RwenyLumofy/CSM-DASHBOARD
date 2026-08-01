@@ -36,8 +36,20 @@ import { randomUUID } from "node:crypto";
 const APPLY = process.argv.includes("--yes");
 
 const env = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
-const url = env.match(/^DATABASE_URL="([^"]+)"/m)?.[1];
-if (!url) { console.error("No DATABASE_URL in .env.local"); process.exit(1); }
+/* An explicit DATABASE_URL wins over .env.local, so this can be pointed at
+   another environment without editing a file the dev server is also reading.
+   Production is in .env.clone as CLONE_SOURCE_URL. The resolved project ref is
+   echoed on every run — running a migration against the wrong database is the
+   mistake worth making loud. */
+const url = process.env.DATABASE_URL || env.match(/^DATABASE_URL="([^"]+)"/m)?.[1];
+if (!url) { console.error("No DATABASE_URL in the environment or .env.local"); process.exit(1); }
+/* Supabase gives the project ref two ways: `db.<ref>.supabase.co` on a direct
+   connection, and `postgres.<ref>` as the username through the pooler. Match
+   both, or the guard prints nothing useful on the connection you actually use. */
+const dbRef = url.match(/db\.([a-z0-9]{20})\.supabase/)?.[1]
+  ?? url.match(/postgres\.([a-z0-9]{20})[:@]/)?.[1]
+  ?? "(could not identify — check the URL before writing)";
+console.log(`→ database: ${dbRef}\n`);
 
 /* The alias table is TypeScript and this is plain Node, so it is read out of
    the source rather than imported — the same approach
