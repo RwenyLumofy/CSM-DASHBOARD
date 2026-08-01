@@ -61,18 +61,31 @@ export async function saveImplementationAction(
   clientId: string, input: ImplementationInput,
 ): Promise<ImplementationResult> {
   if (!hasDatabase()) return { ok: false, error: "No database configured." };
-  const denied = await denyClientWrite(clientId);
-  if (denied) return { ok: false, error: denied };
   if (!input.useCaseId) return { ok: false, error: "Pick a use case." };
 
   const { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy } = await import("@/lib/use-case-overlay");
   const { getWorkspaceConfigFromDb, upsertJsonbArrayElementForClientDb } = await import("@/lib/repo/drizzle");
-  const taxonomy = normalizeOverlay(await getWorkspaceConfigFromDb(TAXONOMY_KEY));
+
+  /* Start the taxonomy read BEFORE the permission check rather than after it.
+     The two are independent, and awaited in sequence they were two serial round
+     trips on every tick of a checkbox — which a picker invites you to do several
+     times in a row. The result is only ever used after the check passes, so
+     this reads nothing the caller is not entitled to; it just stops the read
+     waiting on the check. `.catch` keeps a failure here from surfacing as an
+     unhandled rejection when the permission check returns first. */
+  const taxonomyPromise = getWorkspaceConfigFromDb(TAXONOMY_KEY).catch(() => null);
+
+  const denied = await denyClientWrite(clientId);
+  if (denied) return { ok: false, error: denied };
+
+  // Already resolved by denyClientWrite — getClientById is request-cached, so
+  // this is the same promise rather than a second query.
+  const [taxonomyRaw, client] = await Promise.all([taxonomyPromise, getClientById(clientId)]);
+  const taxonomy = normalizeOverlay(taxonomyRaw);
   if (!resolveTaxonomy(taxonomy, true).some((u) => u.id === input.useCaseId)) {
     return { ok: false, error: "That use case doesn't exist." };
   }
 
-  const client = await getClientById(clientId);
   const existing = normalizeImplementations(
     (client?.properties as Record<string, unknown> | undefined)?.[IMPLEMENTATION_KEY],
   );

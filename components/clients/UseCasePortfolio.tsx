@@ -226,6 +226,15 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
   const settle = (id: string) => setPending((p) => {
     const n = new Map(p); n.delete(id); return n;
   });
+  /* Two different things, kept apart on purpose:
+       pending   what the user asked for — holds the checkbox until the server
+                 data agrees, which only happens after the page refreshes
+       inFlight  whether THIS id's write is still running — clears as soon as
+                 the action returns, so the row unlocks in about a second
+                 rather than waiting on a whole-page refresh */
+  const [inFlight, setInFlight] = useState<Set<string>>(new Set());
+  // Something was written while the panel was open, so the page owes a refresh.
+  const dirty = useRef(false);
 
   /* Ids whose write has just landed. A tick alone says "you clicked"; it does
      not say "this is stored", and the two are hard to tell apart when the
@@ -310,25 +319,51 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
   async function toggle(entry: ResolvedUseCase) {
     // Already in flight: ignore rather than queue a second write for the same
     // id, which would race the first and could land in either order.
-    if (pending.has(entry.id)) return;
+    if (inFlight.has(entry.id)) return;
     setError(null);
     const existing = implementations.find((i) => i.useCaseId === entry.id);
+
+    const start = (want: boolean) => {
+      setPending((p) => new Map(p).set(entry.id, want));
+      setInFlight((s) => new Set(s).add(entry.id));
+    };
+    const done = () => setInFlight((s) => { const n = new Set(s); n.delete(entry.id); return n; });
 
     if (existing) {
       const hasContent = existing.objective || existing.scope || existing.nextStep || existing.notes;
       if (hasContent && !window.confirm(
         `Remove "${entry.label}" from this account? This deletes the objective, scope and notes recorded for it.`,
       )) return;
-      setPending((p) => new Map(p).set(entry.id, false));
+      start(false);
       const r = await removeImplementationAction(clientId, existing.id);
+      done();
       if (!r.ok) { settle(entry.id); setError(r.error ?? "Couldn't remove."); return; }
     } else {
-      setPending((p) => new Map(p).set(entry.id, true));
+      start(true);
       const r = await saveImplementationAction(clientId, { useCaseId: entry.id, ...blankForm() });
+      done();
       if (!r.ok) { settle(entry.id); setError(r.error ?? "Couldn't associate."); return; }
     }
-    refresh();
+    markSaved(entry.id);
+    dirty.current = true;
+
+    /* NO refresh here, deliberately. router.refresh() re-renders the whole
+       client profile — every tab's data, ~20 queries — and doing that per
+       checkbox made each tick cost seconds and fight the next one. The picker
+       already shows the truth optimistically; the page is brought back into
+       line ONCE when the panel closes, which is also the moment the list
+       underneath becomes visible again. */
   }
+
+  /* Closing the picker is the commit point. It refreshes only once everything
+     in flight has landed — closing mid-save and refreshing against a
+     half-written account is exactly what made a selection fail to show up
+     after pressing Done. */
+  useEffect(() => {
+    if (picking || !dirty.current || inFlight.size > 0) return;
+    dirty.current = false;
+    refresh();
+  }, [picking, inFlight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Clear an optimistic tick only once the server data agrees with it — not
      when the action returns. router.refresh() is asynchronous, so dropping it
@@ -336,13 +371,10 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
      land, which is the flicker this exists to remove. */
   useEffect(() => {
     if (!pending.size) return;
+    // Pure updater: markSaved is called by the writer, not from in here.
     setPending((p) => {
       const n = new Map(p);
-      for (const [id, want] of p) {
-        if (associatedIds.has(id) !== want) continue;
-        n.delete(id);
-        markSaved(id); // confirmed by the server, not merely requested
-      }
+      for (const [id, want] of p) if (associatedIds.has(id) === want) n.delete(id);
       return n.size === p.size ? p : n;
     });
   }, [associatedIds, pending]);
@@ -363,9 +395,14 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
       <div className="flex items-start justify-between gap-2">
         <div>
           <h2 className="font-body text-[13.5px] font-semibold text-fg">Use cases</h2>
+          {/* Two sentences, each doing one job: what this list is, and how it
+              differs from the other use-case list on the same page. The earlier
+              wording opened with "What CS has established this account is
+              actually working on", which takes a re-read to parse and buries
+              the noun. */}
           <p className="mt-0.5 max-w-[72ch] font-body text-[12px] text-fg-muted">
-            What CS has established this account is actually working on, and what it&rsquo;s trying to achieve with each.
-            Separate from the handover use cases in the header above &mdash; those came from the deal.
+            What this account is working on, and what it wants from each.
+            The header above shows what Sales sold &mdash; this is what CS confirmed, and the two can differ.
           </p>
         </div>
         {canEdit && (
@@ -400,7 +437,7 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
                   {/* One place that always says whether the panel is settled,
                       so the state is legible without hunting for the row you
                       last touched. */}
-                  {pending.size > 0 ? (
+                  {inFlight.size > 0 ? (
                     <span className="inline-flex items-center gap-1 font-normal text-fg-subtle">
                       <Loader2 size={11} className="animate-spin" aria-hidden /> saving…
                     </span>
@@ -447,9 +484,9 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
                       </button>
                       {!shut && entries.map((entry) => {
                         // What the user asked for wins until the server agrees.
-                        const inFlight = pending.has(entry.id);
+                        const busy = inFlight.has(entry.id);
                         const saved = justSaved.has(entry.id);
-                        const checked = inFlight ? pending.get(entry.id)! : associatedIds.has(entry.id);
+                        const checked = pending.has(entry.id) ? pending.get(entry.id)! : associatedIds.has(entry.id);
                         return (
                           <label key={entry.id}
                             className={cn("flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 transition-colors",
@@ -457,7 +494,7 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
                               // A settled write is worth a beat of green. Not a
                               // toast: it stays on the row it describes.
                               saved && "ring-1 ring-[#2F7D52]/35")}>
-                            <input type="checkbox" checked={checked} disabled={inFlight}
+                            <input type="checkbox" checked={checked} disabled={busy}
                               onChange={() => void toggle(entry)} className="mt-[3px] shrink-0 accent-sirius" />
                             <span className="min-w-0 flex-1">
                               <span dir="auto" className={cn("block font-body text-[12.5px] leading-snug",
@@ -474,8 +511,8 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
                                 use case. `busyId` no longer tracks toggles —
                                 several can be in flight at once — so this reads
                                 the same per-id state the checkbox does. */}
-                            {inFlight && <Loader2 size={12} className="mt-1 shrink-0 animate-spin text-fg-subtle" aria-label="Saving" />}
-                            {!inFlight && saved && (
+                            {busy && <Loader2 size={12} className="mt-1 shrink-0 animate-spin text-fg-subtle" aria-label="Saving" />}
+                            {!busy && saved && (
                               <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-[#2F7D52]/10 px-1.5 py-0.5 font-body text-[10px] font-semibold text-[#2F7D52]">
                                 <Check size={9} aria-hidden /> Saved
                               </span>
