@@ -18,6 +18,34 @@ limitations · commit.
 
 ## 2026-07-31
 
+### Use-case names and categories restored to the Definition Library
+**Roles affected:** All (read) · Admin (curation)
+**Before:** Eight use cases carried their old pre-document names and four sat in the wrong
+category. "Employee Engagement & Feedback Measurement" read "Culture & Engagement";
+"Building In-House Assessment Centers" read "Building Internal Assessment Hub"; Training
+Needs Analysis and Competency Framework & Job Architecture Design sat under Performance &
+Talent instead of Enablement; Hiring & Role-Based Assessments under Readiness instead of
+Assessment; Certification Preparation was still cross-listed into Capability Building. 25
+summaries showed the old shipped wording rather than the document's one-liner.
+**After:** All 29 use cases and 6 categories match the Lumofy Use Case Definition Library
+(July 2026). Enablement now holds 5 entries, Assessment & Workforce Intelligence 3.
+**Cause — worth recording, because nothing failed.** The taxonomy used to be a delta on the
+code-shipped list, and `overlay.renamed[id]` was how the document's renames, category moves
+and summaries were stored. `7f731b7` rewrote the overlay as a flat database and removed
+`renamed` from the model, so `normalizeOverlay` began discarding it. The catalogue was
+dropped on the next write and the app fell back to the original shipped labels — no error,
+no failing test, just quietly the wrong names.
+**Migration/data:** [`scripts/reconcile-taxonomy-with-definition-library.mjs`](../../scripts/reconcile-taxonomy-with-definition-library.mjs)
+re-applies the catalogue to the new model, parsing it out of
+`scripts/load-use-case-definition-library.mjs` so the document remains the single source.
+Dry-run by default, idempotent, touches only `use_case_taxonomy` — definitions are not
+modified. **Production still needs this run**, after `restore-orphaned-use-cases.mjs`.
+**Known limitations:** 15 entries the document's catalogue does not mention are left
+untouched rather than retired — the same call the original loader made for 360° Feedback,
+and for the same reason: dropping a use case an account may reference is worse than a count
+that does not match a table.
+**Commit:** `dd8d9bd`+
+
 ### Use Case Universe rebuilt as a directory
 **Roles affected:** All (read) · Admin, Super Admin (curation) · CSM (account linking)
 **Before:** `/use-cases` was a two-pane workbench — a filtered list on the left, the
