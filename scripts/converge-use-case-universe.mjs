@@ -107,8 +107,17 @@ const CATALOGUE = [
   ["team_building_culture", "Team-Building & Culture Development", ["engagement"]],
   /* Not in the document's 28. Kept by an explicit team decision — it exists in
      the catalogue, accounts may reference it, and dropping a use case quietly
-     is worse than a count that doesn't match a table. */
-  ["feedback_360", "360° Feedback", ["performance", "assessment"]],
+     is worse than a count that doesn't match a table.
+
+     ONE CATEGORY, not two. lib/use-cases.ts cross-lists it under Performance
+     and Assessment, which is defensible on paper and confusing on screen: the
+     picker groups by category, so a cross-listed entry is rendered once per
+     category and reads as a duplicate. Assessment & Workforce Intelligence is
+     the better home — 360° feedback is a measurement instrument, and that
+     category is "measuring capability to inform hiring and development
+     decisions". Nothing else in the catalogue is cross-listed, so this makes
+     the rule uniform: one use case, one place to find it. */
+  ["feedback_360", "360° Feedback", ["assessment"]],
 ];
 
 const key = (s) => s.trim().replace(/\s+/g, " ").toLowerCase();
