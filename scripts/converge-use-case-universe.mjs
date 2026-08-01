@@ -55,7 +55,15 @@ console.log(`→ database: ${url.match(/db\.([a-z0-9]{20})\.supabase/)?.[1] ?? u
 
 const GROUPS = {
   enablement:  { id: "enablement",  label: "Enablement",  blurb: "Building the foundations that make talent work coherent." },
-  readiness:   { id: "readiness",   label: "Readiness & Transformation", blurb: "Preparing people for an obligation, a transition or a change." },
+  /* The document gives Readiness the blurb "preparing people for an obligation,
+     a transition or a change" — three different things, and at 9 entries it was
+     the largest category by some way. Obligation is split out: compliance work
+     has a different trigger (a regulator and a deadline, not a strategy), a
+     different buyer, and revenue that behaves differently because it is rarely
+     discretionary. Readiness keeps the transitions and changes. This is a
+     deliberate divergence from the document — see docs/decisions/0011. */
+  readiness:   { id: "readiness",   label: "Readiness & Transformation", blurb: "Preparing people for a transition or a change." },
+  compliance:  { id: "compliance",  label: "Compliance & Regulatory", blurb: "Meeting an obligation, on a deadline, with evidence." },
   capability:  { id: "capability",  label: "Capability Building", blurb: "Growing the skills a role or business actually requires." },
   performance: { id: "performance", label: "Performance & Talent", blurb: "Managing, evaluating and developing performance." },
   assessment:  { id: "assessment",  label: "Assessment & Workforce Intelligence", blurb: "Measuring capability to inform hiring and development decisions." },
@@ -71,10 +79,13 @@ const CATALOGUE = [
   ["internal_knowledge_base", "Internal Knowledge Base Development", ["enablement"]],
   ["competency_framework", "Competency Framework & Job Architecture Design", ["enablement"]],
   ["tna", "Training Needs Analysis", ["enablement"]],
-  ["qiwa_disclosure", "Qiwa Training Disclosure", ["readiness"]],
-  ["compliance_training", "Compliance Training", ["readiness"]],
+  ["qiwa_disclosure", "Qiwa Training Disclosure", ["compliance"]],
+  ["compliance_training", "Compliance Training", ["compliance"]],
   ["succession_hipo", "Succession Development (HiPo)", ["readiness"]],
   ["employee_onboarding", "Employee Onboarding", ["readiness"]],
+  /* Stays in Readiness. Certification is only an obligation when the
+     certificate is mandated; across this book it reads as professional
+     development. Move it to `compliance` if that stops being true. */
   ["certification_prep", "Certification Preparation", ["readiness"]],
   ["gdp", "Graduate Development Program (GDP)", ["readiness"]],
   ["career_transition", "Career Transition Readiness", ["readiness"]],
@@ -149,9 +160,24 @@ for (const [id, label, cats] of CATALOGUE) {
 
   const before = added[winner];
   added[winner] = { ...(before ?? {}), id: winner, label, groups: cats, summary: lib[winner]?.oneLiner?.slice(0, 400) ?? before?.summary ?? "" };
-  if (!before) log[hasDefinition(winner) ? "restored" : "created"].push(`${label}  [${winner}]`);
-  else if (before.label !== label) log.relabelled.push(`"${before.label}" → "${label}"  [${winner}]`);
-  else log.kept.push(`${label}  [${winner}]`);
+
+  /* Report the label change AND the category change. Reporting only the label
+     let a re-categorisation land silently — a dry run that under-states what it
+     will do is worse than no dry run, because it is trusted. */
+  if (!before) {
+    log[hasDefinition(winner) ? "restored" : "created"].push(`${label}  [${winner}]`);
+  } else {
+    const wasCats = [...(before.groups ?? [])].sort().join(",");
+    const nowCats = [...cats].sort().join(",");
+    const changes = [];
+    if (before.label !== label) changes.push(`renamed from "${before.label}"`);
+    if (wasCats !== nowCats) {
+      const name = (id) => GROUPS[id]?.label ?? groups[id]?.label ?? id;
+      changes.push(`moved ${(before.groups ?? []).map(name).join(" + ") || "(none)"} → ${cats.map(name).join(" + ")}`);
+    }
+    if (changes.length) log.relabelled.push(`${label}  [${winner}] — ${changes.join("; ")}`);
+    else log.kept.push(`${label}  [${winner}]`);
+  }
   if (retired[winner]) { delete retired[winner]; log.relabelled.push(`un-retired ${label}  [${winner}]`); }
 
   for (const dup of sameName) {

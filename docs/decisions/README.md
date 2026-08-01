@@ -20,6 +20,7 @@ but the reason is not, the record says *"Rationale requires confirmation from th
 | [0008](0008-a-retirement-marker-is-not-enough-keep-the-taxonomy-row.md) | A retirement marker is not enough — the taxonomy row has to survive it | Accepted | 2026-07-31 |
 | [0009](0009-validate-outbound-urls-on-read-not-only-on-write.md) | Validate an outbound URL on read, not only on the write path that happens to exist | Accepted | 2026-07-31 |
 | [0010](0010-transfer-the-universe-by-name-never-by-id.md) | Move the Use Case Universe between environments by name, never by id | Accepted | 2026-07-29 |
+| [0011](0011-split-compliance-out-of-readiness-and-transformation.md) | Split Compliance out of Readiness & Transformation | Accepted | 2026-08-01 |
 
 ## Decisions that are evident but not yet recorded
 
