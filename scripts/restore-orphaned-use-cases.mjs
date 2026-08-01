@@ -31,14 +31,28 @@ import { readFileSync } from "node:fs";
 
 const APPLY = process.argv.includes("--yes");
 
-const env = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
-/* An explicit DATABASE_URL wins over .env.local, so this can be pointed at
-   another environment without editing a file the dev server is also reading.
-   Production is in .env.clone as CLONE_SOURCE_URL. The resolved project ref is
-   echoed on every run — running a migration against the wrong database is the
-   mistake worth making loud. */
-const url = process.env.DATABASE_URL || env.match(/^DATABASE_URL="([^"]+)"/m)?.[1];
-if (!url) { console.error("No DATABASE_URL in the environment or .env.local"); process.exit(1); }
+/* Three ways to choose the database, in precedence order:
+     --prod                 CLONE_SOURCE_URL from .env.clone (production)
+     DATABASE_URL in env    whatever you set
+     .env.local             the default, the local/clone database
+
+   `--prod` exists so the production connection string is read out of the file
+   by this script, the same way .env.local always has been, instead of being
+   interpolated into a shell command where it ends up in history and process
+   listings. Same credential either way; one of them leaks it. */
+const url = readTarget();
+function readTarget() {
+  if (process.argv.includes("--prod")) {
+    const f = readFileSync(new URL("../.env.clone", import.meta.url), "utf8");
+    const u = f.match(/^CLONE_SOURCE_URL="?([^"\n]+)"?/m)?.[1];
+    if (!u) { console.error("No CLONE_SOURCE_URL in .env.clone"); process.exit(1); }
+    return u;
+  }
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  const f = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
+  return f.match(/^DATABASE_URL="([^"]+)"/m)?.[1];
+}
+if (!url) { console.error("No database URL — pass --prod, set DATABASE_URL, or fill .env.local"); process.exit(1); }
 /* Supabase gives the project ref two ways: `db.<ref>.supabase.co` on a direct
    connection, and `postgres.<ref>` as the username through the pooler. Match
    both, or the guard prints nothing useful on the connection you actually use. */
