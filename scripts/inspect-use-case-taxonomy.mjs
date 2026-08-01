@@ -49,11 +49,17 @@ if (tax.renamed) console.log(`⚠ stale \`renamed\` key still present: ${Object.
    earlier model and worth looking at before it shows up as a filter. */
 const DOC_GROUPS = ["enablement", "readiness", "capability", "performance", "assessment", "engagement"];
 
-console.log("\n=== CATEGORIES ===");
+/* Counts are LIVE only. A retired row still carries its categories so that an
+   account holding its id keeps resolving, but counting it as a member reports a
+   category as fuller than the picker shows it — which is the number anyone
+   reading this actually wants. Retired rows are still listed, marked. */
+console.log("\n=== CATEGORIES (live counts) ===");
 for (const g of Object.values(groups)) {
   const members = Object.values(added).filter((u) => (u.groups ?? []).includes(g.id));
+  const liveMembers = members.filter((u) => !retired[u.id]);
   const flag = DOC_GROUPS.includes(g.id) ? "" : "   ← NOT IN THE DEFINITION LIBRARY";
-  console.log(`\n${g.label}  [${g.id}]  (${members.length})${flag}`);
+  const hidden = members.length - liveMembers.length;
+  console.log(`\n${g.label}  [${g.id}]  (${liveMembers.length}${hidden ? ` live, ${hidden} retired` : ""})${flag}`);
   for (const m of members.sort((a, b) => a.label.localeCompare(b.label))) {
     console.log(`    ${m.label}${retired[m.id] ? "  (retired)" : ""}`);
   }

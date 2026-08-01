@@ -27,7 +27,10 @@
        across before removing the empty one.
      · Leaves anything the catalogue does not mention exactly as it is.
 
-   Definitions are NOT touched — this only writes use_case_taxonomy.
+   Definitions are only ever MOVED, never edited or deleted: where a duplicate
+   holds the content and the canonical id does not, the definition is copied
+   onto the canonical id so the id the rest of the system addresses is the one
+   that has something to show. Both keys are written in one transaction.
 
      node scripts/converge-use-case-universe.mjs [--prod] [--yes]
 
@@ -137,7 +140,8 @@ const hasDefinition = (id) => {
     || e.capabilities?.length || e.successIndicators?.length);
 };
 
-const log = { categories: [], kept: [], created: [], relabelled: [], merged: [], restored: [], untouched: [] };
+const library = { ...lib };
+const log = { categories: [], kept: [], created: [], relabelled: [], merged: [], restored: [], movedDefinitions: [], untouched: [] };
 
 /* ---- 1. categories: canonical six, duplicates folded in ---- */
 for (const g of Object.values(GROUPS)) {
@@ -160,12 +164,27 @@ for (const g of Object.values({ ...groups })) {
 
 /* ---- 2. one row per catalogue entry, de-duplicated by name ---- */
 for (const [id, label, cats] of CATALOGUE) {
-  /* Every row carrying this name, whatever its id. The canonical row wins when
-     it has a definition; otherwise whichever twin does; otherwise the canonical
-     one, so the id the alias table resolves onto is the survivor. */
+  /* Every row carrying this name, whatever its id.
+
+     THE CANONICAL ID ALWAYS WINS — not whichever copy happens to hold the
+     definition. An earlier version kept the one with content and produced the
+     opposite of what was wanted on production, where the definitions had been
+     written against UI-generated `uc_<random>` ids: it would have retired
+     `qiwa_disclosure` in favour of `uc_519459ec`, and the adoption backfill
+     resolves HubSpot values onto canonical slugs, so those use cases could
+     never have received a deal-derived link again.
+
+     Content is not lost by this: where the duplicate holds the definition and
+     the canonical row does not, the definition is MOVED onto the canonical id
+     below. Keep the id the rest of the system addresses, and bring the content
+     to it. */
   const sameName = Object.values(added).filter((r) => key(r.label) === key(label));
-  const winner = hasDefinition(id) ? id
-    : (sameName.find((r) => hasDefinition(r.id))?.id ?? id);
+  const winner = id;
+  const donor = hasDefinition(id) ? null : sameName.find((r) => r.id !== id && hasDefinition(r.id));
+  if (donor) {
+    library[id] = { ...lib[donor.id], updatedAt: new Date().toISOString(), updatedBy: "converge-use-case-universe.mjs" };
+    log.movedDefinitions.push(`"${label}" — definition moved from [${donor.id}] to [${id}]`);
+  }
 
   const before = added[winner];
   added[winner] = { ...(before ?? {}), id: winner, label, groups: cats, summary: lib[winner]?.oneLiner?.slice(0, 400) ?? before?.summary ?? "" };
@@ -213,19 +232,41 @@ section("CATEGORIES", log.categories);
 section("RESTORED — definition existed, row did not", log.restored);
 section("CREATED — new empty row", log.created);
 section("RENAMED / UN-RETIRED", log.relabelled);
+section("DEFINITIONS MOVED onto the canonical id", log.movedDefinitions);
 section("MERGED AWAY (retired, links still resolve)", log.merged);
 section("LEFT ALONE", log.untouched);
 
+/* Counted against the library AS IT WILL BE, not as it was read. hasDefinition
+   deliberately reads the original so the donor search is not confused by a move
+   made earlier in the same run; using it here reported 18/29 on production when
+   the answer after the moves is 29/29. */
+const willHaveDefinition = (id) => {
+  const e = library[id];
+  return !!e && !!(e.oneLiner || e.customerProblem || e.desiredOutcome
+    || e.capabilities?.length || e.successIndicators?.length);
+};
 const live = Object.values(added).filter((r) => !retired[r.id]);
 console.log(`RESULT: ${live.length} live use cases, ${Object.keys(groups).length} categories, ${Object.keys(retired).length} retired.`);
-console.log(`        with a definition: ${live.filter((r) => hasDefinition(r.id)).length} / ${live.length}`);
+console.log(`        with a definition: ${live.filter((r) => willHaveDefinition(r.id)).length} / ${live.length}`);
+const stillEmpty = live.filter((r) => !willHaveDefinition(r.id));
+if (stillEmpty.length) for (const r of stillEmpty) console.log(`          (no definition) ${r.label}`);
 console.log(`        unchanged rows: ${log.kept.length}`);
 
 if (!APPLY) { console.log("\nDRY RUN — nothing written. Add --yes to apply."); await sql.end(); process.exit(0); }
 
-await sql`
-  insert into workspace_config (key, value, updated_at)
-  values ('use_case_taxonomy', ${sql.json({ ...tax, added, groups, retired, renamed: undefined })}, now())
-  on conflict (key) do update set value = excluded.value, updated_at = now()`;
+/* Both keys, in one transaction. A definition moved onto a canonical id and the
+   taxonomy row that points at it are only correct together — landing one
+   without the other leaves a use case whose content belongs to an id nothing
+   references. */
+await sql.begin(async (tx) => {
+  await tx`
+    insert into workspace_config (key, value, updated_at)
+    values ('use_case_taxonomy', ${sql.json({ ...tax, added, groups, retired, renamed: undefined })}, now())
+    on conflict (key) do update set value = excluded.value, updated_at = now()`;
+  await tx`
+    insert into workspace_config (key, value, updated_at)
+    values ('use_case_library', ${sql.json(library)}, now())
+    on conflict (key) do update set value = excluded.value, updated_at = now()`;
+});
 console.log("\nWritten.");
 await sql.end();
