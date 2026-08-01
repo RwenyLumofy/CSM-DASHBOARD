@@ -30,11 +30,11 @@
    isn't edited or displayed here, and implementationGaps no longer counts its
    absence as a gap. */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Loader2, Pencil, Trash2, AlertTriangle, ListChecks, Search, X,
+  Loader2, Pencil, Trash2, AlertTriangle, ListChecks, Search, X, Check,
   Calendar, Users, UserCircle2, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -196,6 +196,13 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
   implementations: UseCaseImplementation[];
 }) {
   const router = useRouter();
+  /* router.refresh() has to run inside a transition. Called bare from an event
+     handler it does not reliably apply the revalidation the Server Action
+     requested, so the page keeps rendering the props it already had: the write
+     lands in Postgres, a hard reload shows it, and the open panel never does.
+     That is what made selecting a use case look like it did nothing. */
+  const [, startTransition] = useTransition();
+  const refresh = () => startTransition(() => router.refresh());
   const [picking, setPicking] = useState(false);
   const [editing, setEditing] = useState<{ useCaseId: string; impl?: UseCaseImplementation } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -219,6 +226,35 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
   const settle = (id: string) => setPending((p) => {
     const n = new Map(p); n.delete(id); return n;
   });
+
+  /* Ids whose write has just landed. A tick alone says "you clicked"; it does
+     not say "this is stored", and the two are hard to tell apart when the
+     result of the change — a card in the list — is below the fold behind an
+     open picker. This drives a short-lived "Saved" on the row, and clears
+     itself so the panel does not accumulate badges. */
+  const [justSaved, setJustSaved] = useState<Set<string>>(new Set());
+  const savedTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const markSaved = (id: string) => {
+    setJustSaved((s) => new Set(s).add(id));
+    clearTimeout(savedTimers.current.get(id));
+    savedTimers.current.set(id, setTimeout(() => {
+      setJustSaved((s) => { const n = new Set(s); n.delete(id); return n; });
+      savedTimers.current.delete(id);
+    }, 2600));
+  };
+  // Timers outlive the component if the panel is closed mid-save.
+  useEffect(() => () => { for (const t of savedTimers.current.values()) clearTimeout(t); }, []);
+
+  /* What is selected RIGHT NOW, optimistic writes included. Reading this from
+     the server data alone left the counter a second or two behind the checkbox
+     the user had just ticked, so the one number on screen that could have
+     confirmed the change instead contradicted it. */
+  const effectiveIds = useMemo(() => {
+    const ids = new Set(implementations.map((i) => i.useCaseId));
+    for (const [id, want] of pending) { if (want) ids.add(id); else ids.delete(id); }
+    return ids;
+  }, [implementations, pending]);
+  const selectedCount = effectiveIds.size;
 
   const entryById = useMemo(() => new Map(allEntries.map((u) => [u.id, u])), [allEntries]);
   const rows = useMemo(
@@ -268,7 +304,7 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
     setBusyId(null);
     if (!r.ok) { setError(r.error ?? "Couldn't save."); return; }
     setEditing(null);
-    router.refresh();
+    refresh();
   }
 
   async function toggle(entry: ResolvedUseCase) {
@@ -291,7 +327,7 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
       const r = await saveImplementationAction(clientId, { useCaseId: entry.id, ...blankForm() });
       if (!r.ok) { settle(entry.id); setError(r.error ?? "Couldn't associate."); return; }
     }
-    router.refresh();
+    refresh();
   }
 
   /* Clear an optimistic tick only once the server data agrees with it — not
@@ -302,7 +338,11 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
     if (!pending.size) return;
     setPending((p) => {
       const n = new Map(p);
-      for (const [id, want] of p) if (associatedIds.has(id) === want) n.delete(id);
+      for (const [id, want] of p) {
+        if (associatedIds.has(id) !== want) continue;
+        n.delete(id);
+        markSaved(id); // confirmed by the server, not merely requested
+      }
       return n.size === p.size ? p : n;
     });
   }, [associatedIds, pending]);
@@ -315,7 +355,7 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
     const r = await removeImplementationAction(clientId, row.impl.id);
     setBusyId(null);
     if (!r.ok) { setError(r.error ?? "Couldn't remove."); return; }
-    router.refresh();
+    refresh();
   }
 
   return (
@@ -352,11 +392,23 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
           ) : (
             <>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-body text-[12.5px] font-semibold text-fg">
+                <p className="flex items-center gap-2 font-body text-[12.5px] font-semibold text-fg">
                   Choose use cases
-                  <span className="ml-2 font-normal text-fg-subtle">
-                    {associatedIds.size} of {liveEntries.length} selected
+                  <span className="font-normal text-fg-subtle">
+                    {selectedCount} of {liveEntries.length} selected
                   </span>
+                  {/* One place that always says whether the panel is settled,
+                      so the state is legible without hunting for the row you
+                      last touched. */}
+                  {pending.size > 0 ? (
+                    <span className="inline-flex items-center gap-1 font-normal text-fg-subtle">
+                      <Loader2 size={11} className="animate-spin" aria-hidden /> saving…
+                    </span>
+                  ) : justSaved.size > 0 ? (
+                    <span className="inline-flex items-center gap-1 font-normal text-[#2F7D52]">
+                      <Check size={11} aria-hidden /> saved
+                    </span>
+                  ) : null}
                 </p>
                 <label className="relative flex min-w-[190px] flex-1 items-center sm:max-w-[260px] sm:flex-none">
                   <Search size={13} className="pointer-events-none absolute left-2.5 text-fg-subtle" aria-hidden />
@@ -373,7 +425,9 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
               <div className="-mr-1 max-h-[min(58vh,460px)] overflow-y-auto pr-1">
                 {picker.map(({ group, entries }) => {
                   const shut = collapsed.has(group.id);
-                  const on = entries.filter((e) => associatedIds.has(e.id)).length;
+                  // Optimistic, like the headline count — a category badge that
+                  // lags the checkbox inside it is its own small contradiction.
+                  const on = entries.filter((e) => effectiveIds.has(e.id)).length;
                   return (
                     <section key={group.id} className="mb-1 last:mb-0">
                       <button type="button" aria-expanded={!shut}
@@ -394,11 +448,15 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
                       {!shut && entries.map((entry) => {
                         // What the user asked for wins until the server agrees.
                         const inFlight = pending.has(entry.id);
+                        const saved = justSaved.has(entry.id);
                         const checked = inFlight ? pending.get(entry.id)! : associatedIds.has(entry.id);
                         return (
                           <label key={entry.id}
                             className={cn("flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 transition-colors",
-                              checked ? "bg-surface" : "hover:bg-surface/70", inFlight && "opacity-70")}>
+                              checked ? "bg-surface" : "hover:bg-surface/70",
+                              // A settled write is worth a beat of green. Not a
+                              // toast: it stays on the row it describes.
+                              saved && "ring-1 ring-[#2F7D52]/35")}>
                             <input type="checkbox" checked={checked} disabled={inFlight}
                               onChange={() => void toggle(entry)} className="mt-[3px] shrink-0 accent-sirius" />
                             <span className="min-w-0 flex-1">
@@ -412,7 +470,16 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
                                 </span>
                               )}
                             </span>
-                            {busyId === entry.id && <Loader2 size={12} className="mt-1 shrink-0 animate-spin text-fg-subtle" />}
+                            {/* Left of the row, so it reads as the state of THIS
+                                use case. `busyId` no longer tracks toggles —
+                                several can be in flight at once — so this reads
+                                the same per-id state the checkbox does. */}
+                            {inFlight && <Loader2 size={12} className="mt-1 shrink-0 animate-spin text-fg-subtle" aria-label="Saving" />}
+                            {!inFlight && saved && (
+                              <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-[#2F7D52]/10 px-1.5 py-0.5 font-body text-[10px] font-semibold text-[#2F7D52]">
+                                <Check size={9} aria-hidden /> Saved
+                              </span>
+                            )}
                           </label>
                         );
                       })}
