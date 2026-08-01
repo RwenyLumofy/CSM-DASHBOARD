@@ -204,6 +204,22 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
   const [q, setQ] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
+  /* OPTIMISTIC TICKS, and the reason they are not optional.
+     The checkboxes are controlled by `implementations`, which is server data.
+     Without this, a click paints straight back to its old state — React
+     re-renders from a prop that has not changed yet — and only ticks a second
+     or two later once the action has returned and router.refresh() has brought
+     new props down. It reads as a dead control, so the natural response is to
+     click again, and because this is a TOGGLE the second click deletes the
+     association the first one just made.
+     `pending` holds the state the user asked for, per id, and wins over the
+     server data until the refresh catches up. Several can be in flight at once
+     — picking four use cases in a row is the normal case, not an edge one. */
+  const [pending, setPending] = useState<Map<string, boolean>>(new Map());
+  const settle = (id: string) => setPending((p) => {
+    const n = new Map(p); n.delete(id); return n;
+  });
+
   const entryById = useMemo(() => new Map(allEntries.map((u) => [u.id, u])), [allEntries]);
   const rows = useMemo(
     () => implementations
@@ -256,25 +272,40 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
   }
 
   async function toggle(entry: ResolvedUseCase) {
+    // Already in flight: ignore rather than queue a second write for the same
+    // id, which would race the first and could land in either order.
+    if (pending.has(entry.id)) return;
     setError(null);
     const existing = implementations.find((i) => i.useCaseId === entry.id);
+
     if (existing) {
       const hasContent = existing.objective || existing.scope || existing.nextStep || existing.notes;
       if (hasContent && !window.confirm(
         `Remove "${entry.label}" from this account? This deletes the objective, scope and notes recorded for it.`,
       )) return;
-      setBusyId(entry.id);
+      setPending((p) => new Map(p).set(entry.id, false));
       const r = await removeImplementationAction(clientId, existing.id);
-      setBusyId(null);
-      if (!r.ok) { setError(r.error ?? "Couldn't remove."); return; }
+      if (!r.ok) { settle(entry.id); setError(r.error ?? "Couldn't remove."); return; }
     } else {
-      setBusyId(entry.id);
+      setPending((p) => new Map(p).set(entry.id, true));
       const r = await saveImplementationAction(clientId, { useCaseId: entry.id, ...blankForm() });
-      setBusyId(null);
-      if (!r.ok) { setError(r.error ?? "Couldn't associate."); return; }
+      if (!r.ok) { settle(entry.id); setError(r.error ?? "Couldn't associate."); return; }
     }
     router.refresh();
   }
+
+  /* Clear an optimistic tick only once the server data agrees with it — not
+     when the action returns. router.refresh() is asynchronous, so dropping it
+     any earlier reverts the checkbox for the frame or two before the new props
+     land, which is the flicker this exists to remove. */
+  useEffect(() => {
+    if (!pending.size) return;
+    setPending((p) => {
+      const n = new Map(p);
+      for (const [id, want] of p) if (associatedIds.has(id) === want) n.delete(id);
+      return n.size === p.size ? p : n;
+    });
+  }, [associatedIds, pending]);
 
   async function remove(row: { impl: UseCaseImplementation; entry: ResolvedUseCase | undefined }) {
     if (!window.confirm(
@@ -361,12 +392,14 @@ export function UseCasePortfolio({ clientId, canEdit, liveEntries, allEntries, g
                         <span className="tabular font-body text-[10.5px] text-fg-subtle">{entries.length}</span>
                       </button>
                       {!shut && entries.map((entry) => {
-                        const checked = associatedIds.has(entry.id);
+                        // What the user asked for wins until the server agrees.
+                        const inFlight = pending.has(entry.id);
+                        const checked = inFlight ? pending.get(entry.id)! : associatedIds.has(entry.id);
                         return (
                           <label key={entry.id}
                             className={cn("flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 transition-colors",
-                              checked ? "bg-surface" : "hover:bg-surface/70")}>
-                            <input type="checkbox" checked={checked} disabled={busyId === entry.id}
+                              checked ? "bg-surface" : "hover:bg-surface/70", inFlight && "opacity-70")}>
+                            <input type="checkbox" checked={checked} disabled={inFlight}
                               onChange={() => void toggle(entry)} className="mt-[3px] shrink-0 accent-sirius" />
                             <span className="min-w-0 flex-1">
                               <span dir="auto" className={cn("block font-body text-[12.5px] leading-snug",
