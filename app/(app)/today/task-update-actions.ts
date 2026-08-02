@@ -24,17 +24,10 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUserEmail, getCurrentUserRole, getCurrentUserScope, denyClientWrite } from "@/lib/auth";
 import { editsAllClients } from "@/lib/roles";
 import { hasDatabase } from "@/lib/config";
+// Sync helper, so it cannot live in this "use server" module — see lib/task-updates.ts.
+import { parseMentions } from "@/lib/task-updates";
 
 export interface UpdateResult { ok: boolean; error?: string }
-
-/** Every mention token the body carries, as lower-cased emails. The tokens are
- *  what the renderer draws; the mention rows are what notifies. Parsing here —
- *  rather than trusting a client-supplied list — means a hand-crafted request
- *  cannot notify somebody who was never named in the text. */
-const MENTION_TOKEN = /@\[([^\]]+)\]/g;
-export function parseMentions(body: string): string[] {
-  return [...new Set([...body.matchAll(MENTION_TOKEN)].map((m) => m[1].trim().toLowerCase()).filter(Boolean))];
-}
 
 /** The task, plus the permission verdict for writing to it. One place, so read
  *  and write can never disagree about who may touch a thread. */
@@ -63,6 +56,51 @@ async function loadWritableTask(taskId: string): Promise<
     }
   }
   return { ok: true, task };
+}
+
+export interface TaskUpdateView {
+  id: string;
+  authorEmail: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  deleted: boolean;
+  mine: boolean;
+}
+
+/**
+ * A task's thread, for someone allowed to read it.
+ *
+ * Read is gated on the same rule as write, deliberately: the sidebar already
+ * only lists tasks the caller may see, and a thread is not more public than the
+ * task it hangs off. Returns [] rather than throwing when the caller may not
+ * look — a thread that fails to load must not blank the task list around it.
+ */
+export async function getTaskUpdatesAction(taskId: string): Promise<TaskUpdateView[]> {
+  if (!hasDatabase()) return [];
+  const email = (await getCurrentUserEmail())?.toLowerCase() ?? null;
+  const gate = await loadWritableTask(taskId);
+  if (!gate.ok) return [];
+
+  const { getTaskUpdatesDb, getUsersWhoCanSeeClientDb } = await import("@/lib/repo/drizzle");
+  const rows = await getTaskUpdatesDb(taskId);
+
+  // Resolve author display names from the same scoped audience the picker uses,
+  // so a name shown here is never one the reader could not otherwise see.
+  const people = gate.task.accountId ? await getUsersWhoCanSeeClientDb(gate.task.accountId) : [];
+  const nameByEmail = new Map(people.map((p) => [p.email, p.name]));
+
+  return rows.map((r) => ({
+    id: r.id,
+    authorEmail: r.authorEmail,
+    authorName: nameByEmail.get(r.authorEmail) ?? r.authorEmail,
+    body: r.body,
+    createdAt: r.createdAt,
+    editedAt: r.editedAt,
+    deleted: !!r.deletedAt,
+    mine: r.authorEmail === email,
+  }));
 }
 
 export async function postTaskUpdateAction(taskId: string, body: string): Promise<UpdateResult> {

@@ -10,7 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseMentions } from "../app/(app)/today/task-update-actions";
+import { parseMentions } from "./task-updates";
 
 test("pulls each mentioned email out of the body", () => {
   assert.deepEqual(

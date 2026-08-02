@@ -21,10 +21,11 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ListChecks, Loader2, Plus, Check, X, ChevronDown } from "lucide-react";
+import { ListChecks, Loader2, Plus, Check, X, ChevronDown, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { createTaskAction, toggleTaskAction } from "@/app/(app)/today/task-actions";
 import { DEFAULT_CATEGORIES } from "@/lib/today/format";
+import { TaskUpdates } from "./TaskUpdates";
 
 const TASK_CATEGORIES: { id: string; label: string }[] = [
   { id: "reminder", label: "Reminder" },
@@ -125,6 +126,9 @@ export function AccountTasks({
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(blankForm);
   const [done, setDone] = useState<Record<string, boolean>>({});
+  /* Which task's thread is open. One at a time: several expanded threads turn a
+     scannable list into a wall, and the sidebar is meant to be glanced at. */
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const open = useMemo(() => {
     const rank = { overdue: 0, today: 1, soon: 2, later: 3, none: 4 } as const;
@@ -133,6 +137,16 @@ export function AccountTasks({
       // Missed first — the only ordering that makes a short list like this useful.
       .sort((a, b) => rank[dueLabel(a.dueDate, today).tone] - rank[dueLabel(b.dueDate, today).tone]);
   }, [items, done, today]);
+
+  /* Completed tasks, behind a disclosure. This list showed OPEN tasks only,
+     which was fine when a task was just a checkbox — but a task now carries a
+     conversation, and completing it took the whole thread out of reach. The
+     discussion about why something was done is usually worth more after it is
+     done. */
+  const finished = useMemo(
+    () => items.filter((t) => t.status === "done" || done[t.id]),
+    [items, done],
+  );
 
   async function add() {
     const title = form.title.trim();
@@ -316,37 +330,71 @@ export function AccountTasks({
           {open.map((t) => {
             const d = dueLabel(t.dueDate, today);
             return (
-              <li key={t.id} className="flex items-start gap-2 rounded-lg border border-border-subtle px-3 py-2">
-                {canEdit && (
-                  <button onClick={() => complete(t.id)} aria-label={`Mark "${t.title}" done`}
-                    className="mt-0.5 grid size-4 shrink-0 place-items-center rounded border border-border text-transparent transition-colors hover:border-sirius hover:text-sirius">
-                    <Check size={10} strokeWidth={3} />
+              <li key={t.id} className="flex flex-col rounded-lg border border-border-subtle px-3 py-2">
+                <div className="flex items-start gap-2">
+                  {canEdit && (
+                    <button onClick={() => complete(t.id)} aria-label={`Mark "${t.title}" done`}
+                      className="mt-0.5 grid size-4 shrink-0 place-items-center rounded border border-border text-transparent transition-colors hover:border-sirius hover:text-sirius">
+                      <Check size={10} strokeWidth={3} />
+                    </button>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p dir="auto" className="flex flex-wrap items-center gap-1.5 font-body text-[12.5px] text-fg">
+                      {/* Priority as a dot, not a word — four labelled pills per row
+                          would out-shout the task itself. Named for screen readers. */}
+                      {t.priority && t.priority !== "normal" && PRIORITY_META[t.priority as TaskPriority] && (
+                        <span title={`${PRIORITY_META[t.priority as TaskPriority].label} priority`}
+                          className={cn("size-1.5 shrink-0 rounded-full", PRIORITY_META[t.priority as TaskPriority].dot)}>
+                          <span className="sr-only">{PRIORITY_META[t.priority as TaskPriority].label} priority</span>
+                        </span>
+                      )}
+                      <span>{t.title}</span>
+                    </p>
+                    {t.notes && <p dir="auto" className="mt-0.5 font-body text-[11.5px] text-fg-subtle">{t.notes}</p>}
+                    {t.ownerEmail && <p className="mt-0.5 font-body text-[11px] text-fg-subtle">{t.ownerEmail}</p>}
+                  </div>
+                  <span className="shrink-0 rounded-full bg-bg-muted px-2 py-0.5 font-body text-[10.5px] font-medium text-fg-muted">
+                    {categoryLabel(t.category)}
+                  </span>
+                  {/* Text, not just colour — WCAG 1.4.1. */}
+                  <span className={cn("shrink-0 font-body text-[11.5px]", TONE[d.tone])}>{d.text}</span>
+                  <button onClick={() => setOpenTaskId((id) => id === t.id ? null : t.id)}
+                    aria-expanded={openTaskId === t.id}
+                    aria-label={`${openTaskId === t.id ? "Hide" : "Show"} updates on "${t.title}"`}
+                    className="shrink-0 text-fg-subtle transition-colors hover:text-sirius">
+                    <MessageSquare size={13} />
                   </button>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p dir="auto" className="flex flex-wrap items-center gap-1.5 font-body text-[12.5px] text-fg">
-                    {/* Priority as a dot, not a word — four labelled pills per row
-                        would out-shout the task itself. Named for screen readers. */}
-                    {t.priority && t.priority !== "normal" && PRIORITY_META[t.priority as TaskPriority] && (
-                      <span title={`${PRIORITY_META[t.priority as TaskPriority].label} priority`}
-                        className={cn("size-1.5 shrink-0 rounded-full", PRIORITY_META[t.priority as TaskPriority].dot)}>
-                        <span className="sr-only">{PRIORITY_META[t.priority as TaskPriority].label} priority</span>
-                      </span>
-                    )}
-                    <span>{t.title}</span>
-                  </p>
-                  {t.notes && <p dir="auto" className="mt-0.5 font-body text-[11.5px] text-fg-subtle">{t.notes}</p>}
-                  {t.ownerEmail && <p className="mt-0.5 font-body text-[11px] text-fg-subtle">{t.ownerEmail}</p>}
                 </div>
-                <span className="shrink-0 rounded-full bg-bg-muted px-2 py-0.5 font-body text-[10.5px] font-medium text-fg-muted">
-                  {categoryLabel(t.category)}
-                </span>
-                {/* Text, not just colour — WCAG 1.4.1. */}
-                <span className={cn("shrink-0 font-body text-[11.5px]", TONE[d.tone])}>{d.text}</span>
+                {openTaskId === t.id && <TaskUpdates taskId={t.id} canPost={canEdit} />}
               </li>
             );
           })}
         </ul>
+      )}
+
+      {finished.length > 0 && (
+        <details className="mt-3">
+          <summary className="cursor-pointer list-none font-body text-[11.5px] text-fg-subtle hover:text-fg">
+            {finished.length} completed
+          </summary>
+          <ul className="mt-2 flex flex-col gap-1">
+            {finished.map((t) => (
+              <li key={t.id} className="flex flex-col rounded-lg border border-border-subtle px-3 py-2">
+                <div className="flex items-start gap-2">
+                  <Check size={12} className="mt-0.5 shrink-0 text-[#2F7D52]" aria-hidden />
+                  <p dir="auto" className="min-w-0 flex-1 font-body text-[12.5px] text-fg-muted line-through">{t.title}</p>
+                  <button onClick={() => setOpenTaskId((id) => id === t.id ? null : t.id)}
+                    aria-expanded={openTaskId === t.id}
+                    aria-label={`${openTaskId === t.id ? "Hide" : "Show"} updates on "${t.title}"`}
+                    className="shrink-0 text-fg-subtle transition-colors hover:text-sirius">
+                    <MessageSquare size={13} />
+                  </button>
+                </div>
+                {openTaskId === t.id && <TaskUpdates taskId={t.id} canPost={canEdit} />}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       </div>
     </div>
