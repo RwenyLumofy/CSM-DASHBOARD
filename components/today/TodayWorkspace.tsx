@@ -7,10 +7,12 @@
    action, add task) driven by TodayContext.
    ========================================================================= */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import type { TodaySnapshot } from "@/lib/today/types";
 import type { PulseDueSummary } from "@/lib/health/pulse-queue";
-import { initTodayStore, setOwnerFilter, getViewer } from "@/lib/today/repo";
+import { TASK_PARAM } from "@/lib/notifications/link";
+import { initTodayStore, setOwnerFilter, getViewer, getTasks } from "@/lib/today/repo";
 import { track } from "@/lib/today/analytics";
 import { TodayProvider, useToday } from "./TodayContext";
 import { useToast } from "@/components/clients/projects/shared";
@@ -37,10 +39,24 @@ export function TodayWorkspace({ snapshot, pulseDue }: { snapshot: TodaySnapshot
 }
 
 function Inner({ pulseDue }: { pulseDue?: PulseDueSummary }) {
-  const { ownerFilter, overlay, closeOverlays } = useToday();
+  const { ownerFilter, overlay, closeOverlays, openTask } = useToday();
   const { show, node: toast } = useToast();
 
   useEffect(() => { track("today_viewed", {}); }, []);
+
+  /* Arriving from a notification about a personal task. The bell links here as
+     /today?task=<id> when the task has no account (see lib/notifications/link
+     .ts) — that click used to do nothing at all. Only open a task the viewer
+     can actually see: an id absent from the permission-scoped snapshot would
+     otherwise open an empty drawer and imply the task exists. */
+  const wantedTaskId = useSearchParams().get(TASK_PARAM);
+  const handled = useRef<string | null>(null);
+  useEffect(() => {
+    if (!wantedTaskId || handled.current === wantedTaskId) return;
+    if (!getTasks().some((t) => t.id === wantedTaskId)) return;
+    handled.current = wantedTaskId;
+    openTask(wantedTaskId);
+  }, [wantedTaskId, openTask]);
 
   // Apply the admin owner drill-in (header CSM picker) before the board reads.
   setOwnerFilter(ownerFilter);

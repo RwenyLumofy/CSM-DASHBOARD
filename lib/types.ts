@@ -504,6 +504,12 @@ export interface Notification {
   title: string;
   body: string | null;
   clientId: string | null;
+  /* What the notification is ABOUT, when that is narrower than an account.
+     clientId alone can only land you on the account page, which for "you were
+     mentioned in an update" means arriving at a page of tabs with no idea which
+     task was meant. See notificationHref() in lib/notifications/link.ts. */
+  entityType: string | null;
+  entityId: string | null;
   status: NotificationStatus;
   readAt: string | null; // ISO — null = unread
   dueDate: string | null;

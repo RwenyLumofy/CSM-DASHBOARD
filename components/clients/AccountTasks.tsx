@@ -19,12 +19,14 @@
    Overdue is stated in words as well as colour, and sorted first, because the
    entire value of a short list like this is knowing what's already missed. */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ListChecks, Loader2, Plus, Check, X, ChevronDown, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { createTaskAction, toggleTaskAction } from "@/app/(app)/today/task-actions";
 import { DEFAULT_CATEGORIES } from "@/lib/today/format";
+import { TASK_PARAM } from "@/lib/notifications/link";
 import { TaskUpdates } from "./TaskUpdates";
 
 const TASK_CATEGORIES: { id: string; label: string }[] = [
@@ -129,6 +131,22 @@ export function AccountTasks({
   /* Which task's thread is open. One at a time: several expanded threads turn a
      scannable list into a wall, and the sidebar is meant to be glanced at. */
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+
+  /* Arriving from a notification. The bell links to ?task=<id> (see
+     lib/notifications/link.ts) — open the sidebar on that task's thread rather
+     than dropping the reader on a page of tabs with no idea which task was
+     meant. Only while the id is in the URL and present in this account's list:
+     a stale or foreign id leaves the page alone instead of opening an empty
+     drawer. */
+  const wantedTaskId = useSearchParams().get(TASK_PARAM);
+  const handled = useRef<string | null>(null);
+  useEffect(() => {
+    if (!wantedTaskId || handled.current === wantedTaskId) return;
+    if (!items.some((t) => t.id === wantedTaskId)) return;
+    handled.current = wantedTaskId;
+    setSheetOpen(true);
+    setOpenTaskId(wantedTaskId);
+  }, [wantedTaskId, items]);
 
   const open = useMemo(() => {
     const rank = { overdue: 0, today: 1, soon: 2, later: 3, none: 4 } as const;

@@ -2217,6 +2217,8 @@ function notificationRowTo(r: NotificationRow): import("@/lib/types").Notificati
     title: r.title,
     body: r.body,
     clientId: r.clientId,
+    entityType: r.entityType ?? null,
+    entityId: r.entityId ?? null,
     status: (r.status as import("@/lib/types").NotificationStatus) ?? "open",
     readAt: iso(r.readAt),
     dueDate: iso(r.dueDate),

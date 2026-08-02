@@ -29,6 +29,7 @@ import {
   inputCls, selectCls, triggerCls,
 } from "./task-ui";
 import { updateTaskAction, toggleTaskAction, deleteTaskAction } from "@/app/(app)/today/task-actions";
+import { TaskUpdates } from "@/components/clients/TaskUpdates";
 
 export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () => void }) {
   const router = useRouter();
@@ -227,6 +228,16 @@ export function TaskDrawer({ taskId, onClose }: { taskId: string; onClose: () =>
               <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
             </div>
           </label>
+        </div>
+
+        {/* 6 — Updates. The same thread the account Tasks sidebar shows: a task
+               has one conversation, not one per surface it can be opened from.
+               Only the id crosses over — the server re-derives who may read and
+               post from the task's own account, so opening it here grants
+               nothing that opening it there would not. */}
+        <div className="border-t border-border-subtle pt-4">
+          <span className="font-body text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Updates</span>
+          <TaskUpdates taskId={taskId} canPost={viewer.role !== "guest"} />
         </div>
       </div>
     </Drawer>
