@@ -356,26 +356,36 @@ export function AccountTasks({
                       <Check size={10} strokeWidth={3} />
                     </button>
                   )}
+                  {/* Title first and full width; the metadata goes underneath.
+                      The sidebar is a 540px drawer — about 464px of row — and
+                      holding the category pill, the due label and the thread
+                      button on the title's line left a realistic title
+                      ("Prepare the Q3 QBR deck and circulate to the exec
+                      sponsor") roughly 180px, wrapping it to two lines and
+                      orphaning the priority dot above it. The title is the
+                      only part you scan for. */}
                   <div className="min-w-0 flex-1">
-                    <p dir="auto" className="flex flex-wrap items-center gap-1.5 font-body text-[12.5px] text-fg">
+                    <p dir="auto" className="flex items-baseline gap-1.5 font-body text-[12.5px] text-fg">
                       {/* Priority as a dot, not a word — four labelled pills per row
                           would out-shout the task itself. Named for screen readers. */}
                       {t.priority && t.priority !== "normal" && PRIORITY_META[t.priority as TaskPriority] && (
                         <span title={`${PRIORITY_META[t.priority as TaskPriority].label} priority`}
-                          className={cn("size-1.5 shrink-0 rounded-full", PRIORITY_META[t.priority as TaskPriority].dot)}>
+                          className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", PRIORITY_META[t.priority as TaskPriority].dot)}>
                           <span className="sr-only">{PRIORITY_META[t.priority as TaskPriority].label} priority</span>
                         </span>
                       )}
-                      <span>{t.title}</span>
+                      <span className="min-w-0">{t.title}</span>
                     </p>
                     {t.notes && <p dir="auto" className="mt-0.5 font-body text-[11.5px] text-fg-subtle">{t.notes}</p>}
-                    {t.ownerEmail && <p className="mt-0.5 font-body text-[11px] text-fg-subtle">{t.ownerEmail}</p>}
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="rounded-full bg-bg-muted px-2 py-0.5 font-body text-[10.5px] font-medium text-fg-muted">
+                        {categoryLabel(t.category)}
+                      </span>
+                      {/* Text, not just colour — WCAG 1.4.1. */}
+                      <span className={cn("font-body text-[11.5px]", TONE[d.tone])}>{d.text}</span>
+                      {t.ownerEmail && <span className="truncate font-body text-[11px] text-fg-subtle">{t.ownerEmail}</span>}
+                    </div>
                   </div>
-                  <span className="shrink-0 rounded-full bg-bg-muted px-2 py-0.5 font-body text-[10.5px] font-medium text-fg-muted">
-                    {categoryLabel(t.category)}
-                  </span>
-                  {/* Text, not just colour — WCAG 1.4.1. */}
-                  <span className={cn("shrink-0 font-body text-[11.5px]", TONE[d.tone])}>{d.text}</span>
                   <button onClick={() => setOpenTaskId((id) => id === t.id ? null : t.id)}
                     aria-expanded={openTaskId === t.id}
                     aria-label={`${openTaskId === t.id ? "Hide" : "Show"} updates on "${t.title}"`}

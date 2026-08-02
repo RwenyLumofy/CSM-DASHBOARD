@@ -82,23 +82,31 @@ export function TasksPreview() {
 
       <Panel
         title="The thread, in the account Tasks sidebar"
-        note="A task row now carries its conversation. One thread open at a time — several expanded turn a scannable list into a wall."
+        note="A task row now carries its conversation. One thread open at a time — several expanded turn a scannable list into a wall. This box is the REAL drawer width — 540px with 24px padding — so what you see here is what the sidebar gives it."
       >
-        <div className="rounded-xl border border-border bg-surface p-3">
+        {/* Mirrors AccountTasks' drawer exactly: w-[540px] p-6. Previewing this
+            in a wide card was misleading — the thread never gets that much
+            room, and the row's meta is what suffers first. */}
+        <div className="w-[540px] max-w-full rounded-xl border border-border bg-surface p-6">
           <div className="flex flex-col rounded-lg border border-border-subtle px-3 py-2">
+            {/* Deliberately a REALISTIC title length. The short one ("Prepare
+                the QBR deck") fit fine and hid the fact that the meta on the
+                title's line squeezed a real title to ~180px. */}
             <div className="flex items-start gap-2">
               <button className="mt-0.5 grid size-4 shrink-0 place-items-center rounded border border-border text-transparent hover:border-sirius hover:text-sirius">
                 <Check size={10} strokeWidth={3} />
               </button>
               <div className="min-w-0 flex-1">
-                <p className="flex flex-wrap items-center gap-1.5 font-body text-[12.5px] text-fg">
-                  <span title="High priority" className="size-1.5 shrink-0 rounded-full bg-[#C99A14]" />
-                  <span>Prepare the QBR deck</span>
+                <p className="flex items-baseline gap-1.5 font-body text-[12.5px] text-fg">
+                  <span title="High priority" className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#C99A14]" />
+                  <span className="min-w-0">Prepare the Q3 QBR deck and circulate to the exec sponsor</span>
                 </p>
-                <p className="mt-0.5 font-body text-[11px] text-fg-subtle">aelsagher@lumofy.com</p>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="rounded-full bg-bg-muted px-2 py-0.5 font-body text-[10.5px] font-medium text-fg-muted">Meeting</span>
+                  <span className="font-body text-[11.5px] text-[#B23A57]">2 days late</span>
+                  <span className="truncate font-body text-[11px] text-fg-subtle">aelsagher@lumofy.com</span>
+                </div>
               </div>
-              <span className="shrink-0 rounded-full bg-bg-muted px-2 py-0.5 font-body text-[10.5px] font-medium text-fg-muted">Meeting</span>
-              <span className="shrink-0 font-body text-[11.5px] text-[#B23A57]">2 days late</span>
               <button onClick={() => setOpenThread((o) => !o)} aria-expanded={openThread}
                 className={cn("shrink-0 transition-colors", openThread ? "text-sirius" : "text-fg-subtle hover:text-sirius")}>
                 <MessageSquare size={13} />

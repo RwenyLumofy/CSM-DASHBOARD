@@ -173,8 +173,13 @@ export function TaskUpdates({ taskId, canPost, preview }: {
     setUpdates(await getTaskUpdatesAction(taskId));
   }
 
+  /* Nested panel, not a flat continuation of the row. The sidebar is a 540px
+     drawer — about 464px of usable row width — so a thread that just runs on
+     below the task reads as one undifferentiated wall of text. The inset and
+     tint cost no horizontal space and make it obvious the conversation hangs
+     off THAT task. The negative margins let it span the row's own padding. */
   return (
-    <div className="flex flex-col gap-3 border-t border-border-subtle pt-3">
+    <div className="-mx-3 -mb-2 mt-2 flex flex-col gap-3 rounded-b-lg border-t border-border-subtle bg-bg-muted/40 px-3 py-3">
       {updates === null ? (
         <p className="font-body text-[12px] text-fg-subtle">Loading updates…</p>
       ) : updates.length === 0 ? (
@@ -184,8 +189,10 @@ export function TaskUpdates({ taskId, canPost, preview }: {
       ) : (
         <ul className="flex flex-col gap-3">
           {updates.map((u) => (
-            <li key={u.id} className="flex gap-2.5">
-              <span className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-full font-body text-[10px] font-bold",
+            <li key={u.id} className="flex gap-2">
+              {/* size-6, not size-7: every pixel here comes off the message
+                  itself, and an initials disc does not need to be large. */}
+              <span className={cn("mt-0.5 grid size-6 shrink-0 place-items-center rounded-full font-body text-[9.5px] font-bold",
                 u.deleted ? "bg-bg-muted text-fg-subtle" : "bg-accent-soft text-sirius")}>
                 {initials(u.authorName)}
               </span>
@@ -248,8 +255,12 @@ export function TaskUpdates({ taskId, canPost, preview }: {
           )}
 
           <div className="flex items-center gap-2">
+            {/* Short deliberately. The fuller sentence measured 229px of text
+                against a 91px button; this is 138px. Both fit on one line in
+                the 540px drawer, but the drawer goes full width below the sm
+                breakpoint, where the long version wrapped to two lines. */}
             <span className="flex flex-1 items-center gap-1.5 font-body text-[11px] text-fg-subtle">
-              <Lock size={11} aria-hidden /> Mentioning someone doesn&rsquo;t give them access
+              <Lock size={11} className="shrink-0" aria-hidden /> Mentions don&rsquo;t grant access
             </span>
             <button onClick={() => void post()} disabled={busy || !draft.trim()}
               className="inline-flex items-center gap-1.5 rounded-lg bg-sirius px-3 py-1.5 font-body text-[12px] font-semibold text-white disabled:opacity-50">
