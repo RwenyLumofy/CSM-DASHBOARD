@@ -14,6 +14,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type {
   Csm,
@@ -320,7 +321,11 @@ export const todayTasks = pgTable("today_tasks", {
   projectId: text("project_id"), // client_projects.id (optional link)
   dueDate: timestamp("due_date", { withTimezone: true }),
   priority: text("priority").notNull().default("normal"), // urgent | high | normal | low
-  notes: text("notes"), // optional description, supports @mentions
+  // Optional plain-text description. Mentions live on task_updates, NOT here —
+  // this said "supports @mentions" and did not: AddTaskModal collected mention
+  // chips into local state and dropped them on submit, so only the literal
+  // "@Name" characters were ever stored and no reference survived.
+  notes: text("notes"),
   sourceType: text("source_type"), // provenance: signal | commitment | null
   sourceId: text("source_id"), // id of the linked signal/commitment
   createdByEmail: text("created_by_email"), // who authored it (may differ from assignee)
@@ -328,6 +333,57 @@ export const todayTasks = pgTable("today_tasks", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("today_tasks_owner_idx").on(t.ownerEmail)]);
+
+/**
+ * A posted update on a task — the conversation that was happening in Slack.
+ *
+ * The account Tasks sidebar deliberately lists tasks across owners, so two
+ * people routinely see a task only one of them can act on, with no way to say
+ * anything about it or reach the other. This is that missing sentence.
+ *
+ * `kind` is `comment` in v1. `status_changed` / `reassigned` / `due_date_changed`
+ * are RESERVED so task activity can join the same stream later without a second
+ * table and a merge at read time — see the spec's Step 3.
+ *
+ * Soft delete, never a hard one: a thread with a hole in it reads as data loss,
+ * and an update that has been replied to is part of a conversation rather than
+ * one person's property.
+ */
+export const taskUpdates = pgTable("task_updates", {
+  id: text("id").primaryKey(), // "tup-{uuid}"
+  taskId: text("task_id").notNull(), // today_tasks.id
+  kind: text("kind").notNull().default("comment"), // comment (v1) | status_changed | reassigned | due_date_changed
+  authorEmail: text("author_email").notNull(), // lower-cased login email
+  /** Plain text carrying `@[<email>]` tokens at each mention position. NOT HTML
+   *  — that drags the sanitisation boundary and dangerouslySetInnerHTML into
+   *  what is a sentence. NOT character offsets — those break on edit. */
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  editedAt: timestamp("edited_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => [index("task_updates_task_idx").on(t.taskId, t.createdAt)]);
+
+/**
+ * One row per distinct person mentioned in an update.
+ *
+ * The authoritative index — the `@[email]` token in the body exists only so the
+ * renderer can place the chip. Notifications and "tasks I am mentioned in" read
+ * this, never the prose.
+ *
+ * A mention grants NO access (team decision, 2026-08-02). The picker only ever
+ * offers people who can already see the account, so this table can never name
+ * someone who could not have been reached anyway.
+ */
+export const taskUpdateMentions = pgTable("task_update_mentions", {
+  id: text("id").primaryKey(), // "tum-{uuid}"
+  updateId: text("update_id").notNull(), // task_updates.id
+  taskId: text("task_id").notNull(), // denormalised, so "mentioned me" needs no join
+  mentionedEmail: text("mentioned_email").notNull(), // lower-cased
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("task_update_mentions_unique").on(t.updateId, t.mentionedEmail),
+  index("task_update_mentions_email_idx").on(t.mentionedEmail, t.createdAt),
+]);
 
 /**
  * Sync state — stores named checkpoints (ISO timestamps).
@@ -362,8 +418,13 @@ export const workspaceConfig = pgTable("workspace_config", {
 export const notifications = pgTable("notifications", {
   id: text("id").primaryKey(),
   recipientEmail: text("recipient_email").notNull(),
-  // 'assignment_review' (super-admin) | 'assignment_needs_admin' (tie) |
-  // 'client_assigned' (assignee) | 'system'
+  /* assignment_review (super-admin) | assignment_needs_admin (tie) |
+     client_assigned (assignee) | profile_incomplete_red | profile_incomplete_yellow |
+     task_assigned | task_mentioned | task_update | system.
+     Kept in step with NotificationType in lib/types.ts — this comment listed
+     four while the code wrote seven, and task_assigned was being inserted by
+     task-actions.ts without appearing in the union, the comment, or the bell's
+     icon map. */
   type: text("type").notNull(),
   title: text("title").notNull(),
   body: text("body"),
@@ -373,6 +434,12 @@ export const notifications = pgTable("notifications", {
   // Whether the recipient has seen it (drives the bell unread badge).
   readAt: timestamp("read_at", { withTimezone: true }),
   dueDate: timestamp("due_date", { withTimezone: true }),
+  /* Generic target, so a notification can point at something that is not an
+     account. clientId alone could not address a task, which is why a
+     task_assigned notification on a task with no account was a dead click.
+     Nullable: existing rows stay null and keep routing on clientId. */
+  entityType: text("entity_type"), // 'task' | 'client' | null
+  entityId: text("entity_id"),
   createdByEmail: text("created_by_email"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("notifications_recipient_email_idx").on(t.recipientEmail)]);

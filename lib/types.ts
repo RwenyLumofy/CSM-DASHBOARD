@@ -486,6 +486,13 @@ export type NotificationType =
   | "client_assigned" // assignee: a new client was assigned to you
   | "profile_incomplete_red" // CSM + super-admins: account missing must-have fields, refreshed daily
   | "profile_incomplete_yellow" // CSM only: account missing nice-to-have fields, refreshed every 3 days
+  // task_assigned was already being written by createTaskAction while absent
+  // from this union, from the schema comment, and from the bell's icon map — so
+  // it rendered without an icon and, on a task with no account, did nothing when
+  // clicked. Declared now, with the two the update thread adds.
+  | "task_assigned" // assignee: someone gave you a task
+  | "task_mentioned" // you were named in an update on a task
+  | "task_update" // an update was posted on a task you own
   | "system";
 
 export type NotificationStatus = "open" | "done";

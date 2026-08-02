@@ -1727,6 +1727,185 @@ export async function getTodayTasksVisibleDb(email: string, accountIds: string[]
   }
 }
 
+/* ---------------------------------------------------------- task updates -- */
+
+/** One task by id. Returns only what an authorisation check needs — the caller
+ *  must not be handed a whole task before it has been decided they may see it. */
+export async function getTodayTaskDb(taskId: string): Promise<
+  { id: string; accountId: string | null; ownerEmail: string; title: string } | null
+> {
+  try {
+    const db = getDb();
+    const [row] = await withDbTimeout(db.select({
+      id: schema.todayTasks.id,
+      accountId: schema.todayTasks.accountId,
+      ownerEmail: schema.todayTasks.ownerEmail,
+      title: schema.todayTasks.title,
+    }).from(schema.todayTasks).where(eq(schema.todayTasks.id, taskId)).limit(1));
+    return row ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Everyone who can already SEE this account — the only people the mention
+ * picker may offer.
+ *
+ * Mirrors scopeAdmits in lib/auth.ts rather than reinventing it:
+ *   all       every account
+ *   assigned  the account's CSM or implementation owner
+ *   selected  an explicit grant in user_account_grants
+ * A null scope falls back to the role default, exactly as getCurrentUserScope
+ * does — admin/guest/super default to `all`, operator to `assigned`.
+ *
+ * Deliberately NOT getAppUsers(): that read is unscoped and is already recorded
+ * in docs/known-limitations/contradictions.md as leaking the staff directory.
+ * This returns a filtered audience, never the whole company.
+ */
+export async function getUsersWhoCanSeeClientDb(
+  clientId: string,
+): Promise<{ email: string; name: string }[]> {
+  try {
+    const db = getDb();
+    const { defaultScopeForRole, isRole, DEFAULT_ROLE } = await import("@/lib/roles");
+
+    const [client, users, grants] = await Promise.all([
+      withDbTimeout(db.select({ csm: schema.clients.csm, impl: schema.clients.implementationOwner })
+        .from(schema.clients).where(eq(schema.clients.id, clientId)).limit(1)),
+      withDbTimeout(db.select({
+        email: schema.appUsers.email, name: schema.appUsers.name,
+        role: schema.appUsers.role, scope: schema.appUsers.scope,
+      }).from(schema.appUsers)),
+      withDbTimeout(db.select({ userEmail: schema.userAccountGrants.userEmail })
+        .from(schema.userAccountGrants).where(eq(schema.userAccountGrants.clientId, clientId))),
+    ]);
+
+    const owners = new Set([
+      (client[0]?.csm?.email ?? "").toLowerCase(),
+      (client[0]?.impl?.email ?? "").toLowerCase(),
+    ].filter(Boolean));
+    const granted = new Set(grants.map((g) => g.userEmail.toLowerCase()));
+
+    return users
+      .filter((u) => {
+        const role = isRole(u.role) ? u.role : DEFAULT_ROLE;
+        const mode = u.scope ?? defaultScopeForRole(role);
+        if (mode === "all") return true;
+        if (mode === "assigned") return owners.has(u.email.toLowerCase());
+        if (mode === "selected") return granted.has(u.email.toLowerCase());
+        return false; // 'none'
+      })
+      .map((u) => ({ email: u.email.toLowerCase(), name: u.name ?? u.email }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    // No audience is the safe failure: the picker offers nobody rather than
+    // everybody.
+    return [];
+  }
+}
+
+export interface TaskUpdateRow {
+  id: string;
+  taskId: string;
+  kind: string;
+  authorEmail: string;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  deletedAt: string | null;
+  mentions: string[];
+}
+
+/** A task's thread, oldest first — a conversation reads downward. Soft-deleted
+ *  rows are RETURNED, body blanked, so the UI can render "Update removed"
+ *  rather than leaving a hole where someone's reply used to make sense. */
+export async function getTaskUpdatesDb(taskId: string): Promise<TaskUpdateRow[]> {
+  try {
+    const db = getDb();
+    const [rows, mentions] = await Promise.all([
+      withDbTimeout(db.select().from(schema.taskUpdates)
+        .where(eq(schema.taskUpdates.taskId, taskId))
+        .orderBy(schema.taskUpdates.createdAt)),
+      withDbTimeout(db.select().from(schema.taskUpdateMentions)
+        .where(eq(schema.taskUpdateMentions.taskId, taskId))),
+    ]);
+    const byUpdate = new Map<string, string[]>();
+    for (const m of mentions) {
+      const list = byUpdate.get(m.updateId) ?? [];
+      list.push(m.mentionedEmail);
+      byUpdate.set(m.updateId, list);
+    }
+    return rows.map((r) => ({
+      id: r.id,
+      taskId: r.taskId,
+      kind: r.kind,
+      authorEmail: r.authorEmail,
+      body: r.deletedAt ? "" : r.body,
+      createdAt: r.createdAt.toISOString(),
+      editedAt: r.editedAt?.toISOString() ?? null,
+      deletedAt: r.deletedAt?.toISOString() ?? null,
+      mentions: byUpdate.get(r.id) ?? [],
+    }));
+  } catch {
+    // A thread failing to load must not blank the task list around it.
+    return [];
+  }
+}
+
+/** Post an update and record who it named, in one transaction — a mention row
+ *  without its update, or an update whose mentions never landed, would mean
+ *  someone was notified about something unreadable, or not notified at all. */
+export async function createTaskUpdateDb(input: {
+  taskId: string; authorEmail: string; body: string; mentions: string[];
+}): Promise<TaskUpdateRow> {
+  const db = getDb();
+  const id = `tup-${globalThis.crypto.randomUUID()}`;
+  const author = input.authorEmail.toLowerCase();
+  // Distinct: naming somebody twice in one sentence must notify them once.
+  const mentioned = [...new Set(input.mentions.map((e) => e.toLowerCase()))];
+
+  await db.transaction(async (tx) => {
+    await tx.insert(schema.taskUpdates).values({
+      id, taskId: input.taskId, kind: "comment", authorEmail: author, body: input.body,
+    });
+    if (mentioned.length) {
+      await tx.insert(schema.taskUpdateMentions).values(mentioned.map((email) => ({
+        id: `tum-${globalThis.crypto.randomUUID()}`,
+        updateId: id, taskId: input.taskId, mentionedEmail: email,
+      })));
+    }
+  });
+
+  const [row] = await db.select().from(schema.taskUpdates).where(eq(schema.taskUpdates.id, id)).limit(1);
+  return {
+    id, taskId: input.taskId, kind: "comment", authorEmail: author, body: input.body,
+    createdAt: row?.createdAt.toISOString() ?? new Date().toISOString(),
+    editedAt: null, deletedAt: null, mentions: mentioned,
+  };
+}
+
+/** Soft delete. Returns the author so the caller can enforce "your own, or you
+ *  may edit any task" without a second read. */
+export async function deleteTaskUpdateDb(updateId: string): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db.select().from(schema.taskUpdates).where(eq(schema.taskUpdates.id, updateId)).limit(1);
+  if (!row || row.deletedAt) return null;
+  await db.update(schema.taskUpdates)
+    .set({ deletedAt: new Date() })
+    .where(eq(schema.taskUpdates.id, updateId));
+  return row.authorEmail;
+}
+
+/** The task an update belongs to — so a write can be authorised against the
+ *  task's account rather than trusting a client-supplied taskId. */
+export async function taskIdForUpdateDb(updateId: string): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db.select({ taskId: schema.taskUpdates.taskId })
+    .from(schema.taskUpdates).where(eq(schema.taskUpdates.id, updateId)).limit(1);
+  return row?.taskId ?? null;
+}
+
 export async function createTodayTaskDb(input: {
   ownerEmail: string; category: string; title: string; accountId?: string | null; projectId?: string | null; dueDate?: string | null;
   priority?: string; notes?: string | null; sourceType?: string | null; sourceId?: string | null; createdByEmail?: string | null;
@@ -2053,6 +2232,11 @@ export interface NewNotification {
   title: string;
   body?: string | null;
   clientId?: string | null;
+  /** What this notification is ABOUT, when that is not an account. clientId
+   *  alone could not address a task, so a task notification on a task with no
+   *  account had nowhere to send you. */
+  entityType?: "task" | "client" | null;
+  entityId?: string | null;
   dueDate?: Date | null;
   createdByEmail?: string | null;
 }
@@ -2093,6 +2277,8 @@ export async function insertNotificationsDb(rows: NewNotification[]): Promise<vo
         title: n.title,
         body: n.body ?? null,
         clientId: n.clientId ?? null,
+        entityType: n.entityType ?? null,
+        entityId: n.entityId ?? null,
         dueDate: n.dueDate ?? null,
         createdByEmail: n.createdByEmail ?? null,
       })),
