@@ -815,7 +815,19 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
   const usage = await getClientUsage(clientId).catch(() => ({ status: "error" as const, message: "usage fetch failed" }));
   const usageScore = usage.status === "ok" ? usage.score.score : null;
 
-  const config = await getClientHealthConfig();
+  /* CS Pulse as a health input. The dimensions and rating tiers are workspace
+     config, so the same stored ratings can score differently after an admin
+     retunes them — which is why this is scored here on every recompute rather
+     than read from a number persisted at capture time. */
+  const { normalizePulse, pulseScore, pulseAgeDays } = await import("@/lib/health/pulse");
+  const { getCsPulseDimensions, getCsPulseTiers } = await import("@/lib/health/data");
+  const [config, pulseDimensions, pulseTiers] = await Promise.all([
+    getClientHealthConfig(),
+    getCsPulseDimensions(),
+    getCsPulseTiers(),
+  ]);
+  const storedPulse = normalizePulse(client.properties?.cs_pulse);
+
   const computed = computeHealthScore(
     {
       support: client.support,
@@ -824,6 +836,8 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
       useCasesSet: useCasesRollup.length > 0,
       stakeholderMapped,
       onboarding,
+      pulseScore: storedPulse ? pulseScore(storedPulse.ratings, pulseDimensions, pulseTiers) : null,
+      pulseAgeDays: pulseAgeDays(storedPulse),
     },
     config,
     { updatedAt: new Date().toISOString() },

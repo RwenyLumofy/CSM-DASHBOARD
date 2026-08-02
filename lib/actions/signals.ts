@@ -70,6 +70,7 @@ const COMPONENT_LABEL: Record<HealthMetricKey, string> = {
   use_case_set: "use case",
   profile_complete: "profile completeness",
   stakeholder_mapping: "stakeholder mapping",
+  cs_pulse: "CS Pulse",
 };
 
 function lowestHealthComponent(client: Client): string {

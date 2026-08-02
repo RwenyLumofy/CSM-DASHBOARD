@@ -25,6 +25,15 @@ export interface HealthComputeInputs {
   useCasesSet: boolean;
   stakeholderMapped: boolean;
   onboarding: OnboardingPeriod;
+  /** The account's CS Pulse as a 0–100 score, or null when none is recorded.
+   *  Computed from the stored ratings against the configured dimensions and
+   *  tiers — see pulseScore in lib/health/pulse.ts. */
+  pulseScore: number | null;
+  /** Whole days since that Pulse was recorded, or null when there is none.
+   *  Compared against the metric's validityDays: a Pulse older than that stops
+   *  counting, because it is a judgement made on a date rather than a
+   *  standing fact about the account. */
+  pulseAgeDays: number | null;
 }
 
 /** One metric's 0–100 sub-score, or null when it has no data for this client
@@ -86,6 +95,20 @@ function subscoreFor(m: HealthMetricConfig, inputs: HealthComputeInputs): number
 
     case "stakeholder_mapping":
       return inputs.stakeholderMapped ? 100 : 0;
+
+    /* The CSM's own read of the account, scored like any other signal.
+       NULL, NOT ZERO, when there is no Pulse or the Pulse has lapsed — the
+       same rule every other metric follows here, so an unassessed account is
+       excluded from this metric rather than punished by it. Zeroing would
+       repeat what stakeholder_mapping already does to the portfolio in
+       lib/metrics/health-drag.ts, where a field almost nobody fills in drags
+       every score down for a reason that has nothing to do with the account. */
+    case "cs_pulse": {
+      if (inputs.pulseScore == null) return null;
+      const days = m.params?.validityDays;
+      if (days != null && inputs.pulseAgeDays != null && inputs.pulseAgeDays > days) return null;
+      return clamp(inputs.pulseScore);
+    }
   }
 }
 

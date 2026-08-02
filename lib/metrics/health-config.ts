@@ -11,6 +11,7 @@
    ========================================================================= */
 
 import type { HealthMetricKey } from "@/lib/types";
+import { PULSE_VALIDITY_DAYS } from "@/lib/health/pulse";
 
 export const CLIENT_HEALTH_CONFIG_KEY = "client_health_formula";
 
@@ -34,6 +35,9 @@ export interface HealthMetricConfig {
     targetDays?: number;
     /** onboarding_period: days at/over which the sub-score is 0. */
     maxDays?: number;
+    /** cs_pulse: days after which a recorded Pulse stops counting and the
+     *  metric is treated as having no data for that client. */
+    validityDays?: number;
     /** nps / csat / platform_csat: raw value at/below which the sub-score is
      *  0 ("nothing" — no credit). */
     zeroAt?: number;
@@ -74,6 +78,7 @@ export const HEALTH_METRIC_LABELS: Record<HealthMetricKey, string> = {
   use_case_set: "Use case set",
   profile_complete: "Profile complete",
   stakeholder_mapping: "Stakeholder mapping",
+  cs_pulse: "CS Pulse",
 };
 
 /** Plain-language "how this is measured" guide shown under each metric in the
@@ -88,6 +93,7 @@ export const HEALTH_METRIC_HELP: Record<HealthMetricKey, string> = {
   use_case_set: "100 if at least one Use Case is set across the account's deals, otherwise 0.",
   profile_complete: "100 if the account has no missing required profile fields (no red alert), otherwise 0.",
   stakeholder_mapping: "100 if at least one stakeholder role has a contact assigned in the Communication tab, otherwise 0.",
+  cs_pulse: `The CSM's own read of the account — their ratings across the configured Pulse dimensions, weighted into a 0–100 score. The only metric here that is a judgement rather than a measurement, which is why it carries more weight than the others by default. Skipped if no Pulse has been recorded, or if the last one is more than ${PULSE_VALIDITY_DAYS} days old — a stale Pulse is treated as no Pulse rather than as current, so it stops counting until it is refreshed.`,
 };
 
 /** The tiers this app has always shown — the default until an admin edits them. */
@@ -107,23 +113,44 @@ export const HEALTH_METRIC_ORDER: HealthMetricKey[] = [
   "use_case_set",
   "profile_complete",
   "stakeholder_mapping",
+  "cs_pulse",
 ];
 
-/** Equal weight across all 9, all enabled — a neutral starting point the
- *  admin tunes from Settings → Workflows → Client health. Thresholds match
- *  the tiers this app has always used. NOTE: this default only seeds a
- *  brand-new environment (no config ever saved) — an already-configured
- *  environment's stored formula is untouched; a newly-added metric key not
- *  present in its stored config instead defaults to disabled/weight 0 (see
- *  getClientHealthConfig in lib/assignment/config.ts), never silently
- *  re-weighting an admin's existing choices. */
+/** CS Pulse's share of the score, and why it is not 12.5 like the rest.
+ *
+ *  The nine measured signals carry equal weight. Pulse is the CSM's own read of
+ *  the account and is deliberately heavier: 37.5 against nine at 12.5 is
+ *  37.5/150 = a 25% share. That 25% is not invented here — it is the weight
+ *  MODEL_V1_1 already assigns CS Pulse in lib/health/model-v1.ts, carried over
+ *  so the number has a provenance rather than being a fresh guess.
+ *
+ *  Weights are renormalised against whichever metrics are enabled AND have data
+ *  (see computeHealthScore), so these are ratios, not percentages that must sum
+ *  to 100. */
+export const CS_PULSE_HEALTH_WEIGHT = 37.5;
+
+/** Equal weight across the nine measured metrics, all enabled, plus CS Pulse at
+ *  a 25% share — a neutral starting point the admin tunes from Settings →
+ *  Workflows → Client health. Thresholds match the tiers this app has always
+ *  used. NOTE: this default only seeds a brand-new environment (no config ever
+ *  saved) — an already-configured environment's stored formula is untouched; a
+ *  newly-added metric key not present in its stored config instead defaults to
+ *  disabled/weight 0 (see getClientHealthConfig in lib/assignment/config.ts),
+ *  never silently re-weighting an admin's existing choices. That is why adding
+ *  cs_pulse needs a one-time migration for already-configured environments —
+ *  scripts/enable-cs-pulse-health-metric.mjs — or it ships switched off. */
 export const DEFAULT_CLIENT_HEALTH_CONFIG: ClientHealthConfig = {
   metrics: HEALTH_METRIC_ORDER.map((key) => ({
     key,
     enabled: true,
-    weight: 12.5,
+    weight: key === "cs_pulse" ? CS_PULSE_HEALTH_WEIGHT : 12.5,
     params:
-      key === "sla_breaches"
+      // PULSE_VALIDITY_DAYS, not a second constant: lib/health/pulse.ts already
+      // owns how long a Pulse counts for, and isPulseFresh already enforces it
+      // for the Pulse-due queue. Two numbers meaning the same thing would drift.
+      key === "cs_pulse"
+        ? { validityDays: PULSE_VALIDITY_DAYS }
+        : key === "sla_breaches"
         ? { maxBreaches: 5 }
         : key === "onboarding_period"
           ? { targetDays: 30, maxDays: 90 }

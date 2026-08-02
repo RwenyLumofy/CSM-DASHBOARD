@@ -54,7 +54,10 @@ export type HealthMetricKey =
   | "onboarding_period"
   | "use_case_set"
   | "profile_complete"
-  | "stakeholder_mapping";
+  | "stakeholder_mapping"
+  | "cs_pulse"; // The CSM's own judgement of the account, weighted in like any
+                // other signal rather than kept as a rival score. See
+                // docs/specs/health/cs-pulse-as-a-health-metric.md.
 
 /** Per-metric 0–100 sub-score. A key is present only when that metric is
  *  enabled AND had data for this client — an absent key means "no data",

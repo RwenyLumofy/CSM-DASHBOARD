@@ -12,21 +12,19 @@ import { useState, type ReactNode } from "react";
 import { Loader2, Check, AlertTriangle, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
-  PULSE_RISK_FLAGS, PULSE_COVERAGE, PULSE_VALIDITY_DAYS,
+  PULSE_RISK_FLAGS, PULSE_COVERAGE, PULSE_VALIDITY_DAYS, findTier, pulseScore,
   type StoredPulse, type PulseDimension, type RatingTier,
 } from "@/lib/health/pulse";
 import { setClientPulseAction } from "@/app/(app)/clients/pulse-actions";
 
-export const findTier = (tiers: RatingTier[], k: string | undefined) => tiers.find((t) => t.key === k);
+/* findTier and pulseScore moved to lib/health/pulse.ts — the Pulse is now an
+   input to the client health score, and the repo layer that computes health
+   cannot import from a "use client" module. Re-exported here so the existing
+   importers of this file keep working and there is still one implementation. */
+export { findTier, pulseScore } from "@/lib/health/pulse";
+
 /** Colour a tier by its score, so any renamed/added tier gets a sensible hue. */
 export const tierColor = (score: number) => (score >= 75 ? "#1F9D63" : score >= 50 ? "#6E8B1E" : score >= 25 ? "#C2610E" : "#B23A57");
-
-export function pulseScore(ratings: Record<string, string | undefined>, dimensions: PulseDimension[], tiers: RatingTier[]): number | null {
-  if (!dimensions.every((d) => ratings[d.id])) return null;
-  let tot = 0, w = 0;
-  for (const d of dimensions) { tot += (findTier(tiers, ratings[d.id])?.score ?? 0) * d.weight; w += d.weight; }
-  return w ? Math.round(tot / w) : null;
-}
 
 /** Yes / No / Not sure. One control for every qualitative signal — the colour
  *  carries the polarity (a Yes on a risk is bad; a Yes on coverage is good) so

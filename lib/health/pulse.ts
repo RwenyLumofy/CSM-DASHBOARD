@@ -139,6 +139,32 @@ export const PULSE_COVERAGE = [
 
 export const PULSE_VALIDITY_DAYS = 30;
 
+/** The tier a rating key resolves to. */
+export const findTier = (tiers: RatingTier[], k: string | undefined) => tiers.find((t) => t.key === k);
+
+/**
+ * The Pulse as a single 0–100 score: each dimension's tier score, weighted by
+ * that dimension's weight.
+ *
+ * Null when ANY dimension is unrated — a half-filled Pulse is not a weaker
+ * Pulse, it is an unfinished one, and averaging what happens to be there would
+ * quietly invent a reading the CSM never gave.
+ *
+ * Lives here rather than in the drawer that renders it: this is now an input to
+ * the client health score (lib/metrics/health.ts, metric `cs_pulse`), and the
+ * repo layer that computes health cannot import a "use client" component.
+ */
+export function pulseScore(
+  ratings: Record<string, string | undefined>,
+  dimensions: PulseDimension[],
+  tiers: RatingTier[],
+): number | null {
+  if (!dimensions.length || !dimensions.every((d) => ratings[d.id])) return null;
+  let tot = 0, w = 0;
+  for (const d of dimensions) { tot += (findTier(tiers, ratings[d.id])?.score ?? 0) * d.weight; w += d.weight; }
+  return w ? Math.round(tot / w) : null;
+}
+
 /** What we persist on client.properties.cs_health — the last computed score, so
  *  list/dashboard reads are cheap and momentum has a baseline to compare to. */
 export interface StoredHealth {

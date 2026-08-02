@@ -48,6 +48,10 @@ export const METRIC_KIND: Record<HealthMetricKey, SignalKind> = {
   nps: "customer",
   sla_breaches: "customer",
   onboarding_period: "delivery",
+  /* The CSM's own judgement of the account — a read on the customer, not a
+     record-keeping field, so a low Pulse means the account is in trouble
+     rather than that someone forgot to fill something in. */
+  cs_pulse: "customer",
   use_case_set: "record",
   profile_complete: "record",
   stakeholder_mapping: "record",
