@@ -19,7 +19,7 @@ import {
   getTeamMembers,
   getChurnTaxonomy,
 } from "@/lib/data";
-import { getAccountHealth, getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
+import { getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
 import { normalizePulse } from "@/lib/health/pulse";
 import { getCurrentUserRole, isSuperAdmin, isAdminOrSuper, canEditClient, getCurrentUserEmail } from "@/lib/auth";
 import { permissionRole, editsAllClients } from "@/lib/roles";
@@ -86,7 +86,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
     }
   };
 
-  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, accountHealth, pulseDimensions, pulseTiers, useCaseTaxonomy] =
+  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy] =
     await Promise.all([
       getNotesForClient(id),
       getAttachmentsForClient(id),
@@ -107,7 +107,6 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       listProjectTemplates(),
       getChurnTaxonomy(),
       isAdminOrSuper(),
-      getAccountHealth(id),
       getCsPulseDimensions(),
       getCsPulseTiers(),
       readUseCaseTaxonomy(),
@@ -210,7 +209,8 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         {client.status !== "onboarding" && (
           <CsPulsePanel
             clientId={client.id}
-            health={accountHealth}
+            // THE health score, the same object the header ring renders.
+            health={client.health ?? null}
             pulse={normalizePulse(props.cs_pulse)}
             dimensions={pulseDimensions}
             tiers={pulseTiers}

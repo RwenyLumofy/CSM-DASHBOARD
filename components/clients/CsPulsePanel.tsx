@@ -34,30 +34,17 @@ import {
   PULSE_VALIDITY_DAYS, pulseAgeDays, type StoredPulse, type PulseDimension, type RatingTier,
 } from "@/lib/health/pulse";
 import { PulseDrawer, pulseScore } from "./PulseDrawer";
+import { HEALTH_METRIC_LABELS } from "@/lib/metrics/health-config";
+import type { HealthScore, HealthMetricKey } from "@/lib/types";
 
-export interface HealthLite {
-  calculatedScore: number | null;
-  calculatedBand: string | null;
-  appliedStatus: string;
-  notAssessed: boolean;
-  dataCoverage: number;
-  momentum: string;
-  scoreDelta: number | null;
-  positiveDrivers: string[];
-  negativeDrivers: string[];
-  primaryRisk: string | null;
-}
-
-/** Momentum → arrow, colour and whether to show it. */
-function momentumChip(m: string): { icon: string; color: string } | null {
-  switch (m) {
-    case "Improving": return { icon: "↗", color: "#1F9D63" };
-    case "Declining": return { icon: "↘", color: "#C2610E" };
-    case "Rapidly Declining": return { icon: "↘", color: "#B23A57" };
-    case "Stable": return { icon: "→", color: "var(--color-fg-subtle, #6E6E6E)" };
-    default: return null; // Insufficient History — nothing to show yet
-  }
-}
+/* HealthLite and momentumChip are gone with the model-v1 read-out they served.
+   That engine produced a second score, band and momentum for this drawer while
+   the header showed a different number from a different calculation. CS Pulse
+   is now a weighted metric inside the one score, so the drawer explains that
+   score instead of competing with it. The engine's momentum, data-coverage and
+   driver narrative have no equivalent in HealthScore and are not reproduced
+   here — a real, deliberate loss, recorded in
+   docs/specs/health/cs-pulse-as-a-health-metric.md. */
 
 const BAND_TONE: Record<string, string> = {
   Healthy: "text-[#1F9D63] bg-[#1F9D63]/12 border-[#1F9D63]/25",
@@ -69,7 +56,11 @@ const BAND_TONE: Record<string, string> = {
 };
 export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEdit }: {
   clientId: string;
-  health: HealthLite | null;
+  /** THE health score — the same object behind the header ring, not a second
+   *  opinion. CS Pulse is one weighted metric inside it now, so the drawer
+   *  explains the number the rest of the app shows rather than producing a
+   *  rival one from a parallel engine. */
+  health: HealthScore | null;
   pulse: StoredPulse | null;
   dimensions: PulseDimension[];
   tiers: RatingTier[];
@@ -98,41 +89,77 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
         ? { t: `Pulse due in ${PULSE_VALIDITY_DAYS - age}d`, tone: "text-[#8A6D12]" }
         : { t: `Pulse updated ${age}d ago`, tone: "text-fg-subtle" };
 
-  const band = health?.notAssessed ? "Not Assessed" : (health?.appliedStatus ?? "Not Assessed");
-  const showScore = health && !health.notAssessed && health.calculatedScore != null;
+  /* Every metric that counted for this account, biggest contributor first, so
+     the drawer answers "why is it that number" rather than just restating it.
+     A metric with no data for this client is absent from `components` entirely
+     — never a faked zero — which is why this reads the object rather than the
+     configured list. */
+  const contributions = Object.entries(health?.components ?? {})
+    .sort((a, b) => b[1] - a[1]) as [HealthMetricKey, number][];
+  const pulseCounted = contributions.some(([k]) => k === "cs_pulse");
 
-  /* The full read-out — lives inside the sidebar now, not on the page. */
   const summary = (
     <div className="flex flex-col gap-3 rounded-xl border border-border-subtle bg-bg-muted/30 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 font-body text-[12px] font-semibold", BAND_TONE[band] ?? BAND_TONE["Not Assessed"])}>{band}</span>
+        <span className="font-body text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">Account health</span>
         <span className={cn("font-body text-[12px]", freshness.tone)}>{freshness.t}</span>
       </div>
-      {showScore ? (
+
+      {health ? (
         <>
           <div className="flex items-baseline gap-2">
-            <span className="font-display text-[34px] font-bold leading-none tabular-nums text-fg">{health!.calculatedScore!.toFixed(0)}</span>
-            <span className="font-body text-[13px] text-fg-muted">/ 100 · {Math.round(health!.dataCoverage * 100)}% coverage</span>
+            <span className="font-display text-[34px] font-bold leading-none tabular-nums text-fg">{health.score}</span>
+            <span className="rounded-full px-2 py-0.5 font-body text-[12px] font-semibold"
+              style={{ color: health.tierColor, backgroundColor: `${health.tierColor}1F` }}>{health.tier}</span>
+            {health.trend !== 0 && (
+              <span className="font-body text-[12px] text-fg-muted">
+                {health.trend > 0 ? "▲" : "▼"} {Math.abs(health.trend)} pts
+              </span>
+            )}
           </div>
-          {momentumChip(health!.momentum) && (
-            <span className="inline-flex items-center gap-1 font-body text-[12px] font-semibold" style={{ color: momentumChip(health!.momentum)!.color }}>
-              {momentumChip(health!.momentum)!.icon} {health!.momentum}
-              {health!.scoreDelta != null ? ` (${health!.scoreDelta > 0 ? "+" : ""}${health!.scoreDelta.toFixed(0)})` : ""}
-            </span>
+          <p className="font-body text-[11.5px] text-fg-subtle">
+            The same score as the ring at the top of this page. CS Pulse is one of its inputs
+            {pulseCounted ? "" : " — and is not counting for this account yet"}.
+          </p>
+
+          {contributions.length > 0 && (
+            <dl className="flex flex-col gap-1 border-t border-border-subtle pt-2">
+              {contributions.map(([key, value]) => (
+                <div key={key} className={cn("flex items-center gap-2", key === "cs_pulse" && "font-semibold")}>
+                  <dt className={cn("flex-1 font-body text-[12px]", key === "cs_pulse" ? "text-fg" : "text-fg-muted")}>
+                    {HEALTH_METRIC_LABELS[key] ?? key}
+                  </dt>
+                  <dd className="tabular font-body text-[12px] text-fg">{Math.round(value)}</dd>
+                </div>
+              ))}
+            </dl>
           )}
-          <div className="flex flex-col gap-0.5">
-            {health!.primaryRisk && <p className="font-body text-[12.5px] font-medium text-[#B23A57]">⚠ {health!.primaryRisk}</p>}
-            {health!.positiveDrivers.slice(0, 2).map((d) => <p key={d} className="font-body text-[12px] text-fg-muted">+ {d}</p>)}
-            {health!.negativeDrivers.slice(0, 2).map((d) => <p key={d} className="font-body text-[12px] text-[#B23A57]">− {d}</p>)}
-          </div>
         </>
       ) : (
         <div className="flex items-start gap-2 font-body text-[12.5px] text-fg-muted">
           <AlertTriangle size={15} className="mt-0.5 shrink-0 text-[#C99A14]" />
-          <span>{age == null
-            ? "This account can't be scored until a CS Pulse is recorded — the CSM's read on stakeholders, engagement and renewal (25% of health)."
-            : "The CS Pulse has lapsed, so the account is Not Assessed. Refresh the pulse to bring the score back."}</span>
+          <span>No health score has been computed for this account yet.</span>
         </div>
+      )}
+
+      {/* THREE reasons Pulse might not be counting, and they need different
+          words. Collapsing them into "no pulse or a lapsed one" told an account
+          with a 7-day-old Pulse that it was past the 30-day window — a message
+          that is simply false, and sends the CSM to re-pulse something that is
+          already fresh. The third case is the common one immediately after this
+          shipped: a stored score computed before cs_pulse was a metric, which
+          nothing can fix except a recompute. */}
+      {!pulseCounted && health && (
+        <p className="flex items-start gap-2 font-body text-[12px] text-fg-muted">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[#C99A14]" />
+          <span>{
+            age == null
+              ? "No CS Pulse recorded, so it contributes nothing and the other metrics carry the score between them. Recording one will move health."
+              : age > PULSE_VALIDITY_DAYS
+                ? `The last CS Pulse is ${age} days old, past the ${PULSE_VALIDITY_DAYS}-day window, so it has stopped counting. Re-pulse to bring it back in.`
+                : "This score was calculated before CS Pulse became part of it. The Pulse is current — the score just hasn't been recalculated yet. Saving a pulse recalculates immediately, and the nightly run picks it up either way."
+          }</span>
+        </p>
       )}
     </div>
   );

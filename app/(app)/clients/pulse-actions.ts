@@ -14,7 +14,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUserEmail, denyClientWrite } from "@/lib/auth";
 import { hasDatabase } from "@/lib/config";
 import { normalizePulse, isPulseComplete, type StoredPulse } from "@/lib/health/pulse";
-import { getCsPulseDimensions, getCsPulseTiers, getAccountHealth, persistAccountHealth } from "@/lib/health/data";
+import { getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
 
 export interface PulseResult {
   ok: boolean;
@@ -52,12 +52,15 @@ export async function setClientPulseAction(clientId: string, input: {
   }
 
   try {
-    const { setClientPropertyDb } = await import("@/lib/repo/drizzle");
+    const { setClientPropertyDb, recomputeClientHealth } = await import("@/lib/repo/drizzle");
     await setClientPropertyDb(clientId, "cs_pulse", pulse);
-    // Recompute the score with the new pulse and persist it, so momentum has a
-    // baseline and the list/dashboard read cheaply.
-    const result = await getAccountHealth(clientId);
-    if (result) await persistAccountHealth(clientId, result);
+    /* Recompute THE health score — the one on the header pill and the clients
+       list — now that CS Pulse is a weighted metric inside it. Without this a
+       Pulse would not move health until the 09:00 cron, so a CSM would record
+       their read of an account and watch the number ignore them all day.
+       Previously this recomputed the separate model-v1 score instead, which was
+       shown only behind the Pulse button. */
+    await recomputeClientHealth(clientId);
     revalidatePath(`/clients/${clientId}`);
     revalidatePath("/clients");
     revalidatePath("/reports/pulse");
