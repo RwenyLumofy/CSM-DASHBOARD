@@ -70,7 +70,16 @@ function Body({ text, nameByEmail }: { text: string; nameByEmail: Map<string, st
   );
 }
 
-export function TaskUpdates({ taskId, canPost }: { taskId: string; canPost: boolean }) {
+export function TaskUpdates({ taskId, canPost, preview }: {
+  taskId: string;
+  canPost: boolean;
+  /* DEV PREVIEW ONLY — app/scratch-tasks. Reading or posting a thread needs a
+     Clerk session, and a local environment has none, so there is otherwise no
+     way to look at this component before it is deployed. When set, it renders
+     from the supplied data and keeps posts in memory. No shipping caller
+     passes it; the server is untouched either way. */
+  preview?: { updates: TaskUpdateView[]; people: MentionablePerson[] };
+}) {
   const [updates, setUpdates] = useState<TaskUpdateView[] | null>(null);
   const [people, setPeople] = useState<MentionablePerson[]>([]);
   const [draft, setDraft] = useState("");
@@ -87,11 +96,12 @@ export function TaskUpdates({ taskId, canPost }: { taskId: string; canPost: bool
   const [query, setQuery] = useState<string | null>(null);
 
   useEffect(() => {
+    if (preview) { setUpdates(preview.updates); setPeople(preview.people); return; }
     let live = true;
     void Promise.all([getTaskUpdatesAction(taskId), listMentionableForTaskAction(taskId)])
       .then(([u, p]) => { if (live) { setUpdates(u); setPeople(p); } });
     return () => { live = false; };
-  }, [taskId]);
+  }, [taskId, preview]);
 
   const nameByEmail = useMemo(() => new Map(people.map((p) => [p.email, p.name])), [people]);
 
@@ -135,6 +145,18 @@ export function TaskUpdates({ taskId, canPost }: { taskId: string; canPost: bool
     for (const [name, email] of [...picked.current].sort((a, b) => b[0].length - a[0].length)) {
       body = body.split(`@${name}`).join(`@[${email}]`);
     }
+
+    if (preview) {
+      // Same token conversion, same renderer — only the round-trip is skipped,
+      // so what you see posted here is what the real one draws.
+      setUpdates((prev) => [...(prev ?? []), {
+        id: `preview-${(prev?.length ?? 0) + 1}`, authorEmail: "you@lumofy.com", authorName: "You",
+        body, createdAt: new Date().toISOString(), editedAt: null, deleted: false, mine: true,
+      }]);
+      setDraft(""); picked.current.clear(); setBusy(false);
+      return;
+    }
+
     const r = await postTaskUpdateAction(taskId, body);
     setBusy(false);
     if (!r.ok) { setError(r.error ?? "Couldn't post that."); return; }
@@ -145,6 +167,7 @@ export function TaskUpdates({ taskId, canPost }: { taskId: string; canPost: bool
   async function remove(id: string) {
     if (!window.confirm("Remove this update?")) return;
     setError(null);
+    if (preview) { setUpdates((prev) => (prev ?? []).map((u) => u.id === id ? { ...u, deleted: true } : u)); return; }
     const r = await deleteTaskUpdateAction(id);
     if (!r.ok) { setError(r.error ?? "Couldn't remove that."); return; }
     setUpdates(await getTaskUpdatesAction(taskId));

@@ -17,7 +17,7 @@ import { cn } from "@/lib/cn";
    profile nudge — previously fell through to the same grey dot as "system", so
    being named in an update looked identical to a housekeeping notice. An icon
    also survives being read out: the dot alone carried meaning in colour only. */
-const TYPE_META: Record<string, { icon: LucideIcon; tone: string; label: string }> = {
+export const TYPE_META: Record<string, { icon: LucideIcon; tone: string; label: string }> = {
   assignment_needs_admin: { icon: ShieldAlert, tone: "text-danger", label: "Needs an admin decision" },
   assignment_review: { icon: ClipboardCheck, tone: "text-sirius", label: "Assignment to review" },
   client_assigned: { icon: UserPlus, tone: "text-success", label: "Account assigned to you" },
