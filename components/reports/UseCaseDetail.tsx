@@ -121,6 +121,10 @@ export function UseCaseDetail({
   embedded?: boolean;
 }) {
   const [section, setSection] = useState<string | null>(null);
+  /* Definition first: the drawer is opened from a card whose whole job was
+     showing the client count, so "who has this" is usually the question you
+     have just had answered, and "what is it" the one you have not. */
+  const [tab, setTab] = useState<"definition" | "clients">("definition");
   const [draft, setDraft] = useState<UseCaseEntry>(entry ?? blankEntry(option.id));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,34 +211,59 @@ export function UseCaseDetail({
         )}
       </header>
 
-      <section className="flex flex-col gap-2">
-        <h2 className="font-body text-[13px] font-semibold text-fg">
-          Accounts using this
-          {accounts.length > 0 && <span className="tabular ml-1.5 text-fg-subtle">({accounts.length})</span>}
-        </h2>
-        {accounts.length === 0 ? (
-          <Empty>No account has this associated yet — associate one from its profile page.</Empty>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {accounts.map(({ account, implementation }) => (
-              <li key={implementation.id}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-border-subtle px-3 py-2">
-                <Link href={`/clients/${account.id}`} dir="auto"
-                  className="font-body text-[13px] font-semibold text-fg hover:text-sirius">
-                  {account.name}
-                </Link>
-                <span className={cn("whitespace-nowrap rounded-full border px-2 py-0.5 font-body text-[11px] font-medium",
-                  IMPL_STATUS_TONE[implementation.status])}>
-                  {IMPL_STATUS_LABEL[implementation.status]}
-                </span>
-                {implementation.objective && (
-                  <span className="min-w-0 flex-1 truncate font-body text-[12px] text-fg-muted">{implementation.objective}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {/* Two questions, two tabs. "What does this use case mean" and "who is
+          running it" are asked at different moments and answered by different
+          content; stacked in one column the accounts list either pushes the
+          definition down or gets buried under it, depending which comes first.
+          The count sits in the tab so the answer to "does anyone have this?" is
+          visible without switching. */}
+      <div role="tablist" aria-label="Use case detail" className="flex gap-1 border-b border-border-subtle">
+        {([["definition", "Definition", null], ["clients", "Clients", accounts.length]] as const).map(([id, label, count]) => (
+          <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+            className={cn("-mb-px border-b-2 px-3 py-2 font-body text-[12.5px] font-semibold transition-colors",
+              tab === id
+                ? "border-sirius text-sirius"
+                : "border-transparent text-fg-muted hover:text-fg")}>
+            {label}
+            {count != null && (
+              <span className={cn("tabular ml-1.5 rounded-full px-1.5 py-0.5 text-[10.5px]",
+                tab === id ? "bg-accent-soft text-sirius" : "bg-bg-muted text-fg-subtle")}>
+                {count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === "clients" && (
+        <section className="flex flex-col gap-2">
+          {accounts.length === 0 ? (
+            <Empty>No account has this associated yet — associate one from its profile page.</Empty>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {accounts.map(({ account, implementation }) => (
+                <li key={implementation.id}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-border-subtle px-3 py-2">
+                  <Link href={`/clients/${account.id}`} dir="auto"
+                    className="font-body text-[13px] font-semibold text-fg hover:text-sirius">
+                    {account.name}
+                  </Link>
+                  <span className={cn("whitespace-nowrap rounded-full border px-2 py-0.5 font-body text-[11px] font-medium",
+                    IMPL_STATUS_TONE[implementation.status])}>
+                    {IMPL_STATUS_LABEL[implementation.status]}
+                  </span>
+                  {implementation.objective && (
+                    <span className="min-w-0 flex-1 truncate font-body text-[12px] text-fg-muted">{implementation.objective}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {tab === "definition" && (
+      <>
 
       {error && (
         <p role="alert" className="rounded-lg border border-[#B23A57]/30 bg-[#B23A57]/5 px-3 py-2 font-body text-[12.5px] text-[#B23A57]">
@@ -576,6 +605,8 @@ export function UseCaseDetail({
               </footer>
             )}
         </div>
+      </>
+      )}
     </div>
   );
 }
