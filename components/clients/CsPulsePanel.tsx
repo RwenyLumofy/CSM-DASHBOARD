@@ -164,6 +164,23 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
             {pulseCounted ? "" : " — and is not counting for this account yet"}.
           </p>
 
+          {/* The score and the tier can legitimately disagree now — a capped
+              account keeps its weighted number. Unexplained, "61 · At risk"
+              reads as a bug, so the reason is stated wherever the pair shows. */}
+          {health.cappedBy?.length ? (
+            <p className="flex items-start gap-2 rounded-lg bg-[#B23A57]/5 px-2.5 py-2 font-body text-[11.5px] text-fg-muted">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[#B23A57]" />
+              <span>
+                Held at <span className="font-semibold text-fg">{health.tier}</span> because you rated{" "}
+                <span className="font-semibold text-fg">
+                  {health.cappedBy.map((d) => dimensions.find((x) => x.id === d)?.name ?? d).join(" and ")}
+                </span>{" "}
+                Critical. The weighted score is {health.score} — a Critical on those overrides it, so
+                tidy record-keeping can&rsquo;t hold an account green when you&rsquo;ve said it&rsquo;s in trouble.
+              </span>
+            </p>
+          ) : null}
+
           {contributions.length > 0 && (
             <dl className="flex flex-col gap-1 border-t border-border-subtle pt-2">
               {contributions.map(([key, value]) => (

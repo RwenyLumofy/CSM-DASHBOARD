@@ -76,6 +76,12 @@ export interface HealthScore {
   components: HealthComponents;
   trend: number; // delta vs previous period (percentage points)
   updatedAt: string; // ISO
+  /** CS Pulse dimensions the CSM rated Critical that forced the tier down,
+   *  regardless of the weighted score. Empty/absent when nothing was capped.
+   *  See PULSE_CRITICAL_CAPS in lib/metrics/health.ts for why this exists —
+   *  the score itself is left untouched, so `score` and `tier` can legitimately
+   *  disagree and the UI has to say why. */
+  cappedBy?: string[];
 }
 
 /** Intercom-derived support snapshot for an account. */

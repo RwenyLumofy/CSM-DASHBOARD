@@ -838,6 +838,14 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
       onboarding,
       pulseScore: storedPulse ? pulseScore(storedPulse.ratings, pulseDimensions, pulseTiers) : null,
       pulseAgeDays: pulseAgeDays(storedPulse),
+      /* Which dimensions the CSM rated Critical, by dimension id. Read off the
+         stored ratings rather than inferred from the Pulse number: a Pulse of
+         14 could be one Critical or three Weaks, and only the first should cap
+         the tier. "critical" is the tier key with score 0 — matched by key, so
+         a renamed label doesn't silently stop the cap firing. */
+      pulseCriticalDimensions: storedPulse
+        ? Object.entries(storedPulse.ratings).filter(([, v]) => v === "critical").map(([k]) => k)
+        : null,
     },
     config,
     { updatedAt: new Date().toISOString() },

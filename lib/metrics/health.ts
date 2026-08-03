@@ -34,6 +34,39 @@ export interface HealthComputeInputs {
    *  counting, because it is a judgement made on a date rather than a
    *  standing fact about the account. */
   pulseAgeDays: number | null;
+  /** Pulse dimension ids the CSM rated Critical — see PULSE_CRITICAL_CAPS. */
+  pulseCriticalDimensions?: string[] | null;
+}
+
+/**
+ * CS Pulse dimensions where a Critical rating caps the tier at the lowest one,
+ * whatever the weighted score says.
+ *
+ * WHY. On 2026-08-03 nine accounts carried a Critical on renewal or engagement
+ * and eight of them read Healthy or Watch. YK Almoayyed & Sons was rated
+ * Critical on all three — no sponsor, gone dark, active churn risk, a Pulse of
+ * 0 — and showed "Healthy, 61", because five record-keeping metrics sat at 100
+ * and outvoted it. A CSM recording the most alarming assessment the tool allows
+ * must not be overruled by tidy paperwork.
+ *
+ * Renewal and engagement only. Both are statements about the CUSTOMER's
+ * trajectory — "active churn risk", "gone dark; success plan stalled". A
+ * Critical on stakeholder coverage ("single point of contact; no sponsor") is a
+ * real risk to US, but it describes our coverage rather than their intent, and
+ * it is recoverable without the customer doing anything. Capping on it would
+ * fire on accounts nobody is worried about.
+ *
+ * The SCORE is deliberately left alone. Overwriting 61 with a lower number
+ * would hide what the metrics actually said and break trend comparisons; the
+ * cap is a statement about the tier, and `cappedBy` records why so the UI can
+ * explain a 61 sitting next to "At risk".
+ */
+export const PULSE_CRITICAL_CAPS = ["renewal", "engagement"] as const;
+
+/** The lowest configured tier — what a cap drops an account to. */
+function lowestTier(tiers: HealthTierDef[]): HealthTierDef {
+  const ordered = [...(tiers.length ? tiers : DEFAULT_HEALTH_TIERS)].sort((a, b) => a.minScore - b.minScore);
+  return ordered[0]!;
 }
 
 /** One metric's 0–100 sub-score, or null when it has no data for this client
@@ -147,7 +180,18 @@ export function computeHealthScore(
   }
 
   const score = weightTotal > 0 ? Math.round(weightedSum / weightTotal) : 0;
-  const tier = resolveTier(score, config.tiers);
+  let tier = resolveTier(score, config.tiers);
+
+  /* A Critical on renewal or engagement caps the tier — but only when the Pulse
+     is actually counting. `components.cs_pulse` is present exactly when the
+     Pulse was fresh and complete enough to score, so keying off it means a
+     lapsed Pulse stops capping at the same moment it stops contributing. A
+     judgement made 90 days ago should not pin an account to At risk forever. */
+  const capped = components.cs_pulse != null
+    ? (inputs.pulseCriticalDimensions ?? []).filter((d) => (PULSE_CRITICAL_CAPS as readonly string[]).includes(d))
+    : [];
+  if (capped.length) tier = lowestTier(config.tiers);
+
   return {
     score,
     tier: tier.name,
@@ -155,5 +199,6 @@ export function computeHealthScore(
     components,
     trend: opts.trend ?? 0,
     updatedAt: opts.updatedAt ?? new Date().toISOString(),
+    ...(capped.length ? { cappedBy: capped } : {}),
   };
 }
