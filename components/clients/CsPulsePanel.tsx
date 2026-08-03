@@ -104,12 +104,34 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
   const pulseCounted = contributions.some(([k]) => k === "cs_pulse");
 
   const summary = (
-    <div className="flex flex-col gap-3 rounded-xl border border-border-subtle bg-bg-muted/30 p-4">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-col rounded-xl border border-border-subtle bg-bg-muted/30">
+      {/* The whole card collapses, not just the metric list inside it. This is
+          the CONTEXT for the ratings below, and it was taking the top third of
+          the drawer before you reached the form you came to fill in. One line
+          when shut: the score, its tier, and how old the Pulse is — everything
+          you need to decide whether to open it. */}
+      <button type="button" onClick={() => setShowBreakdown((s) => !s)} aria-expanded={showBreakdown}
+        className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-xl px-4 py-3 text-left transition-colors hover:bg-bg-muted/50">
+        <ChevronDown size={13} aria-hidden
+          className={cn("shrink-0 text-fg-subtle transition-transform", showBreakdown && "rotate-180")} />
         <span className="font-body text-[11px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">Account health</span>
-        <span className={cn("font-body text-[12px]", freshness.tone)}>{freshness.t}</span>
-      </div>
+        {health && isAssessed(health) && (
+          <>
+            <span className="tabular font-display text-[15px] font-bold leading-none text-fg">{health.score}</span>
+            <span className="rounded-full px-2 py-0.5 font-body text-[11px] font-semibold"
+              style={{ color: health.tierColor, backgroundColor: `${health.tierColor}1F` }}>{health.tier}</span>
+            {health.trend !== 0 && (
+              <span className="font-body text-[11px] text-fg-muted">
+                {health.trend > 0 ? "▲" : "▼"} {Math.abs(health.trend)}
+              </span>
+            )}
+          </>
+        )}
+        <span className={cn("ml-auto font-body text-[11.5px]", freshness.tone)}>{freshness.t}</span>
+      </button>
 
+      {showBreakdown && (
+      <div className="flex flex-col gap-3 border-t border-border-subtle px-4 py-3">
       {health && !isAssessed(health) ? (
         /* Distinct from "not computed yet" below: this one HAS been computed,
            and the number is the problem. With no usage, survey, support or
@@ -144,12 +166,7 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
 
           {contributions.length > 0 && (
             <dl className="flex flex-col gap-1 border-t border-border-subtle pt-2">
-              {/* Collapsed by default — the full list ran to ten rows and pushed
-                  the ratings you came here to set below the fold. CS Pulse
-                  itself stays visible whatever the state: it is the one number
-                  this drawer exists to explain, and hiding it behind a toggle
-                  would answer "why is it that score" with a click. */}
-              {(showBreakdown ? contributions : contributions.filter(([k]) => k === "cs_pulse")).map(([key, value]) => (
+              {contributions.map(([key, value]) => (
                 <div key={key} className={cn("flex items-center gap-2", key === "cs_pulse" && "font-semibold")}>
                   <dt className={cn("flex-1 font-body text-[12px]", key === "cs_pulse" ? "text-fg" : "text-fg-muted")}>
                     {HEALTH_METRIC_LABELS[key] ?? key}
@@ -157,17 +174,6 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
                   <dd className="tabular font-body text-[12px] text-fg">{Math.round(value)}</dd>
                 </div>
               ))}
-
-              {contributions.length > (pulseCounted ? 1 : 0) && (
-                <button type="button" onClick={() => setShowBreakdown((s) => !s)}
-                  aria-expanded={showBreakdown}
-                  className="mt-0.5 inline-flex w-fit items-center gap-1 font-body text-[11.5px] font-medium text-sirius hover:underline">
-                  <ChevronDown size={12} className={cn("transition-transform", showBreakdown && "rotate-180")} aria-hidden />
-                  {showBreakdown
-                    ? "Hide the full breakdown"
-                    : `Show the full breakdown (${contributions.length} inputs)`}
-                </button>
-              )}
             </dl>
           )}
         </>
@@ -196,6 +202,8 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
                 : "This score was calculated before CS Pulse became part of it. The Pulse is current — the score just hasn't been recalculated yet. Saving a pulse recalculates immediately, and the nightly run picks it up either way."
           }</span>
         </p>
+      )}
+      </div>
       )}
     </div>
   );
