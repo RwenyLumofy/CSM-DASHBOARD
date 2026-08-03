@@ -1,7 +1,26 @@
 import { notFound } from "next/navigation";
-import { ClientHealthEditor } from "@/components/settings/ClientHealthEditor";
+import { ClientHealthEditor, type ModelOverview } from "@/components/settings/ClientHealthEditor";
 import { DEFAULT_CLIENT_HEALTH_CONFIG } from "@/lib/metrics/health-config";
 import { CS_PULSE_DIMENSIONS, CS_PULSE_TIERS } from "@/lib/health/pulse";
+
+/* Same shape the real page derives from assembleModel(). */
+const MOCK_OVERVIEW: ModelOverview = {
+  components: [
+    { name: "Product Adoption and Value Realization", weight: 0.5, mandatory: true, children: [
+      { name: "Meaningful Reach", weight: 0.4, source: "active_users ÷ seats" },
+      { name: "Workflow Progress", weight: 0.3, source: "learning_completions ÷ enrollments" },
+    ] },
+    { name: "Customer Success Pulse", weight: 0.25, mandatory: true, children: [
+      { name: "Stakeholder Coverage", weight: 0.35, source: "CS Pulse rating" },
+      { name: "Engagement and Execution", weight: 0.3, source: "CS Pulse rating" },
+      { name: "Renewal Readiness", weight: 0.35, source: "CS Pulse rating" },
+    ] },
+    { name: "Support and Reliability", weight: 0.15, mandatory: false, children: [] },
+    { name: "Client Sentiment", weight: 0.1, mandatory: false, children: [] },
+  ],
+  bands: [{ name: "Healthy", min: 65 }, { name: "Watch", min: 50 }, { name: "At Risk", min: 25 }, { name: "Critical", min: 0 }],
+};
+
 
 /* =========================================================================
    Dev preview — Settings → Client health.
@@ -44,7 +63,7 @@ export default function Page() {
         <ClientHealthEditor
           initialDimensions={CS_PULSE_DIMENSIONS}
           initialTiers={CS_PULSE_TIERS}
-          formula={DEFAULT_CLIENT_HEALTH_CONFIG}
+          formula={DEFAULT_CLIENT_HEALTH_CONFIG} overview={MOCK_OVERVIEW}
         />
       </section>
     </div>

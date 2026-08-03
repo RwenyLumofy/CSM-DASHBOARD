@@ -9,8 +9,9 @@ import { AttachmentCategoriesManager } from "@/components/settings/AttachmentCat
 import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManager";
 import { ProjectTemplatesManager } from "@/components/settings/ProjectTemplatesManager";
 import { ChurnTaxonomyManager } from "@/components/settings/ChurnTaxonomyManager";
-import { ClientHealthEditor } from "@/components/settings/ClientHealthEditor";
+import { ClientHealthEditor, type ModelOverview } from "@/components/settings/ClientHealthEditor";
 import { getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
+import { assembleModel } from "@/lib/health/model-assembly";
 import { getAppUsers, getChurnTaxonomy, getClients, getOwnedAccountCounts, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
 import { getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getCurrentUserEmail, isAdminOrSuper, isSuperAdmin } from "@/lib/auth";
@@ -323,6 +324,20 @@ async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
 
 /* --------------------------------------------------------- Churn taxonomy */
 
+function formulaSource(f: unknown): string {
+  const x = f as Record<string, unknown> | undefined;
+  if (!x) return "—";
+  if (x.type === "categorical_map") return "CS Pulse rating";
+  if (x.type === "ratio" || x.type === "stage_adjusted_ratio") {
+    const num = (x.numerator_metric ?? x.actual_metric ?? "?") as string;
+    const den = (x.denominator_metric ?? x.expected_metric ?? "?") as string;
+    return `${num} ÷ ${den}`;
+  }
+  if (x.type === "threshold_table") return "threshold table";
+  if (x.type === "latest_valid_value") return ((x.metrics as string[]) ?? []).join(" → ");
+  return (x.type as string) ?? "—";
+}
+
 /* ---------------------------------------------------------- Client health */
 
 
@@ -333,12 +348,22 @@ async function ClientHealthTab() {
     getCsPulseTiers(),
     getClientHealthConfig(),
   ]);
+  const model = assembleModel(dimensions, tiers);
+  const overview: ModelOverview = {
+    components: model.components.map((c) => ({
+      name: c.name,
+      weight: c.weight,
+      mandatory: !!c.isMandatory,
+      children: (c.children ?? []).map((ch) => ({ name: ch.name, weight: ch.weight, source: formulaSource(ch.formula) })),
+    })),
+    bands: [...model.bands].sort((a, b) => b.minScore - a.minScore).map((b) => ({ name: b.name, min: b.minScore })),
+  };
   return (
     <SettingsSection
       title="Client health"
       description="Everything that decides an account's health score: which signals count and how they are weighted, the tier cutoffs, and the CS Pulse the CSM records each month. Saving the formula re-scores every account immediately; editing the pulse dimensions or rating scale also updates the capture form."
     >
-      <ClientHealthEditor initialDimensions={dimensions} initialTiers={tiers} formula={formula} />
+      <ClientHealthEditor initialDimensions={dimensions} initialTiers={tiers} formula={formula} overview={overview} />
     </SettingsSection>
   );
 }
