@@ -1893,16 +1893,32 @@ export async function createTaskUpdateDb(input: {
   };
 }
 
-/** Soft delete. Returns the author so the caller can enforce "your own, or you
- *  may edit any task" without a second read. */
-export async function deleteTaskUpdateDb(updateId: string): Promise<string | null> {
+/**
+ * Soft delete, authorised BEFORE the write.
+ *
+ * This previously stamped deleted_at and returned the author so the caller
+ * could check it afterwards — which meant the update was already gone by the
+ * time the caller refused. Anyone with write access to the account could
+ * delete anybody's update and be told they were not allowed to, with the row
+ * deleted regardless. The permission check has to gate the write, not follow
+ * it.
+ *
+ * `onlyAuthor` is the email that must match, or null when the caller may
+ * remove anyone's (unrestricted scope). "missing" is returned for both absent
+ * and already-deleted, so a retried delete is a no-op rather than an error.
+ */
+export async function deleteTaskUpdateDb(
+  updateId: string,
+  onlyAuthor: string | null,
+): Promise<"deleted" | "forbidden" | "missing"> {
   const db = getDb();
   const [row] = await db.select().from(schema.taskUpdates).where(eq(schema.taskUpdates.id, updateId)).limit(1);
-  if (!row || row.deletedAt) return null;
+  if (!row || row.deletedAt) return "missing";
+  if (onlyAuthor != null && row.authorEmail.toLowerCase() !== onlyAuthor.toLowerCase()) return "forbidden";
   await db.update(schema.taskUpdates)
     .set({ deletedAt: new Date() })
     .where(eq(schema.taskUpdates.id, updateId));
-  return row.authorEmail;
+  return "deleted";
 }
 
 /** The task an update belongs to — so a write can be authorised against the

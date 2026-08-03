@@ -184,11 +184,13 @@ export async function deleteTaskUpdateAction(updateId: string): Promise<UpdateRe
   const mayAny = editsAllClients(role) && scope.mode === "all";
 
   try {
-    const author = await deleteTaskUpdateDb(updateId);
-    if (author === null) return { ok: true }; // already gone — nothing to undo
-    if (!mayAny && author.toLowerCase() !== email.toLowerCase()) {
-      return { ok: false, error: "You can only remove your own updates." };
-    }
+    /* The author check is passed DOWN so it gates the write. Checking it here
+       on a value returned by the delete meant the row was already stamped by
+       the time this refused — the update was gone and the caller was told it
+       was not allowed. */
+    const outcome = await deleteTaskUpdateDb(updateId, mayAny ? null : email);
+    if (outcome === "forbidden") return { ok: false, error: "You can only remove your own updates." };
+    if (outcome === "missing") return { ok: true }; // already gone — nothing to undo
     if (gate.task.accountId) revalidatePath(`/clients/${gate.task.accountId}`);
     revalidatePath("/today");
     return { ok: true };
