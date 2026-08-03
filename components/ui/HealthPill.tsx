@@ -1,10 +1,33 @@
 import type { HealthScore } from "@/lib/types";
 import { cn } from "@/lib/cn";
+import { isAssessed, NOT_ASSESSED_LABEL } from "@/lib/metrics/health-evidence";
 
 /** Score dial + tier badge, colored by the resolved tier's own color (which is
  *  admin-defined — see Settings → Workflows → Client health). Compact mode
- *  shows just the number + dot. */
+ *  shows just the number + dot.
+ *
+ *  Every health surface renders through here, which is why the unassessed case
+ *  is handled at this level rather than in each caller — a number shown in one
+ *  place and withheld in another would be worse than always showing it. */
 export function HealthPill({ health, size = 44, compact = false }: { health: HealthScore; size?: number; compact?: boolean }) {
+  /* Nothing behind this score came from the customer — it was computed purely
+     from how completely we filled Signal in. Showing the number anyway is how
+     an account with no evidence at all read as "Healthy, 76". */
+  if (!isAssessed(health)) {
+    return (
+      <span
+        title="No customer signal yet — no usage, survey, support or CS Pulse data for this account. The score would only reflect how completely its Signal record is filled in."
+        className={cn(
+          "inline-flex w-fit items-center gap-1.5 rounded-pill border border-dashed border-border px-2.5 py-1 font-body font-semibold leading-none text-fg-subtle",
+          compact ? "text-[12px]" : "text-[11px]",
+        )}
+      >
+        <span className="size-1.5 rounded-pill bg-fg-subtle/50" />
+        {NOT_ASSESSED_LABEL}
+      </span>
+    );
+  }
+
   const color = health.tierColor || "#D14B6B";
   const r = (size - 6) / 2;
   const c = 2 * Math.PI * r;

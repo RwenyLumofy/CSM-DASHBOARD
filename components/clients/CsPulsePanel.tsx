@@ -35,6 +35,7 @@ import {
 } from "@/lib/health/pulse";
 import { PulseDrawer, pulseScore } from "./PulseDrawer";
 import { HEALTH_METRIC_LABELS } from "@/lib/metrics/health-config";
+import { isAssessed } from "@/lib/metrics/health-evidence";
 import type { HealthScore, HealthMetricKey } from "@/lib/types";
 
 /* HealthLite and momentumChip are gone with the model-v1 read-out they served.
@@ -105,7 +106,22 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
         <span className={cn("font-body text-[12px]", freshness.tone)}>{freshness.t}</span>
       </div>
 
-      {health ? (
+      {health && !isAssessed(health) ? (
+        /* Distinct from "not computed yet" below: this one HAS been computed,
+           and the number is the problem. With no usage, survey, support or
+           Pulse data it reflects only how completely the Signal record is
+           filled in — which is how an account with no evidence at all showed
+           as "Healthy, 76". Recording a Pulse is the fastest way out, which is
+           why this says so here rather than anywhere else. */
+        <div className="flex items-start gap-2 font-body text-[12.5px] text-fg-muted">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0 text-[#C99A14]" />
+          <span>
+            <span className="font-semibold text-fg">Not assessed.</span> There&rsquo;s no usage, survey,
+            support or CS Pulse data for this account, so there is nothing to score it on yet.
+            Recording a Pulse below would give it one.
+          </span>
+        </div>
+      ) : health ? (
         <>
           <div className="flex items-baseline gap-2">
             <span className="font-display text-[34px] font-bold leading-none tabular-nums text-fg">{health.score}</span>

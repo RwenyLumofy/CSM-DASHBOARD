@@ -12,6 +12,7 @@ import { PopMenu } from "@/components/clients/projects/shared";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
 import { healthBand } from "@/lib/metrics/exec";
+import { isAssessed } from "@/lib/metrics/health-evidence";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
 import { ImportDialog } from "@/components/clients/ImportDialog";
 import { toCsv, downloadCsv, stampedFilename, type CsvCell } from "@/lib/csv";
@@ -329,7 +330,11 @@ export function ClientsTable({
     let atRisk = 0, renewing = 0;
     for (const c of clients) {
       if (c.status === "churned") continue;
-      if (healthBand(c.health.score) === "at_risk") atRisk++;
+      /* An account with no customer signal scores on our record-keeping alone,
+         which lands most of them at 0 — and 0 is "at risk". Counting those
+         inflated this headline with accounts nobody has any evidence about;
+         they need a CSM to go and look, not to be triaged as failing. */
+      if (isAssessed(c.health) && healthBand(c.health.score) === "at_risk") atRisk++;
       const d = daysToRenewal(c.renewalDate);
       if (d != null && d >= 0 && d <= 90) renewing++;
     }
