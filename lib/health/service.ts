@@ -11,6 +11,7 @@ import { calculateAccountHealth } from "./engine";
 import { assembleModel } from "./model-assembly";
 import { CS_PULSE_DIMENSIONS, CS_PULSE_TIERS, normalizePulse, pulseToEngineInput, type PulseDimension, type RatingTier } from "./pulse";
 import type { AccountHealthResult } from "./model";
+import { applyModelOverrides, type HealthModelOverrides } from "./model-overrides";
 
 export interface ScoreAccountInput {
   clientId: string;
@@ -32,6 +33,8 @@ export function scoreAccount(
   dimensions: PulseDimension[] = CS_PULSE_DIMENSIONS,
   tiers: RatingTier[] = CS_PULSE_TIERS,
   now = new Date(),
+  /** Admin-edited component weights and bands. Null = the shipped model. */
+  overrides: HealthModelOverrides | null = null,
 ): AccountHealthResult {
   const pulse = normalizePulse(input.pulseRaw);
   const facts = buildAccountFacts(
@@ -49,5 +52,5 @@ export function scoreAccount(
     },
     now,
   );
-  return calculateAccountHealth(assembleModel(dimensions, tiers), facts, now.toISOString());
+  return calculateAccountHealth(applyModelOverrides(assembleModel(dimensions, tiers), overrides), facts, now.toISOString());
 }

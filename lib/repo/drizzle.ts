@@ -26,7 +26,6 @@ import { FIELD_OVERRIDES_KEY, fieldOverridesSet } from "@/lib/client-overrides";
 import type { SyncBundle } from "@/lib/integrations/sync";
 import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
 import { computeClientStatus, STATUS_OVERRIDE_KEY } from "@/lib/status";
-import { computeHealthScore } from "@/lib/metrics/health";
 import { getClientHealthConfig } from "@/lib/metrics/health-config-store";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
@@ -787,6 +786,24 @@ export async function recomputeClientReferral(clientId: string): Promise<void> {
  * cadence: a daily cron, on demand (per-client "Recalculate"), and a full
  * sweep right after a super-admin saves a new formula in Settings.
  */
+/** Primary contacts on an account. Feeds the engine's single-threaded
+ *  fallback, which is only consulted when the CS Pulse left that question
+ *  blank — and which treats "no contact rows at all" as unknown, not as a Yes
+ *  (see lib/health/facts.ts). */
+export async function countPrimaryContactsDb(clientId: string): Promise<number | null> {
+  try {
+    const db = getDb();
+    const rows = await db
+      .select({ id: schema.clientContacts.id })
+      .from(schema.clientContacts)
+      .where(and(eq(schema.clientContacts.clientId, clientId), eq(schema.clientContacts.isPrimary, true)));
+    return rows.length;
+  } catch {
+    // Unknown, not zero — a failed read must not assert single-threading.
+    return null;
+  }
+}
+
 export async function recomputeClientHealth(clientId: string): Promise<void> {
   await withDbTimeout(recomputeClientHealthBody(clientId));
 }
@@ -815,43 +832,58 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
   const usage = await getClientUsage(clientId).catch(() => ({ status: "error" as const, message: "usage fetch failed" }));
   const usageScore = usage.status === "ok" ? usage.score.score : null;
 
-  /* CS Pulse as a health input. The dimensions and rating tiers are workspace
-     config, so the same stored ratings can score differently after an admin
-     retunes them — which is why this is scored here on every recompute rather
-     than read from a number persisted at capture time. */
-  const { normalizePulse, pulseScore, pulseAgeDays } = await import("@/lib/health/pulse");
+  /* THE health engine. Scores an account against the published model: the
+     four weighted components, the qualification gates, and the §16.2 status
+     rules that can cap or replace the band.
+
+     The CS Pulse dimensions, the rating scale and the top-level weights/bands
+     are all workspace config, so the same stored ratings can score differently
+     after an admin retunes them — which is why everything is scored here on
+     each recompute rather than read back from a number persisted at capture
+     time. */
+  const { scoreAccount } = await import("@/lib/health/service");
+  const { toStoredHealth } = await import("@/lib/health/to-stored");
   const { getCsPulseDimensions, getCsPulseTiers } = await import("@/lib/health/data");
-  const [config, pulseDimensions, pulseTiers] = await Promise.all([
-    getClientHealthConfig(),
+  const { getHealthModelOverrides } = await import("@/lib/health/model-overrides-store");
+  const [pulseDimensions, pulseTiers, modelOverrides, primaryContactCount] = await Promise.all([
     getCsPulseDimensions(),
     getCsPulseTiers(),
+    getHealthModelOverrides(),
+    countPrimaryContactsDb(clientId),
   ]);
-  const storedPulse = normalizePulse(client.properties?.cs_pulse);
 
-  const computed = computeHealthScore(
+  /* `metrics` is top-level on the ok result, not nested — the same object the
+     `usage.score.score` read above comes from. UsageSnapshotRow is a declared
+     interface rather than an index signature, so it needs widening to reach
+     the engine's metric bag; the values are the flat numeric fields the model's
+     formulas name (mau, seats, enrollments, …). */
+  const usageMetrics = usage.status === "ok"
+    ? (usage.metrics as unknown as Record<string, number | null>)
+    : null;
+
+  const result = scoreAccount(
     {
-      support: client.support,
-      usageScore,
-      profileSeverity: severity,
-      useCasesSet: useCasesRollup.length > 0,
-      stakeholderMapped,
-      onboarding,
-      pulseScore: storedPulse ? pulseScore(storedPulse.ratings, pulseDimensions, pulseTiers) : null,
-      pulseAgeDays: pulseAgeDays(storedPulse),
-      /* Which dimensions the CSM rated Critical, by dimension id. Read off the
-         stored ratings rather than inferred from the Pulse number: a Pulse of
-         14 could be one Critical or three Weaks, and only the first should cap
-         the tier. "critical" is the tier key with score 0 — matched by key, so
-         a renamed label doesn't silently stop the cap firing. */
-      pulseCriticalDimensions: storedPulse
-        ? Object.entries(storedPulse.ratings).filter(([, v]) => v === "critical").map(([k]) => k)
+      clientId,
+      status: client.status,
+      renewalDate: client.renewalDate ?? null,
+      usage: usageMetrics,
+      support: client.support
+        ? { csat: client.support.csat ?? null, csatResponses: client.support.csatResponses ?? null, nps: client.support.nps ?? null }
         : null,
+      sentimentNps: client.support?.nps ?? null,
+      primaryContactCount,
+      pulseRaw: client.properties?.cs_pulse ?? null,
+      // Momentum compares against the last stored score. An account with no
+      // history gets "Insufficient History" rather than a fabricated delta.
+      previousScore: client.health?.score ?? null,
+      previousCalculationDate: client.health?.updatedAt ?? null,
     },
-    config,
-    { updatedAt: new Date().toISOString() },
+    pulseDimensions,
+    pulseTiers,
+    new Date(),
+    modelOverrides,
   );
-  const previousScore = client.health?.score ?? computed.score;
-  const health: HealthScore = { ...computed, trend: computed.score - previousScore };
+  const health = toStoredHealth(result);
 
   const propPatch = {
     use_cases_rollup: useCasesRollup,
