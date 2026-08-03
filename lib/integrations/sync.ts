@@ -374,20 +374,12 @@ async function runSyncInner(): Promise<SyncResult> {
     } catch (e) {
       warnings.push(`Engagement sync failed: ${e}`);
     }
-    // Auto-assign CSM + Implementation owners for BRAND-NEW clients only
-    // (new business). Renewals/expansions land on existing clients and keep
-    // their owners. Failures here must not fail the sync.
+    /* Brand-new clients used to be auto-assigned a CSM and an Implementation
+       owner here. That engine was removed — it routed by ARR band and
+       least-loaded owner, which never matched how the team actually assigns.
+       New clients now land unowned and are assigned deliberately. */
     if (newClientIds.length > 0) {
-      try {
-        const { runAssignment } = await import("@/lib/assignment/run");
-        const s = await runAssignment(newClientIds);
-        warnings.push(
-          `Assignment: ${s.csmAssigned} CSM + ${s.implAssigned} implementation owners assigned across ${s.processed} new clients` +
-            (s.needsAdmin || s.noCandidates ? ` (${s.needsAdmin + s.noCandidates} need a manual choice)` : "") + ".",
-        );
-      } catch (e) {
-        warnings.push(`Auto-assignment failed: ${e}`);
-      }
+      warnings.push(`${newClientIds.length} new client(s) need a CSM and an Implementation owner.`);
     }
     await setSyncCheckpoint("last_synced_at", syncStartedAt);
     persisted = true;

@@ -18,7 +18,7 @@ import { Loader2, Plus, Trash2, Save, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { DEFAULT_HEALTH_TIERS, HEALTH_METRIC_LABELS, HEALTH_METRIC_HELP } from "@/lib/metrics/health-config";
 import type { ClientHealthConfig, HealthMetricConfig, HealthTierDef } from "@/lib/metrics/health-config";
-import { saveClientHealthConfigAction } from "@/app/(app)/settings/workflow-actions";
+import { saveClientHealthConfigAction } from "@/app/(app)/settings/client-health-actions";
 
 const inputCls = "rounded-lg border border-border bg-bg px-3 py-2 font-body text-sm text-fg outline-none ring-sirius focus:ring-2";
 const noSpin = "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";

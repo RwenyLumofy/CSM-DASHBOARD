@@ -29,7 +29,7 @@ function authorized(req: Request): boolean {
  * incremental sync's window, so the regular "Sync now" never re-discovers it
  * (e.g. a reactivation that only flips the company's lifecycle stage, not its
  * deal). Reuses the exact same assembly + persistence path as the recurring
- * sync (buildUnifiedData → persistSync → runAssignment for new logos) — this
+ * sync (buildUnifiedData → persistSync) — this
  * does NOT change how the recurring sync itself discovers companies.
  *
  * Body: { "companyIds": ["<hubspot company id>", ...] }
@@ -56,15 +56,11 @@ export async function POST(req: Request) {
     const { bundle, warnings } = await buildUnifiedData({ companyIds });
     const res = await persistSync(bundle);
 
-    let assignment: unknown = null;
-    if (res.newClientIds.length > 0) {
-      try {
-        const { runAssignment } = await import("@/lib/assignment/run");
-        assignment = await runAssignment(res.newClientIds);
-      } catch (e) {
-        warnings.push(`Auto-assignment failed: ${e}`);
-      }
-    }
+    /* New accounts used to be auto-assigned a CSM and an Implementation owner
+       here. That engine was removed: it was routing by ARR band and least-loaded
+       owner, which never matched how the team actually assigns, so its output
+       was overridden by hand every time. New accounts now arrive unowned and
+       are assigned deliberately. */
 
     return NextResponse.json({
       ok: true,
@@ -72,7 +68,6 @@ export async function POST(req: Request) {
       added: bundle.clients.length,
       deals: bundle.deals.length,
       newClientIds: res.newClientIds,
-      assignment,
       warnings,
     });
   } catch (err) {

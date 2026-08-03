@@ -30,7 +30,7 @@ import { applyDealOverrides, computeRenewal, dealOverridesMap, DEAL_DATES_KEY, t
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { getSupabaseProjectUrl } from "@/lib/integrations/supabase-storage";
-import { getClientHealthConfig } from "@/lib/assignment/config";
+import { getClientHealthConfig } from "@/lib/metrics/health-config-store";
 import { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy, resolveGroups } from "@/lib/use-case-overlay";
 import { IMPLEMENTATION_KEY, normalizeImplementations } from "@/lib/use-case-implementation";
 

@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { FolderKanban, HeartPulse, Plug, Settings2, TrendingDown, Users, Workflow as WorkflowIcon, type LucideIcon } from "lucide-react";
+import { FolderKanban, HeartPulse, Plug, Settings2, TrendingDown, Users, type LucideIcon } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PropertiesManager } from "@/components/settings/PropertiesManager";
 import { SyncManager } from "@/components/settings/SyncManager";
 import { MembersArea } from "@/components/settings/MembersArea";
-import { WorkflowManager } from "@/components/settings/WorkflowManager";
 import { StakeholderTypesManager } from "@/components/settings/StakeholderTypesManager";
 import { AttachmentCategoriesManager } from "@/components/settings/AttachmentCategoriesManager";
 import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManager";
@@ -40,15 +39,15 @@ export const maxDuration = 300;
      Members       — who's in and what they can do (users, roles, Lumofy team)
      Properties    — the data model (client fields, vocabularies)
      Projects      — project options and templates
-     Automations   — routing + client-health scoring (was "Workflows")
+     Client health — the scoring formula, tiers, and the CS Pulse config
      Integrations  — HubSpot data sync
 
    Visibility is unchanged: non-admins see only Properties (read-only) and
-   Projects; Members, Automations and the config sections stay super-admin.
+   Projects; Members, Client health and the config sections stay super-admin.
    Each tab is an async component, so only the active tab's data is fetched.
    ========================================================================= */
 
-type TabKey = "members" | "properties" | "projects" | "automations" | "health" | "churn" | "integrations";
+type TabKey = "members" | "properties" | "projects" | "health" | "churn" | "integrations";
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams;
@@ -65,7 +64,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     ...(canManage ? ([["members", "Members", Users]] as [TabKey, string, LucideIcon][]) : []),
     ["properties", "Properties", Settings2],
     ["projects", "Projects", FolderKanban],
-    ...(canManage ? ([["automations", "Automations", WorkflowIcon]] as [TabKey, string, LucideIcon][]) : []),
     ...(canManage ? ([["health", "Client health", HeartPulse]] as [TabKey, string, LucideIcon][]) : []),
     ...(canManage ? ([["churn", "Churn taxonomy", TrendingDown]] as [TabKey, string, LucideIcon][]) : []),
     ["integrations", "Integrations", Plug],
@@ -76,7 +74,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <PageHeader title="Settings" description="Manage members, properties, projects, automations, and integrations." />
+      <PageHeader title="Settings" description="Manage members, properties, projects, client health, and integrations." />
 
       <div className="flex gap-1 border-b border-border">
         {tabs.map(([key, label, Icon]) => (
@@ -97,8 +95,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <MembersTab currentUserEmail={currentUserEmail} roleLabels={roleLabels} />
       ) : activeTab === "projects" ? (
         <ProjectsTab superAdmin={canManage} currentUserEmail={currentUserEmail} />
-      ) : activeTab === "automations" && canManage ? (
-        <AutomationsTab roleLabels={roleLabels} />
       ) : activeTab === "health" && canManage ? (
         <ClientHealthTab />
       ) : activeTab === "churn" && canManage ? (
@@ -299,40 +295,6 @@ async function ProjectsTab({ superAdmin, currentUserEmail }: { superAdmin: boole
   );
 }
 
-/* ------------------------------------------------------------ Automations */
-
-async function AutomationsTab({ roleLabels }: { roleLabels: Record<string, string> }) {
-  const { getCsmAssignmentConfig, getImplementationAssignmentConfig, getCapacityConfig, getClientHealthConfig } =
-    await import("@/lib/assignment/config");
-  const { getTeamHealth } = await import("@/lib/assignment/health");
-  const [csm, impl, capacity, teamHealth, clientHealth] = await Promise.all([
-    getCsmAssignmentConfig(),
-    getImplementationAssignmentConfig(),
-    getCapacityConfig(),
-    getTeamHealth(),
-    getClientHealthConfig(),
-  ]);
-
-  return (
-    <div className="max-w-3xl">
-      <div className="mb-5">
-        <h2 className="font-display text-base font-semibold text-fg">Automations</h2>
-        <p className="mt-1 font-body text-sm text-fg-muted">
-          How new clients are routed to a CSM and an Implementation owner, and the capacity thresholds behind it.
-          The health score is configured under <span className="font-medium text-fg">Client health</span>.
-        </p>
-      </div>
-      <WorkflowManager
-        initialCsm={csm}
-        initialImpl={impl}
-        initialCapacity={capacity}
-        teamHealth={teamHealth}
-        roleLabels={roleLabels}
-      />
-    </div>
-  );
-}
-
 /* ----------------------------------------------------------- Integrations */
 
 async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
@@ -365,7 +327,7 @@ async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
 
 
 async function ClientHealthTab() {
-  const { getClientHealthConfig } = await import("@/lib/assignment/config");
+  const { getClientHealthConfig } = await import("@/lib/metrics/health-config-store");
   const [dimensions, tiers, formula] = await Promise.all([
     getCsPulseDimensions(),
     getCsPulseTiers(),

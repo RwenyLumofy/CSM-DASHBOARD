@@ -52,7 +52,7 @@ import {
 } from "@/lib/metrics/exec";
 import { env, hasDatabase } from "@/lib/config";
 import { canSeeClient, getCurrentUserEmail, getCurrentUserRole, scopeClientsToUser } from "@/lib/auth";
-import { getClientHealthConfig } from "@/lib/assignment/config";
+import { getClientHealthConfig } from "@/lib/metrics/health-config-store";
 import { DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, permissionTier, teamForRole, type Role, type Team } from "@/lib/roles";
 import { dbHealthy, markDbHealthy, markDbUnhealthy } from "@/lib/db/health";
 import { withDbTimeout } from "@/lib/db/client";

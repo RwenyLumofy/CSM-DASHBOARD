@@ -27,7 +27,7 @@ import type { SyncBundle } from "@/lib/integrations/sync";
 import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
 import { computeClientStatus, STATUS_OVERRIDE_KEY } from "@/lib/status";
 import { computeHealthScore } from "@/lib/metrics/health";
-import { getClientHealthConfig } from "@/lib/assignment/config";
+import { getClientHealthConfig } from "@/lib/metrics/health-config-store";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { normalizeStakeholderMappings } from "@/lib/stakeholders";

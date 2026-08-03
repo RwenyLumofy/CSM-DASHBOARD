@@ -36,7 +36,7 @@ export const ROLES = [
   // Legacy granular operator tiers. No longer offered as a permission (they all
   // resolve to the "operator" tier via permissionTier), but kept as valid values
   // so existing rows resolve AND so the assignment-routing config
-  // (WorkflowManager capacity bands, health.ts) can still target a seniority tier.
+  // can still target a seniority tier.
   "strategic_csm",
   "senior_csm",
   "csm_officer",
