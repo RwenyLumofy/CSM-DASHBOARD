@@ -1,12 +1,17 @@
 "use client";
 
 /* =========================================================================
-   Client health model editor (Settings → Client health). The CS-leader
-   controls: the CS Pulse dimensions (add / rename / reweight / rubric) and the
-   rating scale (labels + scores) — both config-driven and saved to
-   workspace_config, driving BOTH the capture form and the engine. The rest of
-   the model (top-level weights, bands, automated signals) is shown read-only
-   for now (v1) — those become editable once persisted like these.
+   Settings → Client health. The single place that decides a health score:
+
+     · the FORMULA — which signals count, their weights, the tier cutoffs;
+       saving it runs a full recompute (ClientHealthFormula.tsx)
+     · the CS PULSE dimensions — add / rename / reweight / rubric
+     · the RATING SCALE — labels and their scores
+
+   All three are config, saved to workspace_config, and drive both the capture
+   form and the engine. The formula half used to live in Settings → Automations,
+   so two tabs were called "Client health" and neither owned the whole thing.
+   Automations is assignment routing now.
    ========================================================================= */
 
 import { useState } from "react";
@@ -14,25 +19,35 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Check, Loader2, ChevronDown, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { PulseDimension, RatingTier } from "@/lib/health/pulse";
+import type { ClientHealthConfig } from "@/lib/metrics/health-config";
+import { ClientHealthFormula } from "./ClientHealthFormula";
 import { saveCsPulseDimensionsAction, saveCsPulseTiersAction } from "@/app/(app)/settings/pulse-config-actions";
-
-export interface ModelOverview {
-  components: { name: string; weight: number; mandatory: boolean; children: { name: string; weight: number; source: string }[] }[];
-  bands: { name: string; min: number }[];
-}
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "item";
 
-export function ClientHealthEditor({ initialDimensions, initialTiers, overview }: {
+/**
+ * Everything that decides a health score, in one place.
+ *
+ * The formula comes first because it is what the number actually is; the CS
+ * Pulse dimensions and rating scale below it are one weighted input into that
+ * formula. This tab previously ended with a read-only "model overview" built
+ * from MODEL_V1_1 — the retired engine — which showed four components and four
+ * bands (Healthy ≥65) while the live formula had ten metrics and three tiers
+ * (Healthy ≥60). Two different answers to "how is health calculated", one of
+ * them fiction. It has been removed rather than corrected: the editor above it
+ * IS the formula, so a second rendering of it could only ever drift again.
+ */
+export function ClientHealthEditor({ initialDimensions, initialTiers, formula }: {
   initialDimensions: PulseDimension[];
   initialTiers: RatingTier[];
-  overview: ModelOverview;
+  formula: ClientHealthConfig;
 }) {
+  const router = useRouter();
   return (
     <div className="flex flex-col gap-8">
+      <ClientHealthFormula initial={formula} onSaved={() => router.refresh()} />
       <DimensionsEditor initialDimensions={initialDimensions} tiers={initialTiers} />
       <TiersEditor initialTiers={initialTiers} />
-      <ModelOverviewCard overview={overview} />
     </div>
   );
 }
@@ -170,46 +185,6 @@ function TiersEditor({ initialTiers }: { initialTiers: RatingTier[] }) {
         <SaveButton busy={busy} disabled={!valid} onClick={save} />
       </div>
       {msg && <Feedback msg={msg} />}
-    </Section>
-  );
-}
-
-/* -------- Read-only model overview -------------------------------------- */
-
-const BAND_COLOR: Record<string, string> = { Healthy: "#1F9D63", Watch: "#8A6D12", "At Risk": "#C2610E", Critical: "#B23A57" };
-
-function ModelOverviewCard({ overview }: { overview: ModelOverview }) {
-  return (
-    <Section title="The full formula" description="How the overall score is built. Top-level weights, bands and automated signals are read-only for now — editable in the next update.">
-      <div className="overflow-hidden rounded-xl border border-border bg-surface">
-        {overview.components.map((c) => (
-          <div key={c.name} className="border-b border-border-subtle last:border-b-0">
-            <div className="flex items-center gap-2 bg-bg-subtle px-4 py-2.5">
-              <span className="flex-1 font-body text-[13px] font-semibold text-fg">{c.name}</span>
-              {c.mandatory && <span className="rounded bg-[#B23A57]/10 px-1.5 py-0.5 font-body text-[9.5px] font-bold uppercase tracking-[0.04em] text-[#B23A57]">Mandatory</span>}
-              <span className="font-body text-[12.5px] font-semibold tabular-nums text-fg-muted">{Math.round(c.weight * 100)}%</span>
-            </div>
-            {c.children.map((ch) => (
-              <div key={ch.name} className="flex items-center gap-2 px-4 py-2 pl-8 font-body text-[12.5px]">
-                <span className="flex-1 text-fg-muted">{ch.name} <span className="text-fg-subtle">· {ch.source}</span></span>
-                <span className="tabular-nums text-fg-subtle">{Math.round(ch.weight * 100)}%</span>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {overview.bands.map((b, i) => {
-          const next = i === 0 ? 100 : overview.bands[i - 1].min;
-          return (
-            <span key={b.name} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 font-body text-[12px]">
-              <span className="size-2.5 rounded" style={{ background: BAND_COLOR[b.name] ?? "#6E6E6E" }} />
-              <span className="font-medium text-fg">{b.name}</span>
-              <span className="text-fg-subtle">{b.min}–{next}</span>
-            </span>
-          );
-        })}
-      </div>
     </Section>
   );
 }

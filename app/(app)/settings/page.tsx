@@ -10,9 +10,8 @@ import { AttachmentCategoriesManager } from "@/components/settings/AttachmentCat
 import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManager";
 import { ProjectTemplatesManager } from "@/components/settings/ProjectTemplatesManager";
 import { ChurnTaxonomyManager } from "@/components/settings/ChurnTaxonomyManager";
-import { ClientHealthEditor, type ModelOverview } from "@/components/settings/ClientHealthEditor";
+import { ClientHealthEditor } from "@/components/settings/ClientHealthEditor";
 import { getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
-import { assembleModel } from "@/lib/health/model-assembly";
 import { getAppUsers, getChurnTaxonomy, getClients, getOwnedAccountCounts, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
 import { getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getCurrentUserEmail, isAdminOrSuper, isSuperAdmin } from "@/lib/auth";
@@ -319,8 +318,8 @@ async function AutomationsTab({ roleLabels }: { roleLabels: Record<string, strin
       <div className="mb-5">
         <h2 className="font-display text-base font-semibold text-fg">Automations</h2>
         <p className="mt-1 font-body text-sm text-fg-muted">
-          Two automations: how new clients are routed to a CSM and an Implementation owner, and how every account&apos;s
-          health score is calculated. Pick one below.
+          How new clients are routed to a CSM and an Implementation owner, and the capacity thresholds behind it.
+          The health score is configured under <span className="font-medium text-fg">Client health</span>.
         </p>
       </div>
       <WorkflowManager
@@ -328,7 +327,6 @@ async function AutomationsTab({ roleLabels }: { roleLabels: Record<string, strin
         initialImpl={impl}
         initialCapacity={capacity}
         teamHealth={teamHealth}
-        initialClientHealth={clientHealth}
         roleLabels={roleLabels}
       />
     </div>
@@ -365,38 +363,20 @@ async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
 
 /* ---------------------------------------------------------- Client health */
 
-function formulaSource(f: unknown): string {
-  const x = f as Record<string, unknown> | undefined;
-  if (!x) return "—";
-  if (x.type === "categorical_map") return "CS Pulse rating";
-  if (x.type === "ratio" || x.type === "stage_adjusted_ratio") {
-    const num = (x.numerator_metric ?? x.actual_metric ?? "?") as string;
-    const den = (x.denominator_metric ?? x.expected_metric ?? "?") as string;
-    return `${num} ÷ ${den}`;
-  }
-  if (x.type === "threshold_table") return "threshold table";
-  if (x.type === "latest_valid_value") return ((x.metrics as string[]) ?? []).join(" → ");
-  return (x.type as string) ?? "—";
-}
 
 async function ClientHealthTab() {
-  const [dimensions, tiers] = await Promise.all([getCsPulseDimensions(), getCsPulseTiers()]);
-  const model = assembleModel(dimensions, tiers);
-  const overview: ModelOverview = {
-    components: model.components.map((c) => ({
-      name: c.name,
-      weight: c.weight,
-      mandatory: !!c.isMandatory,
-      children: (c.children ?? []).map((ch) => ({ name: ch.name, weight: ch.weight, source: formulaSource(ch.formula) })),
-    })),
-    bands: [...model.bands].sort((a, b) => b.minScore - a.minScore).map((b) => ({ name: b.name, min: b.minScore })),
-  };
+  const { getClientHealthConfig } = await import("@/lib/assignment/config");
+  const [dimensions, tiers, formula] = await Promise.all([
+    getCsPulseDimensions(),
+    getCsPulseTiers(),
+    getClientHealthConfig(),
+  ]);
   return (
     <SettingsSection
-      title="Client health model"
-      description="How every account's health score is calculated — the CS Pulse the CSM records each month, the rating scale, and the full weighted formula. Editing the pulse dimensions or scale here updates the capture form and re-scores accounts."
+      title="Client health"
+      description="Everything that decides an account's health score: which signals count and how they are weighted, the tier cutoffs, and the CS Pulse the CSM records each month. Saving the formula re-scores every account immediately; editing the pulse dimensions or rating scale also updates the capture form."
     >
-      <ClientHealthEditor initialDimensions={dimensions} initialTiers={tiers} overview={overview} />
+      <ClientHealthEditor initialDimensions={dimensions} initialTiers={tiers} formula={formula} />
     </SettingsSection>
   );
 }
