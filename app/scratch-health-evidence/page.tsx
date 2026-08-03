@@ -1,5 +1,8 @@
 import { notFound } from "next/navigation";
 import { HealthPill } from "@/components/ui/HealthPill";
+import { CsPulsePanel } from "@/components/clients/CsPulsePanel";
+import { CS_PULSE_DIMENSIONS } from "@/lib/health/pulse";
+import { CS_PULSE_TIERS } from "@/lib/health/model-v1";
 import type { HealthScore } from "@/lib/types";
 
 /* =========================================================================
@@ -73,6 +76,36 @@ export default function Page() {
           </div>
         </section>
       ))}
+
+      {/* The CS Pulse drawer, with the breakdown collapsed by default. Shape
+          taken from the account in the reported screenshot: five record-keeping
+          metrics at 100, usage 60, and a Critical-heavy Pulse at 14. */}
+      <section className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4">
+        <h2 className="font-display text-[15px] font-semibold text-fg">CS Pulse drawer — collapsed breakdown</h2>
+        <p className="font-body text-[12px] leading-relaxed text-fg-muted">
+          Open the drawer. The breakdown is collapsed; CS Pulse stays visible because it&rsquo;s
+          the number the drawer exists to explain.
+        </p>
+        <CsPulsePanel
+          clientId="preview"
+          canEdit
+          dimensions={CS_PULSE_DIMENSIONS}
+          tiers={CS_PULSE_TIERS}
+          pulse={{
+            ratings: { stakeholder: "weak", engagement: "critical", renewal: "critical" },
+            signals: { singleThreaded: false, championLeft: false, renewalIntent: null },
+            updatedAt: new Date(Date.now() - 6 * 86_400_000).toISOString(),
+            updatedByEmail: "aabbas@lumofy.com",
+          }}
+          health={{
+            score: 65, tier: "Healthy", tierColor: "#1E8F61", trend: -24, updatedAt: "",
+            components: {
+              sla_breaches: 100, use_case_set: 100, profile_complete: 100,
+              onboarding_period: 100, stakeholder_mapping: 100, usage: 60, cs_pulse: 14,
+            },
+          }}
+        />
+      </section>
     </div>
   );
 }

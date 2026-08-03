@@ -28,7 +28,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, HeartPulse } from "lucide-react";
+import { AlertTriangle, ChevronDown, HeartPulse } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   PULSE_VALIDITY_DAYS, pulseAgeDays, type StoredPulse, type PulseDimension, type RatingTier,
@@ -69,6 +69,10 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  /* The per-metric breakdown, collapsed by default. Ten rows of numbers above
+     the ratings made this drawer read as a report to study rather than a form
+     to fill in, and pushed the thing you came to do below the fold. */
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const rootRef = useRef<HTMLButtonElement>(null);
 
   // Deep-link from the Pulse queue (/clients/{id}#pulse): open the capture
@@ -140,7 +144,12 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
 
           {contributions.length > 0 && (
             <dl className="flex flex-col gap-1 border-t border-border-subtle pt-2">
-              {contributions.map(([key, value]) => (
+              {/* Collapsed by default — the full list ran to ten rows and pushed
+                  the ratings you came here to set below the fold. CS Pulse
+                  itself stays visible whatever the state: it is the one number
+                  this drawer exists to explain, and hiding it behind a toggle
+                  would answer "why is it that score" with a click. */}
+              {(showBreakdown ? contributions : contributions.filter(([k]) => k === "cs_pulse")).map(([key, value]) => (
                 <div key={key} className={cn("flex items-center gap-2", key === "cs_pulse" && "font-semibold")}>
                   <dt className={cn("flex-1 font-body text-[12px]", key === "cs_pulse" ? "text-fg" : "text-fg-muted")}>
                     {HEALTH_METRIC_LABELS[key] ?? key}
@@ -148,6 +157,17 @@ export function CsPulsePanel({ clientId, health, pulse, dimensions, tiers, canEd
                   <dd className="tabular font-body text-[12px] text-fg">{Math.round(value)}</dd>
                 </div>
               ))}
+
+              {contributions.length > (pulseCounted ? 1 : 0) && (
+                <button type="button" onClick={() => setShowBreakdown((s) => !s)}
+                  aria-expanded={showBreakdown}
+                  className="mt-0.5 inline-flex w-fit items-center gap-1 font-body text-[11.5px] font-medium text-sirius hover:underline">
+                  <ChevronDown size={12} className={cn("transition-transform", showBreakdown && "rotate-180")} aria-hidden />
+                  {showBreakdown
+                    ? "Hide the full breakdown"
+                    : `Show the full breakdown (${contributions.length} inputs)`}
+                </button>
+              )}
             </dl>
           )}
         </>
