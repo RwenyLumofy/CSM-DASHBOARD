@@ -215,10 +215,40 @@ export function calculateAccountHealth(model: HealthModelVersion, facts: Account
   const components = model.components.map((c) => computeComponent(c, facts.metrics));
   const enabled = components.filter((c) => c.isApplicable);
 
-  // Mandatory missing ⇒ Not Assessed.
+  /* A confirmed termination is knowledge, not a gap.
+
+     The mandatory and coverage returns below sit earlier in the flow than the
+     §16.2 status rules, so a churned account with no CS Pulse fell out as
+     "Not Assessed" and its churn rule never ran. On this book that was 78 of
+     133 accounts — the whole churned back-catalogue reporting as un-reviewed
+     rather than as gone.
+
+     This resolves the terminal state for those paths ONLY. An account that can
+     still be scored keeps the normal flow, because §28.2 requires a churned
+     account to preserve its calculated score; short-circuiting before the
+     component tree would discard it. Read from the model's own statusRules
+     rather than hardcoding the signal, so disabling or renaming the rule still
+     governs. */
+  const churnRule = [...model.statusRules]
+    .sort((a, b) => a.priority - b.priority)
+    .find((r) => r.isEnabled && r.action === "churned" &&
+      matchConditionSet((k) => (facts.signals as Record<string, Scalar>)[k] ?? null, r.when));
+  const terminal = (reason: string): AccountHealthResult => ({
+    ...empty, components,
+    appliedStatus: churnRule!.targetStatus ?? "Churned",
+    notAssessed: false,
+    activeStatusRules: [{
+      ruleId: churnRule!.id, ruleName: churnRule!.name, action: churnRule!.action,
+      reason: `${churnRule!.reasonTemplate} (${reason})`, priority: churnRule!.priority,
+      previousStatus: "Not Assessed", resultingStatus: churnRule!.targetStatus ?? "Churned",
+    }],
+  });
+
+  // Mandatory missing ⇒ Not Assessed, unless the account is already gone.
   const mandatoryMissing = model.components.find((c) => c.isEnabled && c.isMandatory && components.find((r) => r.id === c.id)?.score == null);
   if (mandatoryMissing) {
-    return { ...empty, components, notAssessedReason: `Mandatory component "${mandatoryMissing.name}" has no valid data` };
+    const why = `Mandatory component "${mandatoryMissing.name}" has no valid data`;
+    return churnRule ? terminal(why) : { ...empty, components, notAssessedReason: why };
   }
 
   // Data coverage from ORIGINAL top-level weights (before redistribution).
@@ -227,7 +257,10 @@ export function calculateAccountHealth(model: HealthModelVersion, facts: Account
   const coverage = round3(availableWeight / enabledWeight);
 
   if (coverage < model.minCoverageForAssessment) {
-    return { ...empty, components, dataCoverage: coverage, notAssessedReason: `Data Coverage ${Math.round(coverage * 100)}% below ${Math.round(model.minCoverageForAssessment * 100)}%` };
+    const why = `Data Coverage ${Math.round(coverage * 100)}% below ${Math.round(model.minCoverageForAssessment * 100)}%`;
+    return churnRule
+      ? { ...terminal(why), dataCoverage: coverage }
+      : { ...empty, components, dataCoverage: coverage, notAssessedReason: why };
   }
 
   // Redistribute missing optional weight proportionally; weighted score.
