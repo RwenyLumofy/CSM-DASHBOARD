@@ -166,6 +166,20 @@ test("§28.2 single-threaded account cannot be Healthy", () => {
   assert.equal(r.appliedStatus, "Watch");
 });
 
+test("an UNANSWERED single-threaded question does not cap — silence is not a Yes", () => {
+  /* The gate is a qualification rule: it must hold or the account is capped.
+     With `isFalse` it also failed on null, so an account nobody had answered
+     for was penalised for our missing data — which capped the entire live book
+     to Watch, including accounts scoring 90. */
+  const r = calculateAccountHealth(M, facts({ signals: { single_threaded: null, active_critical_incidents: 0 } }), TS);
+  assert.equal(r.calculatedBand, "Healthy");
+  assert.equal(r.appliedStatus, "Healthy", "an unanswered question must not cap the account");
+  assert.ok(
+    !r.activeStatusRules.some((t) => /single-threaded/i.test(t.reason)),
+    "the single-threaded rule must not fire on an unanswered question",
+  );
+});
+
 test("§28.2 active critical incident caps At Risk but preserves the calculated score", () => {
   const r = calculateAccountHealth(M, facts({ signals: { active_critical_incidents: 1, single_threaded: false } }), TS);
   assert.equal(r.calculatedBand, "Healthy");

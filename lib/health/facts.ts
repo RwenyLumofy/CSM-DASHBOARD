@@ -93,7 +93,17 @@ export function buildAccountFacts(input: HealthFactsInput, now = new Date()): Ac
     : null;
   const signals: AccountFacts["signals"] = {
     confirmed_termination: input.status === "churned",
-    single_threaded: p?.singleThreaded ?? ((input.primaryContactCount ?? 0) <= 1),
+    /* The CSM's answer wins. Falling back to the contact count is only valid
+       when we actually HAVE a contact count: `(count ?? 0) <= 1` read "we hold
+       no contact data" as "yes, single-threaded", capping the account to Watch
+       on an assumption nobody made. client_contacts.is_primary is populated
+       nowhere in this workspace, so that fallback fired for every account whose
+       pulse left the question blank — and capped the entire book to Watch
+       regardless of score, including accounts scoring 90.
+
+       Unknown is not a Yes. Same rule the coverage answers below already
+       follow: null survives, and the isTrue rule simply does not fire. */
+    single_threaded: p?.singleThreaded ?? (input.primaryContactCount == null ? null : input.primaryContactCount <= 1),
     champion_left: p?.championLeft ?? false,
     competitive_replacement: p?.competitiveReplacement ?? false,
     suspension_requested: p?.suspensionRequested ?? false,

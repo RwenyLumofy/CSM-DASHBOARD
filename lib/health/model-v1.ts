@@ -147,7 +147,15 @@ export const MODEL_V1_1: HealthModelVersion = {
     { id: "q_product", name: "Product adoption ≥ 65", when: { product_adoption_score: { gte: 65 } }, capTo: "Watch", reasonTemplate: "Product Adoption below the Healthy minimum of 65", isEnabled: true },
     { id: "q_pulse", name: "CS Pulse ≥ 75", when: { cs_pulse_score: { gte: 75 } }, capTo: "Watch", reasonTemplate: "CS Pulse below the Healthy minimum of 75", isEnabled: true },
     { id: "q_coverage", name: "Data coverage ≥ 85%", when: { data_coverage: { gte: 0.85 } }, capTo: "Watch", reasonTemplate: "Data Coverage below the Healthy minimum of 85%", isEnabled: true },
-    { id: "q_multithreaded", name: "Not single-threaded", when: { single_threaded: { isFalse: true } }, capTo: "Watch", reasonTemplate: "Account is single-threaded", isEnabled: true },
+    /* `ne: true`, not `isFalse: true`. A qualification rule must HOLD or the
+       account is capped, so `isFalse` meant an unanswered question failed the
+       gate exactly like an explicit "yes, single-threaded" — we penalised an
+       account for OUR missing data. client_contacts.is_primary is populated
+       nowhere in this workspace and the pulse question is often left blank, so
+       this capped every account to Watch regardless of score, including ones
+       scoring 90. `ne: true` holds for both false and null: the gate now fires
+       only when somebody actually said the account is single-threaded. */
+    { id: "q_multithreaded", name: "Not single-threaded", when: { single_threaded: { ne: true } }, capTo: "Watch", reasonTemplate: "Account is single-threaded", isEnabled: true },
     { id: "q_pulse_valid", name: "Valid CS Pulse exists", when: { valid_cs_pulse_exists: { isTrue: true } }, capTo: "Watch", reasonTemplate: "No valid CS Pulse review on record", isEnabled: true },
   ],
 
