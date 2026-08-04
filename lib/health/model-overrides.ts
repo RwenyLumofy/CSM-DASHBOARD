@@ -27,12 +27,79 @@ export interface HealthBandOverride {
   minScore: number;
 }
 
+/**
+ * One tunable rule — a qualification gate or a status rule.
+ *
+ * Deliberately NOT a condition builder. An admin can turn a rule off, move the
+ * number in it, and change where it caps to; they cannot author arbitrary
+ * logic. The conditions encode what a signal MEANS ("renewal intent is
+ * negative"), and letting that be retyped in a text box produces a model that
+ * compiles and silently measures something else.
+ */
+export interface RuleOverride {
+  enabled?: boolean;
+  /** Replaces the single numeric bound in the rule's condition, when it has
+   *  exactly one. Rules with no number, or more than one, are toggle-only. */
+  threshold?: number;
+  /** The status a cap/force lands on. Status rules only. */
+  targetStatus?: string;
+}
+
 export interface HealthModelOverrides {
   /** id → percentage (0–100). Stored as percentages because that is what the
    *  editor shows; the model itself uses 0–1 fractions. */
   componentWeights?: Partial<Record<WeightedComponentId, number>>;
   /** Highest first. A score lands in the first band whose minScore it meets. */
   bands?: HealthBandOverride[];
+  /** Qualification gate id → override. */
+  gates?: Record<string, RuleOverride>;
+  /** Status rule id → override. */
+  rules?: Record<string, RuleOverride>;
+  /** Share of enabled weight that must have data, 0–1. Below it the account is
+   *  Not Assessed rather than scored on a fraction of the picture. */
+  minCoverage?: number;
+}
+
+/** The numeric operators a threshold can live in, in the order we look. */
+const NUM_OPS = ["gte", "gt", "lte", "lt"] as const;
+
+/**
+ * The single editable number in a condition set, or null when there isn't
+ * exactly one. `{ cs_pulse_score: { gte: 75 } }` yields 75; a two-key condition
+ * like the renewal-window rule yields null and stays toggle-only, because
+ * "which of these two numbers did you mean" has no honest answer in a form.
+ */
+export function editableThreshold(when: Record<string, Record<string, unknown>>): number | null {
+  const found: number[] = [];
+  for (const cmp of Object.values(when ?? {})) {
+    for (const op of NUM_OPS) {
+      const v = (cmp as Record<string, unknown>)[op];
+      if (typeof v === "number") found.push(v);
+    }
+  }
+  return found.length === 1 ? found[0] : null;
+}
+
+/** Write a new bound back into whichever numeric operator the condition uses. */
+function setThreshold(when: Record<string, Record<string, unknown>>, value: number): void {
+  for (const cmp of Object.values(when ?? {})) {
+    for (const op of NUM_OPS) {
+      if (typeof (cmp as Record<string, unknown>)[op] === "number") {
+        (cmp as Record<string, unknown>)[op] = value;
+        return;
+      }
+    }
+  }
+}
+
+function applyRuleOverride(
+  rule: { id: string; isEnabled: boolean; when: Record<string, Record<string, unknown>>; targetStatus?: string },
+  o: RuleOverride | undefined,
+): void {
+  if (!o) return;
+  if (o.enabled != null) rule.isEnabled = o.enabled;
+  if (o.threshold != null && editableThreshold(rule.when) != null) setThreshold(rule.when, o.threshold);
+  if (o.targetStatus) rule.targetStatus = o.targetStatus;
 }
 
 /** The shipped weights as percentages — what the editor starts from. */
@@ -86,6 +153,17 @@ export function applyModelOverrides(
       // Butt each band against the next one up, so the ranges are contiguous.
       maxScore: i === 0 ? 100 : sorted[i - 1].minScore - 0.001,
     }));
+  }
+
+  for (const g of model.qualificationRules) {
+    applyRuleOverride(g as never, overrides.gates?.[g.id]);
+  }
+  for (const r of model.statusRules) {
+    applyRuleOverride(r as never, overrides.rules?.[r.id]);
+  }
+
+  if (overrides.minCoverage != null) {
+    model.minCoverageForAssessment = Math.max(0, Math.min(1, overrides.minCoverage));
   }
 
   return model;

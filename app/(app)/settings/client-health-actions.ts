@@ -18,6 +18,7 @@
 import { isAdminOrSuper } from "@/lib/auth";
 import { setClientHealthConfig } from "@/lib/metrics/health-config-store";
 import type { ClientHealthConfig } from "@/lib/metrics/health-config";
+import type { HealthModelOverrides } from "@/lib/health/model-overrides";
 
 export interface ActionResult {
   ok: boolean;
@@ -30,6 +31,37 @@ export async function saveClientHealthConfigAction(
   if (!(await isAdminOrSuper())) return { ok: false, error: "Super-admin access required." };
   try {
     await setClientHealthConfig(cfg);
+    const { recomputeAllClientHealth } = await import("@/lib/repo/drizzle");
+    const { clients } = await recomputeAllClientHealth();
+    return { ok: true, clientsUpdated: clients };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/**
+ * Save the qualification gates, status rules and coverage floor, then re-score
+ * every account.
+ *
+ * The whole point of these being config is that a retune takes effect now
+ * rather than on the next nightly run — a CS leader who raises the pulse bar
+ * needs to see what it does to the book before deciding to keep it. The
+ * existing overrides are merged, not replaced, so this cannot silently drop
+ * the component weights and bands the other editor writes to the same key.
+ */
+export async function saveHealthModelRulesAction(
+  patch: Pick<HealthModelOverrides, "gates" | "rules" | "minCoverage">,
+): Promise<ActionResult & { clientsUpdated?: number }> {
+  if (!(await isAdminOrSuper())) return { ok: false, error: "Super-admin access required." };
+  try {
+    const { getHealthModelOverrides, setHealthModelOverrides } = await import("@/lib/health/model-overrides-store");
+    const current = (await getHealthModelOverrides()) ?? {};
+    await setHealthModelOverrides({
+      ...current,
+      gates: patch.gates,
+      rules: patch.rules,
+      minCoverage: patch.minCoverage,
+    });
     const { recomputeAllClientHealth } = await import("@/lib/repo/drizzle");
     const { clients } = await recomputeAllClientHealth();
     return { ok: true, clientsUpdated: clients };

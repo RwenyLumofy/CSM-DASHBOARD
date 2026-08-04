@@ -10,6 +10,7 @@ import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManag
 import { ProjectTemplatesManager } from "@/components/settings/ProjectTemplatesManager";
 import { ChurnTaxonomyManager } from "@/components/settings/ChurnTaxonomyManager";
 import { ClientHealthEditor, type ModelOverview } from "@/components/settings/ClientHealthEditor";
+import { HealthModelRules, type RuleView } from "@/components/settings/HealthModelRules";
 import { getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
 import { assembleModel } from "@/lib/health/model-assembly";
 import { getAppUsers, getChurnTaxonomy, getClients, getOwnedAccountCounts, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
@@ -343,10 +344,15 @@ function formulaSource(f: unknown): string {
 
 async function ClientHealthTab() {
   const { getClientHealthConfig } = await import("@/lib/metrics/health-config-store");
-  const [dimensions, tiers, formula] = await Promise.all([
+  const { getHealthModelOverrides } = await import("@/lib/health/model-overrides-store");
+  const { MODEL_V1_1 } = await import("@/lib/health/model-v1");
+  const { describeCondition, describeGateEffect, describeRuleEffect, editableThreshold } =
+    await import("@/lib/health/rule-language");
+  const [dimensions, tiers, formula, overrides] = await Promise.all([
     getCsPulseDimensions(),
     getCsPulseTiers(),
     getClientHealthConfig(),
+    getHealthModelOverrides(),
   ]);
   const model = assembleModel(dimensions, tiers);
   const overview: ModelOverview = {
@@ -358,12 +364,42 @@ async function ClientHealthTab() {
     })),
     bands: [...model.bands].sort((a, b) => b.minScore - a.minScore).map((b) => ({ name: b.name, min: b.minScore })),
   };
+  /* Built from MODEL_V1_1, not the override-applied model: the editor shows
+     the SHIPPED value beside each control so "edited" and "reset" mean
+     something. Applying overrides first would make every saved change look
+     like the default. */
+  const gateViews: RuleView[] = MODEL_V1_1.qualificationRules.map((g) => ({
+    id: g.id, name: g.name,
+    reads: describeCondition(g.when as Record<string, Record<string, unknown>>),
+    effect: describeGateEffect(g.capTo),
+    shippedEnabled: g.isEnabled,
+    shippedThreshold: editableThreshold(g.when as Record<string, Record<string, unknown>>),
+    when: g.when as Record<string, Record<string, unknown>>,
+  }));
+  const ruleViews: RuleView[] = [...MODEL_V1_1.statusRules]
+    .sort((a, b) => a.priority - b.priority)
+    .map((r) => ({
+      id: r.id, name: r.name, priority: r.priority,
+      reads: describeCondition(r.when as Record<string, Record<string, unknown>>),
+      effect: describeRuleEffect(r.action, r.targetStatus),
+      shippedEnabled: r.isEnabled,
+      shippedThreshold: editableThreshold(r.when as Record<string, Record<string, unknown>>),
+      when: r.when as Record<string, Record<string, unknown>>,
+    }));
   return (
     <SettingsSection
       title="Client health"
-      description="Everything that decides an account's health score: which signals count and how they are weighted, the tier cutoffs, and the CS Pulse the CSM records each month. Saving the formula re-scores every account immediately; editing the pulse dimensions or rating scale also updates the capture form."
+      description="Everything that decides an account's health score: which signals count and how they are weighted, the tier cutoffs, the CS Pulse the CSM records each month, and the rules that can override a good number. Saving any section re-scores every account immediately."
     >
-      <ClientHealthEditor initialDimensions={dimensions} initialTiers={tiers} formula={formula} overview={overview} />
+      <div className="flex flex-col gap-8">
+        <ClientHealthEditor initialDimensions={dimensions} initialTiers={tiers} formula={formula} overview={overview} />
+        <HealthModelRules
+          gates={gateViews}
+          rules={ruleViews}
+          initial={overrides ?? {}}
+          minCoverage={MODEL_V1_1.minCoverageForAssessment}
+        />
+      </div>
     </SettingsSection>
   );
 }

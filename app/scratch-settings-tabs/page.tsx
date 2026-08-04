@@ -1,5 +1,8 @@
 import { notFound } from "next/navigation";
 import { ClientHealthEditor, type ModelOverview } from "@/components/settings/ClientHealthEditor";
+import { HealthModelRules, type RuleView } from "@/components/settings/HealthModelRules";
+import { MODEL_V1_1 } from "@/lib/health/model-v1";
+import { describeCondition, describeGateEffect, describeRuleEffect, editableThreshold } from "@/lib/health/rule-language";
 import { DEFAULT_CLIENT_HEALTH_CONFIG } from "@/lib/metrics/health-config";
 import { CS_PULSE_DIMENSIONS, CS_PULSE_TIERS } from "@/lib/health/pulse";
 
@@ -65,6 +68,28 @@ export default function Page() {
           initialTiers={CS_PULSE_TIERS}
           formula={DEFAULT_CLIENT_HEALTH_CONFIG} overview={MOCK_OVERVIEW}
         />
+        <div style={{marginTop:32}}>
+          <HealthModelRules
+            gates={MODEL_V1_1.qualificationRules.map((g) => ({
+              id: g.id, name: g.name,
+              reads: describeCondition(g.when as Record<string, Record<string, unknown>>),
+              effect: describeGateEffect(g.capTo),
+              shippedEnabled: g.isEnabled,
+              shippedThreshold: editableThreshold(g.when as Record<string, Record<string, unknown>>),
+              when: g.when as Record<string, Record<string, unknown>>,
+            })) as RuleView[]}
+            rules={[...MODEL_V1_1.statusRules].sort((a,b)=>a.priority-b.priority).map((r) => ({
+              id: r.id, name: r.name, priority: r.priority,
+              reads: describeCondition(r.when as Record<string, Record<string, unknown>>),
+              effect: describeRuleEffect(r.action, r.targetStatus),
+              shippedEnabled: r.isEnabled,
+              shippedThreshold: editableThreshold(r.when as Record<string, Record<string, unknown>>),
+              when: r.when as Record<string, Record<string, unknown>>,
+            })) as RuleView[]}
+            initial={{}}
+            minCoverage={MODEL_V1_1.minCoverageForAssessment}
+          />
+        </div>
       </section>
     </div>
   );
