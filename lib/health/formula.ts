@@ -125,6 +125,17 @@ export function evalFormula(formula: Formula, metrics: MetricBag): FormulaResult
       for (const rule of formula.rules) {
         if (matchConditionSet(resolve, rule.when)) return { score: round3(rule.score), missing: false };
       }
+      /* Reaching the default means no rule tripped — which is a PASS only if we
+         actually looked. When not one of the table's inputs resolved, nothing
+         was measured, and returning default_score turns silence into a perfect
+         mark: Incident Burden and Aged & Reopened both default to 100 and are
+         fed no metrics at all, so every account scored 100 on Support without a
+         single observation behind it. Missing lets the weight redistribute to
+         the sub-components that do have data. */
+      const keys = [...new Set(formula.rules.flatMap((r) => Object.keys(r.when)))];
+      if (keys.length && keys.every((k) => resolve(k) == null)) {
+        return { score: null, missing: true, reason: "no inputs observed" };
+      }
       return { score: round3(formula.default_score), missing: false };
     }
 

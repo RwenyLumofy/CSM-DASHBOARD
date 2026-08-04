@@ -74,13 +74,20 @@ export function buildAccountFacts(input: HealthFactsInput, now = new Date()): Ac
   const p = input.pulse;
   if (p) for (const [metricKey, tierKey] of Object.entries(p.ratingsByMetricKey)) putRating(metricKey, tierKey);
 
-  /* Support & Reliability — ticket satisfaction (SLA/incidents unavailable) */
+  /* Support & Reliability — ticket satisfaction (SLA/incidents unavailable).
+
+     observationCount MUST be set here. The engine drops any component whose
+     `minimumValidObservations` is not met, reading the count off the metric —
+     and nothing was setting it, so it defaulted to 0 and Ticket Satisfaction
+     (minimum 3) was discarded for every account, including ones with 28 rated
+     tickets at 96% satisfaction. The only real support signal in the system
+     was being thrown away. */
   const s = input.support;
   const resp = n(s?.csatResponses);
   const csat = n(s?.csat);
   if (resp && resp > 0 && csat != null) {
-    put("total_valid_rated_tickets", resp, { source: "support.csatResponses" });
-    put("satisfied_rated_tickets", Math.round((csat / 100) * resp), { source: "support.csat" });
+    put("total_valid_rated_tickets", resp, { source: "support.csatResponses", observationCount: resp });
+    put("satisfied_rated_tickets", Math.round((csat / 100) * resp), { source: "support.csat", observationCount: resp });
   }
 
   /* Client Sentiment — NPS only, normalised to 0–100 */
