@@ -49,6 +49,29 @@ export async function saveClientHealthConfigAction(
  * existing overrides are merged, not replaced, so this cannot silently drop
  * the component weights and bands the other editor writes to the same key.
  */
+/**
+ * Save the component weights and the bands, then re-score every account.
+ *
+ * Merged over the stored overrides rather than replacing them, so this cannot
+ * silently drop the gates, rules and coverage floor the other editor writes to
+ * the same workspace_config key.
+ */
+export async function saveHealthModelShapeAction(
+  patch: Pick<HealthModelOverrides, "componentWeights" | "bands">,
+): Promise<ActionResult & { clientsUpdated?: number }> {
+  if (!(await isAdminOrSuper())) return { ok: false, error: "Super-admin access required." };
+  try {
+    const { getHealthModelOverrides, setHealthModelOverrides } = await import("@/lib/health/model-overrides-store");
+    const current = (await getHealthModelOverrides()) ?? {};
+    await setHealthModelOverrides({ ...current, componentWeights: patch.componentWeights, bands: patch.bands });
+    const { recomputeAllClientHealth } = await import("@/lib/repo/drizzle");
+    const { clients } = await recomputeAllClientHealth();
+    return { ok: true, clientsUpdated: clients };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
 export async function saveHealthModelRulesAction(
   patch: Pick<HealthModelOverrides, "gates" | "rules" | "minCoverage">,
 ): Promise<ActionResult & { clientsUpdated?: number }> {

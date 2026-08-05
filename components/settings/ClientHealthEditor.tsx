@@ -1,17 +1,16 @@
 "use client";
 
 /* =========================================================================
-   Settings → Client health. The single place that decides a health score:
+   The CS Pulse: the dimensions a CSM rates each month, and the scale they are
+   rated on. Both are config, and both drive the capture form AND the engine —
+   renaming a dimension changes what the pulse form asks and what the score
+   reads, in one move.
 
-     · the FORMULA — which signals count, their weights, the tier cutoffs;
-       saving it runs a full recompute (ClientHealthFormula.tsx)
-     · the CS PULSE dimensions — add / rename / reweight / rubric
-     · the RATING SCALE — labels and their scores
-
-   All three are config, saved to workspace_config, and drive both the capture
-   form and the engine. The formula half used to live in Settings → Automations,
-   so two tabs were called "Client health" and neither owned the whole thing.
-   Automations is assignment routing now.
+   This file used to also carry the ten-metric "Formula" editor and a read-only
+   model overview. The formula configured a scoring engine the recompute no
+   longer calls, and the overview rendered a retired model; both are gone. The
+   score's own shape — component weights and bands — is HealthModelWeights.tsx,
+   and the gates and status rules are HealthModelRules.tsx.
    ========================================================================= */
 
 import { useState } from "react";
@@ -19,37 +18,18 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Check, Loader2, ChevronDown, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { PulseDimension, RatingTier } from "@/lib/health/pulse";
-import type { ClientHealthConfig } from "@/lib/metrics/health-config";
-import { ClientHealthFormula } from "./ClientHealthFormula";
 import { saveCsPulseDimensionsAction, saveCsPulseTiersAction } from "@/app/(app)/settings/pulse-config-actions";
-
-export interface ModelOverview {
-  components: { name: string; weight: number; mandatory: boolean; children: { name: string; weight: number; source: string }[] }[];
-  bands: { name: string; min: number }[];
-}
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "item";
 
-/**
- * Everything that decides a health score, in one place.
- *
- * The formula comes first because it is what the number actually is; the CS
- * Pulse dimensions and rating scale below it are one weighted input into it,
- * and the model overview closes with the wider picture.
- */
-export function ClientHealthEditor({ initialDimensions, initialTiers, formula, overview }: {
+export function ClientHealthEditor({ initialDimensions, initialTiers }: {
   initialDimensions: PulseDimension[];
   initialTiers: RatingTier[];
-  formula: ClientHealthConfig;
-  overview: ModelOverview;
 }) {
-  const router = useRouter();
   return (
     <div className="flex flex-col gap-8">
-      <ClientHealthFormula initial={formula} onSaved={() => router.refresh()} />
       <DimensionsEditor initialDimensions={initialDimensions} tiers={initialTiers} />
       <TiersEditor initialTiers={initialTiers} />
-      <ModelOverviewCard overview={overview} />
     </div>
   );
 }
@@ -187,46 +167,6 @@ function TiersEditor({ initialTiers }: { initialTiers: RatingTier[] }) {
         <SaveButton busy={busy} disabled={!valid} onClick={save} />
       </div>
       {msg && <Feedback msg={msg} />}
-    </Section>
-  );
-}
-
-/* -------- Read-only model overview -------------------------------------- */
-
-const BAND_COLOR: Record<string, string> = { Healthy: "#1F9D63", Watch: "#8A6D12", "At Risk": "#C2610E", Critical: "#B23A57" };
-
-function ModelOverviewCard({ overview }: { overview: ModelOverview }) {
-  return (
-    <Section title="The full formula" description="How the overall score is built. Top-level weights, bands and automated signals are read-only for now — editable in the next update.">
-      <div className="overflow-hidden rounded-xl border border-border bg-surface">
-        {overview.components.map((c) => (
-          <div key={c.name} className="border-b border-border-subtle last:border-b-0">
-            <div className="flex items-center gap-2 bg-bg-subtle px-4 py-2.5">
-              <span className="flex-1 font-body text-[13px] font-semibold text-fg">{c.name}</span>
-              {c.mandatory && <span className="rounded bg-[#B23A57]/10 px-1.5 py-0.5 font-body text-[9.5px] font-bold uppercase tracking-[0.04em] text-[#B23A57]">Mandatory</span>}
-              <span className="font-body text-[12.5px] font-semibold tabular-nums text-fg-muted">{Math.round(c.weight * 100)}%</span>
-            </div>
-            {c.children.map((ch) => (
-              <div key={ch.name} className="flex items-center gap-2 px-4 py-2 pl-8 font-body text-[12.5px]">
-                <span className="flex-1 text-fg-muted">{ch.name} <span className="text-fg-subtle">· {ch.source}</span></span>
-                <span className="tabular-nums text-fg-subtle">{Math.round(ch.weight * 100)}%</span>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {overview.bands.map((b, i) => {
-          const next = i === 0 ? 100 : overview.bands[i - 1].min;
-          return (
-            <span key={b.name} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1.5 font-body text-[12px]">
-              <span className="size-2.5 rounded" style={{ background: BAND_COLOR[b.name] ?? "#6E6E6E" }} />
-              <span className="font-medium text-fg">{b.name}</span>
-              <span className="text-fg-subtle">{b.min}–{next}</span>
-            </span>
-          );
-        })}
-      </div>
     </Section>
   );
 }

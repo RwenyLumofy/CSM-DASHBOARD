@@ -9,10 +9,10 @@ import { AttachmentCategoriesManager } from "@/components/settings/AttachmentCat
 import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManager";
 import { ProjectTemplatesManager } from "@/components/settings/ProjectTemplatesManager";
 import { ChurnTaxonomyManager } from "@/components/settings/ChurnTaxonomyManager";
-import { ClientHealthEditor, type ModelOverview } from "@/components/settings/ClientHealthEditor";
+import { ClientHealthEditor } from "@/components/settings/ClientHealthEditor";
+import { HealthModelWeights } from "@/components/settings/HealthModelWeights";
 import { HealthModelRules, type RuleView } from "@/components/settings/HealthModelRules";
 import { getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
-import { assembleModel } from "@/lib/health/model-assembly";
 import { getAppUsers, getChurnTaxonomy, getClients, getOwnedAccountCounts, getPropertyDefinitions, getRoleLabels } from "@/lib/data";
 import { getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getCurrentUserEmail, isAdminOrSuper, isSuperAdmin } from "@/lib/auth";
@@ -25,10 +25,10 @@ import type { Member } from "@/components/settings/MembersManager";
 
 export const metadata = { title: "Settings · Lumofy Signals" };
 export const dynamic = "force-dynamic";
-// Saving the Client Health formula (workflow-actions.saveClientHealthConfigAction)
-// runs a full recomputeAllClientHealth() sweep — 74 clients, each with a usage
-// read. Server actions are dispatched to their host route, so this ceiling
-// applies to that save. Matches the client-health cron's maxDuration.
+// Every save on the Client health tab runs a full recomputeAllClientHealth()
+// sweep — every client, each with a usage read (client-health-actions.ts).
+// Server actions are dispatched to their host route, so this ceiling applies
+// to those saves. Matches the client-health cron's maxDuration.
 export const maxDuration = 300;
 
 /* =========================================================================
@@ -41,7 +41,7 @@ export const maxDuration = 300;
      Members       — who's in and what they can do (users, roles, Lumofy team)
      Properties    — the data model (client fields, vocabularies)
      Projects      — project options and templates
-     Client health — the scoring formula, tiers, and the CS Pulse config
+     Client health — component weights, bands, the CS Pulse, gates and rules
      Integrations  — HubSpot data sync
 
    Visibility is unchanged: non-admins see only Properties (read-only) and
@@ -325,77 +325,45 @@ async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
 
 /* --------------------------------------------------------- Churn taxonomy */
 
-function formulaSource(f: unknown): string {
-  const x = f as Record<string, unknown> | undefined;
-  if (!x) return "—";
-  if (x.type === "categorical_map") return "CS Pulse rating";
-  if (x.type === "ratio" || x.type === "stage_adjusted_ratio") {
-    const num = (x.numerator_metric ?? x.actual_metric ?? "?") as string;
-    const den = (x.denominator_metric ?? x.expected_metric ?? "?") as string;
-    return `${num} ÷ ${den}`;
-  }
-  if (x.type === "threshold_table") return "threshold table";
-  if (x.type === "latest_valid_value") return ((x.metrics as string[]) ?? []).join(" → ");
-  return (x.type as string) ?? "—";
-}
-
 /* ---------------------------------------------------------- Client health */
 
 
 async function ClientHealthTab() {
-  const { getClientHealthConfig } = await import("@/lib/metrics/health-config-store");
   const { getHealthModelOverrides } = await import("@/lib/health/model-overrides-store");
+  const { defaultComponentWeights, defaultBands } = await import("@/lib/health/model-overrides");
   const { MODEL_V1_1 } = await import("@/lib/health/model-v1");
   const { describeCondition, describeGateEffect, describeRuleEffect, editableThreshold } =
     await import("@/lib/health/rule-language");
-  const [dimensions, tiers, formula, overrides] = await Promise.all([
+  const [dimensions, tiers, overrides] = await Promise.all([
     getCsPulseDimensions(),
     getCsPulseTiers(),
-    getClientHealthConfig(),
     getHealthModelOverrides(),
   ]);
-  const model = assembleModel(dimensions, tiers);
-  const overview: ModelOverview = {
-    components: model.components.map((c) => ({
-      name: c.name,
-      weight: c.weight,
-      mandatory: !!c.isMandatory,
-      children: (c.children ?? []).map((ch) => ({ name: ch.name, weight: ch.weight, source: formulaSource(ch.formula) })),
-    })),
-    bands: [...model.bands].sort((a, b) => b.minScore - a.minScore).map((b) => ({ name: b.name, min: b.minScore })),
-  };
-  /* Built from MODEL_V1_1, not the override-applied model: the editor shows
-     the SHIPPED value beside each control so "edited" and "reset" mean
-     something. Applying overrides first would make every saved change look
-     like the default. */
-  const gateViews: RuleView[] = MODEL_V1_1.qualificationRules.map((g) => ({
-    id: g.id, name: g.name,
-    reads: describeCondition(g.when as Record<string, Record<string, unknown>>),
-    effect: describeGateEffect(g.capTo),
-    shippedEnabled: g.isEnabled,
-    shippedThreshold: editableThreshold(g.when as Record<string, Record<string, unknown>>),
-    when: g.when as Record<string, Record<string, unknown>>,
-  }));
-  const ruleViews: RuleView[] = [...MODEL_V1_1.statusRules]
-    .sort((a, b) => a.priority - b.priority)
-    .map((r) => ({
-      id: r.id, name: r.name, priority: r.priority,
-      reads: describeCondition(r.when as Record<string, Record<string, unknown>>),
-      effect: describeRuleEffect(r.action, r.targetStatus),
-      shippedEnabled: r.isEnabled,
-      shippedThreshold: editableThreshold(r.when as Record<string, Record<string, unknown>>),
-      when: r.when as Record<string, Record<string, unknown>>,
-    }));
+
+  const rule = (r: { id: string; name: string; when: unknown; isEnabled: boolean }, effect: string, priority?: number): RuleView => ({
+    id: r.id, name: r.name, priority,
+    reads: describeCondition(r.when as Record<string, Record<string, unknown>>),
+    effect,
+    shippedEnabled: r.isEnabled,
+    shippedThreshold: editableThreshold(r.when as Record<string, Record<string, unknown>>),
+    when: r.when as Record<string, Record<string, unknown>>,
+  });
+
   return (
     <SettingsSection
       title="Client health"
-      description="Everything that decides an account's health score: which signals count and how they are weighted, the tier cutoffs, the CS Pulse the CSM records each month, and the rules that can override a good number. Saving any section re-scores every account immediately."
+      description="Everything that decides an account's health score, in the order the engine applies it. Saving any section re-scores every account immediately."
     >
-      <div className="flex flex-col gap-8">
-        <ClientHealthEditor initialDimensions={dimensions} initialTiers={tiers} formula={formula} overview={overview} />
+      <div className="flex flex-col gap-10">
+        <HealthModelWeights
+          initialWeights={{ ...defaultComponentWeights(), ...(overrides?.componentWeights ?? {}) }}
+          initialBands={overrides?.bands ?? defaultBands()}
+        />
+        <ClientHealthEditor initialDimensions={dimensions} initialTiers={tiers} />
         <HealthModelRules
-          gates={gateViews}
-          rules={ruleViews}
+          gates={MODEL_V1_1.qualificationRules.map((g) => rule(g, describeGateEffect(g.capTo)))}
+          rules={[...MODEL_V1_1.statusRules].sort((a, b) => a.priority - b.priority)
+            .map((r) => rule(r, describeRuleEffect(r.action, r.targetStatus), r.priority))}
           initial={overrides ?? {}}
           minCoverage={MODEL_V1_1.minCoverageForAssessment}
         />
