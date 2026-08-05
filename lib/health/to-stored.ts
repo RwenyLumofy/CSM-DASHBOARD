@@ -51,9 +51,20 @@ export interface StoredHealthExtras {
   nextAction?: string | null;
   /** Why the applied status differs from the band, in the engine's own words. */
   reasons?: string[];
+  /** The same reasons carrying the rule id that produced each one. The id is
+   *  what the profile keys its "how to clear this" line off: the reason TEXT is
+   *  editable in Settings, so retuning "CS Pulse ≥ 75" to 70 rewrites the
+   *  sentence and would silently orphan a text-keyed remedy. Written alongside
+   *  `reasons` rather than replacing it — health rows scored before this exist
+   *  and must keep rendering. */
+  reasonDetails?: { id: string; text: string }[];
   notAssessed?: boolean;
   notAssessedReason?: string | null;
   modelVersion?: string;
+  /** The metric values behind each component, so the profile can say "748 of
+   *  757 seats active" rather than just "99". The engine already computes
+   *  these (numerator/denominator per metric) and this used to discard them. */
+  evidence?: Record<string, { key: string; value: number | null; numerator?: number | null; denominator?: number | null }[]>;
 }
 
 export type StoredHealth = HealthScore & StoredHealthExtras;
@@ -65,6 +76,24 @@ export type StoredHealth = HealthScore & StoredHealthExtras;
  * no data are omitted entirely — an absent key means "no reading", which is
  * the distinction lib/metrics/health-evidence.ts depends on.
  */
+/** Metric readings per component id, for the profile's evidence lines. Only
+ *  components that actually resolved something are kept — an empty list would
+ *  render as a confident "0 of 0". */
+function collectEvidence(result: AccountHealthResult): NonNullable<StoredHealthExtras["evidence"]> {
+  const out: NonNullable<StoredHealthExtras["evidence"]> = {};
+  const walk = (list: AccountHealthResult["components"]) => {
+    for (const c of list ?? []) {
+      const ms = (c.metrics ?? []).filter((m) => m.value != null);
+      if (ms.length) {
+        out[c.id] = ms.map((m) => ({ key: m.key, value: m.value, numerator: m.numerator ?? null, denominator: m.denominator ?? null }));
+      }
+      if (c.children?.length) walk(c.children as AccountHealthResult["components"]);
+    }
+  };
+  walk(result.components);
+  return out;
+}
+
 function flattenComponents(result: AccountHealthResult): HealthScore["components"] {
   const out: Record<string, number> = {};
   const walk = (list: AccountHealthResult["components"]) => {
@@ -98,8 +127,10 @@ export function toStoredHealth(result: AccountHealthResult): StoredHealth {
        reason template — "Account is single-threaded" is both q_multithreaded
        failing and r_single_threaded firing — and the drawer showed it twice. */
     reasons: [...new Set((result.activeStatusRules ?? []).map((r) => r.reason))],
+    reasonDetails: [...new Map((result.activeStatusRules ?? []).map((r) => [r.reason, { id: r.ruleId, text: r.reason }])).values()],
     notAssessed: result.notAssessed,
     notAssessedReason: result.notAssessedReason ?? null,
     modelVersion: result.modelVersion,
+    evidence: collectEvidence(result),
   };
 }

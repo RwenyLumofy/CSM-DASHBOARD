@@ -154,9 +154,22 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const { applyModelOverrides } = await import("@/lib/health/model-overrides");
   const { getHealthModelOverrides } = await import("@/lib/health/model-overrides-store");
   const { buildHealthBreakdown } = await import("@/lib/health/breakdown");
+  /* The CSM's own ratings, keyed by the component id each dimension scores, so
+     the card can say "You rated this Weak" instead of showing a 40 they never
+     typed. Labels come from the configured scale, so renaming a tier in
+     Settings renames it here too. */
+  const { normalizePulse } = await import("@/lib/health/pulse");
+  const storedPulseForCard = normalizePulse(client.properties?.cs_pulse);
+  const pulseLabels: Record<string, string> = {};
+  for (const d of pulseDimensions) {
+    const key = storedPulseForCard?.ratings?.[d.id];
+    const label = pulseTiers.find((t) => t.key === key)?.label;
+    if (label) pulseLabels[d.id] = label;
+  }
   const healthBreakdown = buildHealthBreakdown(
     client.health as never,
     applyModelOverrides(assembleModel(pulseDimensions, pulseTiers), await getHealthModelOverrides()),
+    pulseLabels,
   );
 
   const completeness = computeProfileCompleteness(client, effectiveTrackedDeals, dealDates);
