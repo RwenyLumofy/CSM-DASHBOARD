@@ -10,27 +10,33 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { hasCustomerEvidence, isAssessed, CUSTOMER_EVIDENCE_METRICS } from "./health-evidence";
 
-test("record-keeping alone is not evidence — the false GREEN", () => {
-  // Masdar Building Materials: "Healthy", 76, on paperwork only.
-  assert.equal(
-    hasCustomerEvidence({ use_case_set: 100, profile_complete: 80, onboarding_period: 100, stakeholder_mapping: 50 }),
-    false,
-  );
-});
-
-test("record-keeping alone is not evidence — the false RED", () => {
-  // DHL: "At risk", 0, on empty profile fields.
-  assert.equal(hasCustomerEvidence({ use_case_set: 0, profile_complete: 0, stakeholder_mapping: 0 }), false);
+test("our own record of what they run is not evidence about them", () => {
+  /* `breadth` is Signal's use-case rollup — present on 96% of accounts, so
+     counting it would mark almost everything assessed. `product` is excluded
+     for the same reason: it is present whenever breadth alone is. */
+  assert.equal(hasCustomerEvidence({ breadth: 35 } as never), false);
+  assert.equal(hasCustomerEvidence({ product: 35, breadth: 35 } as never), false);
 });
 
 test("zero usage IS evidence — it is the loudest churn signal we hold", () => {
   // 20 seats, 0 monthly actives. A gap would be the metric being ABSENT.
-  assert.equal(hasCustomerEvidence({ usage: 0, profile_complete: 0 }), true);
+  assert.equal(hasCustomerEvidence({ reach: 0, breadth: 35 } as never), true);
+});
+
+test("the engine's keys are what the data actually holds", () => {
+  /* The set previously held the retired formula's keys, which share not one
+     name with the engine's — so every account rendered "Not assessed" on a
+     perfectly good score. */
+  for (const k of ["usage", "csat", "nps", "sla_breaches", "cs_pulse"]) {
+    assert.equal(hasCustomerEvidence({ [k]: 80 } as never), false, `${k} is a retired key`);
+  }
+  assert.equal(hasCustomerEvidence({ ticket_sat: 96 } as never), true);
+  assert.equal(hasCustomerEvidence({ stakeholder: 100 } as never), true);
 });
 
 test("any single customer signal is enough to assess", () => {
   for (const k of CUSTOMER_EVIDENCE_METRICS) {
-    assert.equal(hasCustomerEvidence({ [k]: 50 }), true, `${k} should count as evidence`);
+    assert.equal(hasCustomerEvidence({ [k]: 50 } as never), true, `${k} should count as evidence`);
   }
 });
 
@@ -44,7 +50,8 @@ test("isAssessed treats a missing health row as unassessed", () => {
   assert.equal(isAssessed(null), false);
   assert.equal(isAssessed(undefined), false);
   assert.equal(isAssessed({ components: {} }), false);
-  assert.equal(isAssessed({ components: { cs_pulse: 70 } }), true);
+  assert.equal(isAssessed({ components: { pulse: 70 } } as never), false, "the parent aggregate is not evidence");
+  assert.equal(isAssessed({ components: { renewal: 70 } } as never), true);
 });
 
 test("an unknown metric key does not silently count as evidence", () => {

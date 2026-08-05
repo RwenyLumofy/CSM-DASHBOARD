@@ -39,12 +39,28 @@ import type { HealthComponents, HealthScore } from "@/lib/types";
  * That distinction is the whole point of this module.
  */
 export const CUSTOMER_EVIDENCE_METRICS = new Set([
-  "usage",
-  "csat",
-  "platform_csat",
-  "nps",
-  "sla_breaches",
-  "cs_pulse",
+  // Product usage — what they actually did.
+  "reach", "progress", "outcomes",
+  // The CS Pulse dimensions — what the CSM saw and recorded.
+  "stakeholder", "engagement", "renewal",
+  // Support — what happened when they needed help.
+  "sla", "incidents", "aged", "ticket_sat",
+  // Survey NPS.
+  "sentiment",
+
+  /* Deliberately NOT here:
+     · `breadth` — use-case breadth is Signal's own record of what the account
+       runs, the same kind of thing as the `use_case_set` this rule already
+       excluded. It is present on 96% of accounts, so counting it would mark
+       almost everything assessed and defeat the rule.
+     · `product`, `pulse`, `support` — the parent aggregates. `product` is
+       present whenever ANY of its children are, breadth included, so keying
+       off it would let a use-case count alone stand in for evidence.
+
+     These are the ENGINE's component ids. The set previously held the retired
+     formula's keys (usage, csat, nps, sla_breaches, cs_pulse), which share not
+     one name with what the engine stores — so after the migration every one of
+     133 accounts rendered "Not assessed" on a perfectly good score. */
 ]);
 
 /** True when at least one metric reflects the customer rather than our records. */
