@@ -54,6 +54,15 @@ export const STAKEHOLDER_ROLES = [
   "implementer",
   "end_user_representative",
   "blocker",
+  /* power_user and gatekeeper exist because the retired Communication matrix
+     used them and 43 of its 107 role associations — 40% — carried one of the
+     two. Neither has an honest equivalent here: a Power User is not an
+     "end-user representative" (they are the heaviest user, not a delegate) and
+     a Gatekeeper is not a "blocker" (they control access, which is not the
+     same as opposing you). Folding them into the nearest existing id would
+     have silently reinterpreted 43 records a CSM entered deliberately. */
+  "power_user",
+  "gatekeeper",
   "other",
 ] as const;
 export type StakeholderRole = (typeof STAKEHOLDER_ROLES)[number];
@@ -71,6 +80,8 @@ export const ROLE_LABEL: Record<StakeholderRole, string> = {
   implementer: "Implementer",
   end_user_representative: "End-user representative",
   blocker: "Blocker / detractor",
+  power_user: "Power user",
+  gatekeeper: "Gatekeeper",
   other: "Other",
 };
 
@@ -167,11 +178,48 @@ export interface StakeholderProfile {
   notes: string | null;
   tags: string[];
 
+  /** Where this record came from. `migration` marks a profile created by the
+   *  Communication-matrix backfill: it is a real, mapped stakeholder, but its
+   *  relationship fields were never captured, so the UI can offer enrichment
+   *  without implying the record is untrustworthy. */
+  source: StakeholderSource;
+  /** Provenance for the backfill — idempotency key, audit trail, and the
+   *  evidence a rollback would be reconciled against. Null on anything a
+   *  person created. */
+  migration: StakeholderMigrationMeta | null;
+
   // audit — who last touched this, for a record several people edit
   createdAt: string;
   createdBy: string | null;
   updatedAt: string;
   updatedBy: string | null;
+}
+
+/* ---------------------------------------------------------- provenance */
+
+export const STAKEHOLDER_SOURCES = ["manual", "migration"] as const;
+export type StakeholderSource = (typeof STAKEHOLDER_SOURCES)[number];
+
+/** Bump when the backfill's behaviour changes in a way that would make a
+ *  re-run produce different records; the runner uses it to tell "already
+ *  migrated" from "migrated by an older, superseded pass". */
+export const MIGRATION_VERSION = 1;
+
+export interface StakeholderMigrationMeta {
+  /** Stable identity of the legacy row this came from:
+   *  `<clientId>|<role label>|<contactId>`. The legacy matrix has no ids of
+   *  its own — it is a bare array on clients.properties — so the tuple that
+   *  uniquely identifies one association IS the key. Re-running the backfill
+   *  matches on this and updates instead of inserting. */
+  legacyKey: string;
+  version: number;
+  migratedAt: string;
+  /** The property key it was read out of, so the rollback source is named in
+   *  the record rather than in a runbook someone has to find. */
+  from: string;
+  /** Set when the backfill merged into a profile that already existed rather
+   *  than creating one — §7's reconciliation case. */
+  reconciledWith?: string | null;
 }
 
 /* ------------------------------------------------------- relationships */
@@ -220,6 +268,22 @@ const isoDate = (v: unknown): string | null => {
 const strArray = (v: unknown): string[] =>
   Array.isArray(v) ? Array.from(new Set(v.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim()))) : [];
 
+function normalizeMigrationMeta(raw: unknown): StakeholderMigrationMeta | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const legacyKey = str(r.legacyKey);
+  // Without the key it is not provenance — it cannot be matched on a re-run,
+  // so keeping it would let the backfill duplicate the record it describes.
+  if (!legacyKey) return null;
+  return {
+    legacyKey,
+    version: typeof r.version === "number" ? r.version : 0,
+    migratedAt: str(r.migratedAt) ?? "",
+    from: str(r.from) ?? "stakeholder_mappings",
+    reconciledWith: str(r.reconciledWith),
+  };
+}
+
 export function normalizeStakeholderProfile(raw: unknown): StakeholderProfile | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -258,6 +322,8 @@ export function normalizeStakeholderProfile(raw: unknown): StakeholderProfile | 
     nextEngagementAt: isoDate(r.nextEngagementAt),
     notes: str(r.notes),
     tags: strArray(r.tags),
+    source: oneOf(STAKEHOLDER_SOURCES, r.source, "manual"),
+    migration: normalizeMigrationMeta(r.migration),
     createdAt: str(r.createdAt) ?? now,
     createdBy: str(r.createdBy),
     updatedAt: str(r.updatedAt) ?? str(r.createdAt) ?? now,

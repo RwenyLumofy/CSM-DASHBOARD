@@ -271,6 +271,8 @@ export function StakeholdersTab({
                         timezone: null, roles: [], influence: "unknown", decisionAuthority: "unknown",
                         sentiment: "unknown", relationshipStrength: "unknown", engagementStatus: "unknown",
                         ownerEmail: null, lastContactedAt: null, nextEngagementAt: null, notes: null, tags: [],
+                        // Promoting a contact by hand is a manual record, not a backfilled one.
+                        source: "manual", migration: null,
                         createdAt: new Date().toISOString(), createdBy: null,
                         updatedAt: new Date().toISOString(), updatedBy: null,
                       } as StakeholderProfile,
