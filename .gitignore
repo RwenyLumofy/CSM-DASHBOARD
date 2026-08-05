@@ -90,3 +90,6 @@ next-env.d.ts
 /scripts/clone-prod-db.sh
 .env.clone*
 .env.local.bak
+
+# Health-column snapshots taken before an engine recompute (contain client data).
+.health-backup-*.json
