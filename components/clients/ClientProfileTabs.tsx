@@ -59,6 +59,7 @@ import {
   Users,
   X,
   type LucideIcon,
+  HeartPulse,
 } from "lucide-react";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { Card, CardEyebrow } from "@/components/ui/Card";
@@ -220,7 +221,9 @@ export function ClientProfileTabs(props: Props) {
     { key: "satisfaction", label: "Satisfaction indicator", icon: Gauge },
     { key: "projects", label: "Project Management", icon: FolderKanban },
     { key: "notes", label: "Notes", icon: StickyNote, count: notes.length || undefined },
-    { key: "actions", label: "Action list", icon: ListChecks, count: clientActions.length || undefined },
+    /* Key stays "actions" — renaming it would break every saved link to
+       this tab. Only the label moved. */
+    { key: "actions", label: "Health signals", icon: HeartPulse, count: clientActions.length || undefined },
   ];
 
   return (
@@ -2098,11 +2101,18 @@ function ActionsTab({ client, actions, healthBreakdown }: { client: Client; acti
   return (
     <>
       <Card>
-        <CardEyebrow>Action list</CardEyebrow>
+        <CardEyebrow>Health signals</CardEyebrow>
+        <p className="mb-3 mt-0.5 font-body text-[12px] leading-relaxed text-fg-subtle">
+          What this account&rsquo;s score is built from, and what moved it.
+        </p>
+        <HealthSignals breakdown={healthBreakdown} onRecalculate={recalculate} recalculating={recalculating} />
+      </Card>
+      <Card>
+        <CardEyebrow>Recommendations</CardEyebrow>
         <p className="mb-4 mt-0.5 font-body text-[12px] leading-relaxed text-fg-subtle">
-          AI-guided next steps for {client.name}, from this account&rsquo;s live readings — missing data, quiet usage, health
-          dips, stakeholder gaps. These are guidance, not tasks: dismiss one to hide it, or it clears itself once the
-          underlying situation resolves. Regenerate to refresh.
+          What to do about the readings above — drawn from this account&rsquo;s live signals: missing data, quiet
+          usage, health dips, stakeholder gaps. Guidance, not tasks: dismiss one to hide it, or it clears
+          itself once the underlying situation resolves.
         </p>
         <ActionFeed
           mode="client"
@@ -2119,13 +2129,6 @@ function ActionsTab({ client, actions, healthBreakdown }: { client: Client; acti
             clientName: client.name,
           }))}
         />
-      </Card>
-      <Card>
-        <CardEyebrow>Health signals</CardEyebrow>
-        <p className="mb-3 mt-0.5 font-body text-[12px] leading-relaxed text-fg-subtle">
-          What this account&rsquo;s score is built from, and what moved it.
-        </p>
-        <HealthSignals breakdown={healthBreakdown} onRecalculate={recalculate} recalculating={recalculating} />
       </Card>
     </>
   );
