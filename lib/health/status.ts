@@ -72,6 +72,24 @@ export function isJudged(health: Parameters<typeof accountStatus>[0]): boolean {
   return s !== "churned" && s !== "implementation" && s !== "not_assessed";
 }
 
+/**
+ * Collapse to the three keys the Insights filters and groupings use.
+ *
+ * The keys are deliberately unchanged — a saved board URL carrying
+ * `?health=at_risk` keeps working. What changed is how an account gets there:
+ * the engine's applied status rather than a fixed 75/55 cut of the raw score,
+ * so Insights now agrees with the clients list instead of using its own
+ * cutoffs. Critical folds into at_risk because Insights has no fourth bucket,
+ * and Churned / Implementation / Not Assessed fold into at_risk only if they
+ * somehow reach here — callers should filter them out first with isJudged().
+ */
+export function riskLevelOf(health: Parameters<typeof accountStatus>[0]): "healthy" | "watch" | "at_risk" {
+  const s = accountStatus(health);
+  if (s === "healthy") return "healthy";
+  if (s === "watch") return "watch";
+  return "at_risk";
+}
+
 /** Human label for a status, for surfaces that render it directly. */
 export const STATUS_LABEL: Record<AccountStatus, string> = {
   healthy: "Healthy",

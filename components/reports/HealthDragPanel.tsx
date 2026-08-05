@@ -1,7 +1,7 @@
 import { Lightbulb } from "lucide-react";
 import { Card, CardEyebrow } from "@/components/ui/Card";
-import type { HealthDrag, SignalKind } from "@/lib/metrics/health-drag";
-import { KIND_BLURB, KIND_LABEL } from "@/lib/metrics/health-drag";
+import type { HealthDrag, SignalKind } from "@/lib/health/drag";
+import { KIND_BLURB, KIND_LABEL } from "@/lib/health/drag";
 import { cn } from "@/lib/cn";
 
 /* "Why is health 67?"
@@ -13,15 +13,15 @@ import { cn } from "@/lib/cn";
    The colour split is the actual insight, not decoration. These nine metrics
    measure two different things and averaging them together is why the score
    reads as a mystery: `usage`/`nps`/`csat` are signals about the CUSTOMER, but
-   `stakeholder_mapping`/`profile_complete`/`use_case_set` are binary checks on
+   the CS Pulse dimensions are the CSM's own judgement, and use-case breadth is
    OUR OWN record-keeping — a zero there is an unfilled field, not an unhappy
-   customer. On live data that's ~a third of the whole deficit, and it's fixable
-   this afternoon without talking to anyone. */
+   commercial exposure. Splitting them is the point: "the CSM is worried" and
+   "reach is low" are the same number of points and completely different work. */
 
 const KIND_COLOR: Record<SignalKind, { bar: string; chip: string; text: string }> = {
   customer: { bar: "var(--color-danger)", chip: "bg-danger-bg text-danger-fg", text: "text-danger-fg" },
-  delivery: { bar: "var(--color-warning)", chip: "bg-warning-bg text-warning-fg", text: "text-warning-fg" },
-  record: { bar: "var(--color-eclipse)", chip: "bg-eclipse-bg text-eclipse-fg", text: "text-eclipse-fg" },
+  judgement: { bar: "var(--color-warning)", chip: "bg-warning-bg text-warning-fg", text: "text-warning-fg" },
+  commercial: { bar: "var(--color-eclipse)", chip: "bg-eclipse-bg text-eclipse-fg", text: "text-eclipse-fg" },
 };
 
 export function HealthDragPanel({ drag }: { drag: HealthDrag }) {
@@ -109,7 +109,7 @@ export function HealthDragPanel({ drag }: { drag: HealthDrag }) {
                   <>
                     {" · "}
                     <strong className={cn("font-semibold", c.text)}>{m.zeros} at zero</strong>
-                    {m.binary && " — an unfilled field"}
+
                   </>
                 )}
                 {" · worth "}

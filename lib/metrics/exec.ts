@@ -22,6 +22,7 @@
    ========================================================================= */
 
 import type { ArrEvent, Client, RetentionMetrics } from "@/lib/types";
+import { riskLevelOf } from "@/lib/health/status";
 import type { UsageMonthRow } from "@/lib/usage/types";
 import {
   atRisk,
@@ -36,9 +37,9 @@ import {
 import { ALL_TIME, arrAsOf, currentQuarter, currentWeek, isRangeKey, periodBounds, periodMovement, rangeKey, shiftPeriod } from "@/lib/metrics/arr";
 import { computeRetention } from "@/lib/metrics/retention";
 import { buildPortfolioSummary } from "@/lib/metrics/portfolio";
-import { buildHealthDrag, type HealthDrag } from "@/lib/metrics/health-drag";
+import { buildHealthDrag, type HealthDrag } from "@/lib/health/drag";
 import { buildChurnAnalysis, type ChurnAnalysis } from "@/lib/metrics/churn";
-import type { ClientHealthConfig } from "@/lib/metrics/health-config";
+import type { HealthModelVersion } from "@/lib/health/model";
 
 /* ------------------------------------------------------------------ filters */
 
@@ -95,7 +96,7 @@ export function applyFilters(clients: Client[], f: ExecFilters): Client[] {
     // on the same rule, so the dropdown count always equals what you get.
     if (f.health) {
       if (c.status === "churned") return false;
-      if (healthBand(c.health.score) !== f.health) return false;
+      if (riskLevelOf(c.health) !== f.health) return false;
     }
     if (f.tier && propStr(c, "tier") !== f.tier) return false;
     return true;
@@ -186,7 +187,7 @@ export function buildFilterOptions(all: Client[]): FilterOptions {
     // the dropdown is exactly what selecting it returns.
     health: tally(
       all.filter((c) => c.status !== "churned"),
-      (c) => healthBand(c.health.score),
+      (c) => riskLevelOf(c.health),
       HEALTH_LABELS,
     ),
     tier: tally(all, (c) => propStr(c, "tier")),
@@ -405,7 +406,8 @@ export interface ExecReportInput {
   trendLength?: number;
   compare?: CompareMode;
   usageHistory?: UsageMonthRow[];
-  healthConfig: ClientHealthConfig;
+  /** The assembled scoring model — drives the health-drag decomposition. */
+  healthModel: HealthModelVersion;
 }
 
 export function buildExecReport({
@@ -416,7 +418,7 @@ export function buildExecReport({
   trendLength = 6,
   compare = "prev",
   usageHistory = [],
-  healthConfig,
+  healthModel,
 }: ExecReportInput): ExecReport {
   const scoped = applyFilters(clients, filters);
   const ids = new Set(scoped.map((c) => c.id));
@@ -525,7 +527,7 @@ export function buildExecReport({
     concentration: concentrationRows,
     usageMonth,
     arr: buildArrReconciliation(scoped, events),
-    healthDrag: buildHealthDrag(scoped, healthConfig),
+    healthDrag: buildHealthDrag(scoped, healthModel),
     // Follows the selected period like everything else. The churn page defaults
     // that period to ALL_TIME (patterns usually want the whole history), but
     // that's the reader's choice now, not a property of the page.

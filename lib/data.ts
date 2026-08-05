@@ -52,7 +52,6 @@ import {
 } from "@/lib/metrics/exec";
 import { env, hasDatabase } from "@/lib/config";
 import { canSeeClient, getCurrentUserEmail, getCurrentUserRole, scopeClientsToUser } from "@/lib/auth";
-import { getClientHealthConfig } from "@/lib/metrics/health-config-store";
 import { DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, permissionTier, teamForRole, type Role, type Team } from "@/lib/roles";
 import { dbHealthy, markDbHealthy, markDbUnhealthy } from "@/lib/db/health";
 import { withDbTimeout } from "@/lib/db/client";
@@ -251,7 +250,16 @@ export async function getExecutiveReport(opts: {
 }): Promise<ExecReport & { options: FilterOptions }> {
   const { clients, arrEvents } = await source();
   // Independent of source() and of each other — fetch concurrently.
-  const [usageHistory, healthConfig] = await Promise.all([usageHistoryCache(), getClientHealthConfig()]);
+  const { assembleModel } = await import("@/lib/health/model-assembly");
+  const { applyModelOverrides } = await import("@/lib/health/model-overrides");
+  const { getHealthModelOverrides } = await import("@/lib/health/model-overrides-store");
+  const { getCsPulseDimensions, getCsPulseTiers } = await import("@/lib/health/data");
+  const [usageHistory, dims, tiers, overrides] = await Promise.all([
+    usageHistoryCache(), getCsPulseDimensions(), getCsPulseTiers(), getHealthModelOverrides(),
+  ]);
+  // The SAME model the recompute scored with, so the Insights decomposition
+  // and the stored components can never describe different formulas.
+  const healthModel = applyModelOverrides(assembleModel(dims, tiers), overrides);
   const report = buildExecReport({
     clients,
     arrEvents,
@@ -260,7 +268,7 @@ export async function getExecutiveReport(opts: {
     trendLength: opts.trendLength,
     compare: opts.compare,
     usageHistory,
-    healthConfig,
+    healthModel,
   });
   return { ...report, options: buildFilterOptions(clients) };
 }
