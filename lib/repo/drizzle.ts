@@ -797,7 +797,15 @@ export async function countPrimaryContactsDb(clientId: string): Promise<number |
       .select({ id: schema.clientContacts.id })
       .from(schema.clientContacts)
       .where(and(eq(schema.clientContacts.clientId, clientId), eq(schema.clientContacts.isPrimary, true)));
-    return rows.length;
+    /* ZERO IS UNKNOWN HERE, not "this account has no primary contact".
+       is_primary is set on 0 of 1,760 contact rows in this workspace — the
+       flag is simply not used — so a count of zero cannot be told apart from
+       the field never being filled in. Returning 0 made facts.ts read
+       `0 <= 1` as "single-threaded", which capped every account with an
+       unanswered pulse question to Watch and put the whole live book there:
+       ALAWN scored 90 and still read Watch after the first production
+       recompute. Returning null lets "unknown is not a Yes" actually hold. */
+    return rows.length || null;
   } catch {
     // Unknown, not zero — a failed read must not assert single-threading.
     return null;

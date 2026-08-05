@@ -94,7 +94,10 @@ export function toStoredHealth(result: AccountHealthResult): StoredHealth {
     momentum: result.momentum,
     primaryRisk: result.primaryRisk,
     nextAction: result.nextAction,
-    reasons: (result.activeStatusRules ?? []).map((r) => r.reason),
+    /* De-duplicated: a qualification gate and a status rule can share a
+       reason template — "Account is single-threaded" is both q_multithreaded
+       failing and r_single_threaded firing — and the drawer showed it twice. */
+    reasons: [...new Set((result.activeStatusRules ?? []).map((r) => r.reason))],
     notAssessed: result.notAssessed,
     notAssessedReason: result.notAssessedReason ?? null,
     modelVersion: result.modelVersion,

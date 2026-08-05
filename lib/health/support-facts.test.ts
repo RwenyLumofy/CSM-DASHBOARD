@@ -87,3 +87,28 @@ test("aged tickets count past a month, whatever their priority", () => {
   ] });
   assert.equal(m.aged_or_reopened_tickets?.value, 2, "closed tickets never age");
 });
+
+/* ---- the single-threading fallback, and why zero is not a count ---- */
+
+test("no primary-contact count means unknown, not single-threaded", () => {
+  /* countPrimaryContactsDb returns null rather than 0 because is_primary is
+     set on 0 of 1,760 contact rows here — a zero count cannot be told apart
+     from the flag never being used. Passing 0 instead capped the entire live
+     book to Watch on the first production recompute, ALAWN included at 90. */
+  const unknown = buildAccountFacts({ clientId: "c", status: "active", primaryContactCount: null }, NOW);
+  assert.equal(unknown.signals.single_threaded, null, "unknown must stay unknown");
+
+  const one = buildAccountFacts({ clientId: "c", status: "active", primaryContactCount: 1 }, NOW);
+  assert.equal(one.signals.single_threaded, true, "a real count of 1 IS single-threaded");
+
+  const many = buildAccountFacts({ clientId: "c", status: "active", primaryContactCount: 4 }, NOW);
+  assert.equal(many.signals.single_threaded, false);
+});
+
+test("the CSM's pulse answer always beats the contact-count fallback", () => {
+  const f = buildAccountFacts({
+    clientId: "c", status: "active", primaryContactCount: 9,
+    pulse: { ratingsByMetricKey: {}, singleThreaded: true },
+  }, NOW);
+  assert.equal(f.signals.single_threaded, true, "nine contacts, but the CSM said single-threaded");
+});
