@@ -25,7 +25,10 @@ import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { formatDate } from "@/lib/format";
 import type { ProjectDeadlineItem } from "@/lib/projects/deadlines";
 import type { StakeholderMapping } from "@/lib/stakeholders";
-import type { HealthMetricKey } from "@/lib/types";
+import type { HealthModelVersion } from "@/lib/health/model";
+import { accountDrag } from "@/lib/health/drag";
+import type { StoredHealthExtras } from "@/lib/health/to-stored";
+import { REMEDY_BY_RULE, REMEDY_BY_REASON, describeGap } from "@/lib/health/signal-language";
 
 export interface SignalInputs {
   client: Client;
@@ -39,6 +42,9 @@ export interface SignalInputs {
   stakeholderMappings: StakeholderMapping[];
   /** Overdue / due-soon projects & tasks for this account (pre-computed). */
   projectDeadlines: ProjectDeadlineItem[];
+  /** The live model, so a recommendation names components the way the card
+   *  above it does and weights them the way the score does. */
+  model: HealthModelVersion;
 }
 
 export interface ActionSignal {
@@ -61,32 +67,18 @@ const CSAT_HIGH = 90;
 const NPS_LOW = 0;
 const NPS_HIGH = 50;
 
-const COMPONENT_LABEL: Record<HealthMetricKey, string> = {
-  usage: "product usage",
-  csat: "CSAT",
-  platform_csat: "Platform CSAT",
-  nps: "NPS",
-  sla_breaches: "breached SLA tickets",
-  onboarding_period: "onboarding period",
-  use_case_set: "use case",
-  profile_complete: "profile completeness",
-  stakeholder_mapping: "stakeholder mapping",
-  cs_pulse: "CS Pulse",
-};
-
-function lowestHealthComponent(client: Client): string {
-  const c = client.health.components;
-  const entries = Object.entries(c) as [HealthMetricKey, number][];
-  const [key] = entries.reduce((min, e) => (e[1] < min[1] ? e : min), entries[0]);
-  return COMPONENT_LABEL[key] ?? key;
-}
+/* COMPONENT_LABEL used to live here, holding the retired formula's keys —
+   usage, csat, nps, sla_breaches, cs_pulse. Not one of them is what the engine
+   writes, so every lookup missed and fell through to `?? key`, printing a raw
+   id into CSM-facing prose: "breadth is dragging it down". Labels now come off
+   the model itself via accountDrag, which cannot drift from it. */
 
 function normalizeCsat(value: number, scale: "percent" | "five"): number {
   return scale === "five" ? Math.round((value / 5) * 100) : Math.round(value);
 }
 
 export function detectSignals(inputs: SignalInputs): ActionSignal[] {
-  const { client, trackedDeals, dealDates, usage, contacts, stakeholderMappings, projectDeadlines } = inputs;
+  const { client, trackedDeals, dealDates, usage, contacts, stakeholderMappings, projectDeadlines, model } = inputs;
   const name = client.name;
   const out: ActionSignal[] = [];
 
@@ -140,35 +132,67 @@ export function detectSignals(inputs: SignalInputs): ActionSignal[] {
     }
   }
 
-  // ── #5 Health score ─────────────────────────────────────────────────────
-  /* Driven by the engine's APPLIED STATUS, not the raw score. Re-banding the
-     number here produced two wrong signals: a churned account scoring 0 looked
-     "at risk" and generated a proactive-touch action for a customer who had
-     already left, and an account capped to At Risk despite scoring 83 got no
-     signal at all because 83 read as healthy.
+  // ── #5 Health ───────────────────────────────────────────────────────────
+  /* Anchored on the applied status AND the reasons behind it. Previously this
+     emitted one generic line per band — "keep an eye on X, <weakest signal> is
+     dragging it down" — which named the lowest raw number and never mentioned
+     the gates actually holding the account back. An account can sit on Watch
+     for two named, fixable reasons while the recommendation beneath the card
+     says "check in".
 
      Lifecycle states — Churned, Implementation, Not Assessed — raise nothing.
      They need a decision or a data fix, which is a different queue. */
   const score = client.health.score;
   const status = accountStatus(client.health);
-  if (status === "at_risk" || status === "critical") {
-    out.push({
-      category: "health",
-      signalKey: "health_at_risk",
-      priority: "high",
-      title: `${name}'s health is at risk`,
-      insight: `Health ${STATUS_LABEL[status]} (score ${score}/100). ${lowestHealthComponent(client)} is the weakest signal — worth a proactive touch before it escalates.`,
-      facts: { score, tier: client.health.tier, weakest: lowestHealthComponent(client), trend: client.health.trend },
-    });
-  } else if (status === "watch") {
-    out.push({
-      category: "health",
-      signalKey: "health_watch",
-      priority: "medium",
-      title: `Keep an eye on ${name}`,
-      insight: `Health Watch (score ${score}/100). ${lowestHealthComponent(client)} is dragging it down — a check-in now keeps it from sliding to at-risk.`,
-      facts: { score, tier: client.health.tier, weakest: lowestHealthComponent(client), trend: client.health.trend },
-    });
+  const judged = status !== "churned" && status !== "not_assessed" && status !== "implementation";
+
+  if (judged) {
+    /* One recommendation per active gate or rule. These ARE the reasons the
+       account is not where its score says it should be, they carry a written
+       remedy, and where the rule is a threshold they carry the distance too. */
+    /* `reasons` / `reasonDetails` are additive JSONB fields the engine writes;
+       the shared HealthScore type predates them. Rows scored before ids were
+       stored fall back to the text, exactly as the profile card does. */
+    const stored = client.health as typeof client.health & StoredHealthExtras;
+    const reasons: NonNullable<StoredHealthExtras["reasonDetails"]> =
+      stored.reasonDetails ?? (stored.reasons ?? []).map((text) => ({ id: "", text }));
+    for (const r of reasons) {
+      const remedy = REMEDY_BY_RULE[r.id] ?? REMEDY_BY_REASON[r.text] ?? null;
+      const gap = describeGap(r.shortfall);
+      out.push({
+        category: "health",
+        // Keyed by rule so it resolves itself the moment the rule stops firing.
+        signalKey: `health_rule:${r.id || r.text.slice(0, 40)}`,
+        priority: status === "critical" || status === "at_risk" ? "high" : "medium",
+        title: r.text,
+        insight: [
+          gap && `${gap.label} is ${gap.actual} and needs ${gap.target} — ${gap.distance}.`,
+          remedy,
+          `Clearing this lifts ${name} off ${STATUS_LABEL[status]}${reasons.length > 1 ? ", along with the other checks below" : ""}.`,
+        ].filter(Boolean).join(" "),
+        facts: { score, status: STATUS_LABEL[status], reason: r.text, rule: r.id, gap: gap ?? null },
+      });
+    }
+
+    /* And what is actually costing the most score — by weight, not by lowest
+       number. Only when nothing above already fired, so a capped account is
+       told to clear the cap first rather than handed a second, weaker errand. */
+    if (!reasons.length && (status === "at_risk" || status === "critical" || status === "watch")) {
+      const [worst] = accountDrag(client.health, model);
+      if (worst) {
+        out.push({
+          category: "health",
+          signalKey: `health_drag:${worst.key}`,
+          priority: status === "watch" ? "medium" : "high",
+          title: `${worst.label} is what is costing ${name} the most`,
+          insight:
+            `Health ${STATUS_LABEL[status]} at ${score}/100. ${worst.label} reads ${Math.round(worst.value)} and carries ` +
+            `${Math.round(worst.share * 100)}% of the score, so it is costing about ${worst.cost.toFixed(1)} points — ` +
+            `more than any other signal on this account.`,
+          facts: { score, status: STATUS_LABEL[status], weakest: worst.label, value: worst.value, share: worst.share, cost: worst.cost, trend: client.health.trend },
+        });
+      }
+    }
   }
 
   // ── #6a Stakeholder mapping ─────────────────────────────────────────────

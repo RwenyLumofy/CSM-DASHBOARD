@@ -84,15 +84,9 @@ export interface HealthDrag {
  * nothing to do with the signal — the mistake that made the old dashboard
  * report a book-wide crisis that was mostly a churned back-catalogue.
  */
-export function buildHealthDrag(clients: Client[], model: HealthModelVersion): HealthDrag {
-  const live = clients.filter((c) => {
-    if (c.status === "churned") return false;
-    const t = (c.health?.tier ?? "").toLowerCase().replace(/[^a-z]/g, "");
-    return t !== "churned" && t !== "notassessed" && t !== "implementation";
-  });
-
-  /* Leaf components, with the share of the TOTAL score each carries. A parent
-     with children contributes nothing itself — its weight is spent by them. */
+/** Leaf components with the share of the TOTAL score each carries. A parent
+ *  with children contributes nothing itself — its weight is spent by them. */
+function leavesOf(model: HealthModelVersion): { id: string; name: string; share: number }[] {
   const leaves: { id: string; name: string; share: number }[] = [];
   for (const c of model.components) {
     if (!c.isEnabled) continue;
@@ -101,6 +95,54 @@ export function buildHealthDrag(clients: Client[], model: HealthModelVersion): H
     const inner = kids.reduce((s, k) => s + k.weight, 0) || 1;
     for (const k of kids) leaves.push({ id: k.id, name: k.name, share: c.weight * (k.weight / inner) });
   }
+  return leaves;
+}
+
+export interface AccountDrag {
+  key: string;
+  label: string;
+  /** Share of the whole score, 0–1. */
+  share: number;
+  value: number;
+  /** Points this signal is costing THIS account: share x (100 - value). */
+  cost: number;
+}
+
+/**
+ * What is actually costing one account the most score, heaviest first.
+ *
+ * NOT the lowest number. Bank of Bahrain reads 35 on Use Case Breadth and 52
+ * on Completion and Outcomes; breadth is the lower figure and the smaller
+ * problem, because it carries 5% of the score against outcomes' 10% — 3.3
+ * points lost against 4.8. Advice that points at the lowest bar sends a CSM at
+ * the cheaper fix and calls it the priority.
+ *
+ * Components with no reading are skipped, never counted as zero: the engine
+ * redistributes their weight rather than scoring them, so blaming a signal the
+ * account was never scored on would invent a problem.
+ */
+export function accountDrag(
+  health: { components?: Record<string, number> | null } | null | undefined,
+  model: HealthModelVersion,
+): AccountDrag[] {
+  const c = health?.components ?? {};
+  return leavesOf(model)
+    .flatMap((l) => {
+      const value = (c as Record<string, number>)[l.id];
+      if (typeof value !== "number") return [];
+      return [{ key: l.id, label: l.name, share: l.share, value, cost: l.share * (100 - value) }];
+    })
+    .sort((a, b) => b.cost - a.cost);
+}
+
+export function buildHealthDrag(clients: Client[], model: HealthModelVersion): HealthDrag {
+  const live = clients.filter((c) => {
+    if (c.status === "churned") return false;
+    const t = (c.health?.tier ?? "").toLowerCase().replace(/[^a-z]/g, "");
+    return t !== "churned" && t !== "notassessed" && t !== "implementation";
+  });
+
+  const leaves = leavesOf(model);
 
   const metrics: MetricDrag[] = leaves.map((l) => {
     let sum = 0, n = 0, zeros = 0;
