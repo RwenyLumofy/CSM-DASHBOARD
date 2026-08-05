@@ -18,6 +18,7 @@ import type { HealthModelVersion } from "./model";
 import type { HealthScore } from "@/lib/types";
 import type { StoredHealthExtras } from "./to-stored";
 import { SIGNAL_MEANING, REMEDY_BY_RULE, REMEDY_BY_REASON, describeEvidence, describeGap, type ReasonGap } from "./signal-language";
+import { describeModel, type ModelSummary } from "./describe-model";
 
 export interface BreakdownLeaf {
   id: string;
@@ -50,6 +51,10 @@ export interface HealthBreakdown {
   coverage: number | null;
   momentum: string | null;
   components: BreakdownComponent[];
+  /** The rules this account was actually scored under, for the explainer.
+   *  Derived from the same assembled model, so it cannot describe a formula
+   *  the score did not use. */
+  model: ModelSummary;
 }
 
 export function buildHealthBreakdown(
@@ -106,5 +111,6 @@ export function buildHealthBreakdown(
     coverage: health.coverage ?? null,
     momentum: health.momentum ?? null,
     components,
+    model: describeModel(model),
   };
 }

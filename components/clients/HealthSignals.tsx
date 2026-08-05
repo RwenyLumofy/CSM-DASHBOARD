@@ -20,6 +20,7 @@ import { useState } from "react";
 import { Loader2, RefreshCw, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { HealthBreakdown, BreakdownLeaf } from "@/lib/health/breakdown";
+import { HealthModelExplainer } from "./HealthModelExplainer";
 
 const tone = (v: number) => (v >= 75 ? "aurora" : v >= 55 ? "stellar" : "nova");
 const BAR: Record<string, string> = { aurora: "bg-[#1F9D63]", stellar: "bg-[#C99A14]", nova: "bg-[#C2610E]" };
@@ -86,12 +87,14 @@ export function HealthSignals({
   if (!breakdown) {
     return <p className="font-body text-[12.5px] text-fg-subtle">No health score has been calculated for this account yet.</p>;
   }
-  const { score, band, applied, capped, reasons, coverage, momentum, components } = breakdown;
+  const { score, band, applied, capped, reasons, coverage, momentum, components, model } = breakdown;
   const t = tone(score);
   const r = 34, circ = 2 * Math.PI * r;
 
   return (
     <div className="flex flex-col gap-5">
+      <HealthModelExplainer model={model} />
+
       <div className="flex flex-wrap items-center gap-4">
         <div className="relative grid size-[78px] shrink-0 place-items-center">
           <svg width="78" height="78" className="-rotate-90" aria-hidden>

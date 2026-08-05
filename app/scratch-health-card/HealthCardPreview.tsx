@@ -35,6 +35,7 @@ export function HealthCardPreview() {
     assembleModel(CS_PULSE_DIMENSIONS, CS_PULSE_TIERS),
     { stakeholder: "Weak", engagement: "Moderate", renewal: "Moderate" },
   );
+  if (!breakdown) return null;
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-6 sm:p-8">
       <header>
