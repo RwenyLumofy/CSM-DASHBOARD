@@ -19,8 +19,9 @@
    so a rollback is exact. Every profile created by hand after the migration
    narrows that.
 
-     node scripts/rollback-stakeholder-migration.mjs           # dry run
-     node scripts/rollback-stakeholder-migration.mjs --apply
+     npx tsx scripts/rollback-stakeholder-migration.mjs                   # dry run, test db
+     npx tsx scripts/rollback-stakeholder-migration.mjs --production      # dry run, production
+     npx tsx scripts/rollback-stakeholder-migration.mjs --production --apply
    ========================================================================= */
 
 import { readFileSync } from "node:fs";
@@ -34,14 +35,23 @@ const DB_URL = (() => {
      pointed at production for whatever runs next. Falls back to .env.local. */
   const flag = process.argv.find((a) => a.startsWith("--database-url="))?.slice("--database-url=".length);
   if (flag) return flag;
+  /* `--production` reads CLONE_SOURCE_URL from .env.clone — the file that
+     already names production for the clone script. It exists so nobody has to
+     paste a database URL onto a command line, where it lands in shell history.
+     It is not a shortcut past the safety rail: --apply is still required, and
+     the connected host is still printed before anything runs. */
+  const file = process.argv.includes("--production") ? ".env.clone" : ".env.local";
+  const key = file === ".env.clone" ? "CLONE_SOURCE_URL" : "DATABASE_URL";
   const env = Object.fromEntries(
-    readFileSync(".env.local", "utf8").split("\n").filter((l) => l.includes("=") && !l.trim().startsWith("#"))
+    readFileSync(file, "utf8").split("\n").filter((l) => l.includes("=") && !l.trim().startsWith("#"))
       .map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "")]));
-  return env.DATABASE_URL;
+  const url = env[key];
+  if (!url) throw new Error(`${key} not found in ${file}`);
+  return url;
 })();
 /** Host only, credentials stripped — printed so a wrong-database run is
  *  obvious before it writes. */
-const DB_LABEL = DB_URL.replace(/\/\/[^@]*@/, "//***@").split("?")[0];
+const DB_LABEL = `${process.argv.includes("--production") ? "PRODUCTION  " : ""}${DB_URL.replace(/\/\/[^@]*@/, "//***@").split("?")[0]}`;
 
 const sql = postgres(DB_URL, { ssl: "require", max: 3 });
 console.log(`\n=== Stakeholder backfill rollback — ${APPLY ? "APPLY" : "DRY RUN"} ===`);

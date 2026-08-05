@@ -33,15 +33,15 @@ all-null and the CS Pulse answers behave exactly as they did before.
 ## Preconditions
 
 1. `9d83a22` or later is deployed.
-2. You have the production database URL. **Pass it explicitly with
-   `--database-url=`.** Without it both scripts fall back to `DATABASE_URL` in
-   `.env.local`, which points at the test database — a run against the wrong
-   database looks like a success and changes nothing in production. Both print
-   the host they connected to in their first three lines; check it before
-   reading any other number.
+2. **Name the database.** Pass `--production`, which reads `CLONE_SOURCE_URL`
+   from `.env.clone` — no credential goes onto the command line or into shell
+   history. (`--database-url=<url>` works too, if production lives somewhere
+   else.)
 
-   Passing the flag also avoids editing `.env.local`, which would otherwise
-   leave your local dev server pointed at production.
+   Without either flag both scripts fall back to `DATABASE_URL` in `.env.local`,
+   which points at the **test** database. That run looks like a success and
+   changes nothing in production, so check the `db:` line — it prints
+   `PRODUCTION` and the host before anything else happens.
 3. A database backup or point-in-time-restore window covering the run.
 4. Nobody is mid-edit on the Stakeholders tab. Runtime is seconds, so a quiet
    moment is enough; there is no maintenance window needed.
@@ -51,7 +51,7 @@ all-null and the CS Pulse answers behave exactly as they did before.
 ## Step 1 — Dry run
 
 ```bash
-npx tsx scripts/migrate-stakeholder-mappings.mjs --database-url='<PRODUCTION_URL>'
+npx tsx scripts/migrate-stakeholder-mappings.mjs --production
 ```
 
 Writes nothing. Expected, matching the clone:
@@ -78,7 +78,7 @@ Writes nothing. Expected, matching the clone:
 Capture the exception report for the record:
 
 ```bash
-npx tsx scripts/migrate-stakeholder-mappings.mjs --database-url='<PRODUCTION_URL>' --exceptions=stakeholder-exceptions.json
+npx tsx scripts/migrate-stakeholder-mappings.mjs --production --exceptions=stakeholder-exceptions.json
 ```
 
 ---
@@ -86,7 +86,7 @@ npx tsx scripts/migrate-stakeholder-mappings.mjs --database-url='<PRODUCTION_URL
 ## Step 2 — Apply
 
 ```bash
-npx tsx scripts/migrate-stakeholder-mappings.mjs --database-url='<PRODUCTION_URL>' --apply
+npx tsx scripts/migrate-stakeholder-mappings.mjs --production --apply
 ```
 
 Each account is written in a single statement, so a mid-run failure cannot leave
@@ -98,7 +98,7 @@ exits non-zero; it is safe to re-run.
 preserved`:
 
 ```bash
-npx tsx scripts/migrate-stakeholder-mappings.mjs --database-url='<PRODUCTION_URL>' --apply
+npx tsx scripts/migrate-stakeholder-mappings.mjs --production --apply
 ```
 
 ---
@@ -141,8 +141,8 @@ that is run, treat health impact as unmeasured.
 ## Rollback
 
 ```bash
-npx tsx scripts/rollback-stakeholder-migration.mjs --database-url='<PRODUCTION_URL>'
-npx tsx scripts/rollback-stakeholder-migration.mjs --database-url='<PRODUCTION_URL>' --apply
+npx tsx scripts/rollback-stakeholder-migration.mjs --production
+npx tsx scripts/rollback-stakeholder-migration.mjs --production --apply
 ```
 
 Removes only profiles carrying `source: "migration"`. Anything created by hand
