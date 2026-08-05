@@ -35,7 +35,7 @@ function inputs(over: Record<string, unknown> = {}): SignalInputs {
     properties: {}, csat: null, nps: null,
   };
   return {
-    client, trackedDeals: [], dealDates: {}, contacts: [], stakeholderMappings: [],
+    client, trackedDeals: [], dealDates: {}, contacts: [], stakeholders: [],
     projectDeadlines: [], usage: { status: "error", message: "skip" },
     model: MODEL_V1_1,
     ...over,

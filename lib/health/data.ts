@@ -5,6 +5,7 @@
    rather than throwing so a health surface never breaks a page.
    ============================================================================= */
 
+import { normalizeStakeholderProfiles, PROFILES_KEY } from "@/lib/stakeholders/profile";
 import { hasDatabase } from "@/lib/config";
 import { dbHealthy } from "@/lib/db/health";
 import { withDbTimeout } from "@/lib/db/client";
@@ -75,6 +76,7 @@ export async function getAccountHealth(clientId: string): Promise<AccountHealthR
           : null,
         sentimentNps: support?.nps ?? null,
         primaryContactCount: contacts.filter((c) => c.isPrimary).length,
+        stakeholders: normalizeStakeholderProfiles(props[PROFILES_KEY]),
         pulseRaw: props.cs_pulse ?? null,
         previousScore: prior?.score ?? null,
         previousCalculationDate: prior?.computedAt ?? null,

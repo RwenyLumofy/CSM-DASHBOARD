@@ -29,7 +29,7 @@ import { computeClientStatus, STATUS_OVERRIDE_KEY } from "@/lib/status";
 import { getClientHealthConfig } from "@/lib/metrics/health-config-store";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
-import { normalizeStakeholderMappings } from "@/lib/stakeholders";
+import { normalizeStakeholderProfiles, PROFILES_KEY } from "@/lib/stakeholders/profile";
 import type { UsageMonthRow, UsageSnapshot, UsageSnapshotRecord } from "@/lib/usage/types";
 
 type Row = typeof schema.clients.$inferSelect;
@@ -828,8 +828,6 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
   const onboarding = computeOnboardingPeriod(tracked, dealDates);
   const useCasesRollup = computeUseCasesRollup(tracked);
   const { severity } = computeProfileCompleteness(client, tracked, dealDates);
-  const mappings = normalizeStakeholderMappings(client.properties?.stakeholder_mappings);
-  const stakeholderMapped = mappings.some((m) => m.contactIds.length > 0);
 
   // Dynamic import: lib/usage/index.ts is `"server-only"`-guarded, and this
   // file (unlike lib/actions/*) is imported directly by plain Node scripts
@@ -887,6 +885,11 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
         : null,
       sentimentNps: client.support?.nps ?? null,
       primaryContactCount,
+      /* The mapped stakeholders, which fill the four relationship facts a CSM
+         left blank on the Pulse. Before this the roster did not reach the
+         score at all: an account could have a sponsor, a champion and a buyer
+         mapped and still be capped for "no sponsor access". */
+      stakeholders: normalizeStakeholderProfiles(client.properties?.[PROFILES_KEY]),
       useCaseCount: useCasesRollup.length,
       pulseRaw: client.properties?.cs_pulse ?? null,
       // Momentum compares against the last stored score. An account with no

@@ -12,7 +12,7 @@ import type { Client, Deal } from "@/lib/types";
 import { dealOverridesMap, applyDealOverrides, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
 import { getClientUsage } from "@/lib/usage";
 import { detectSignals, type SignalInputs } from "@/lib/actions/signals";
-import { normalizeStakeholderMappings } from "@/lib/stakeholders";
+import { normalizeStakeholderProfiles, PROFILES_KEY } from "@/lib/stakeholders/profile";
 import { enrichSignals } from "@/lib/actions/enrich";
 import { withDbTimeout } from "@/lib/db/client";
 import { computeProjectDeadlines } from "@/lib/projects/deadlines";
@@ -45,8 +45,8 @@ async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<n
   return subtotals.reduce((a, b) => a + b, 0);
 }
 
-function stakeholderMappingsOf(client: Client) {
-  return normalizeStakeholderMappings(client.properties?.stakeholder_mappings);
+function stakeholdersOf(client: Client) {
+  return normalizeStakeholderProfiles(client.properties?.[PROFILES_KEY]);
 }
 
 /** Assemble the pure-function inputs for one client (fetches usage + contacts). */
@@ -56,7 +56,7 @@ async function buildInputs(client: Client, trackedDeals: Deal[], dealDates: Deal
     getClientUsage(client.id).catch(() => ({ status: "error" as const, message: "usage fetch failed" })),
     getContactsByClient(client.id).catch(() => []),
   ]);
-  return { client, trackedDeals, dealDates, usage, contacts, stakeholderMappings: stakeholderMappingsOf(client), projectDeadlines: computeProjectDeadlines(board, config), model };
+  return { client, trackedDeals, dealDates, usage, contacts, stakeholders: stakeholdersOf(client), projectDeadlines: computeProjectDeadlines(board, config), model };
 }
 
 /** Detect → enrich → reconcile for one already-loaded client. Returns the

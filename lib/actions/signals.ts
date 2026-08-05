@@ -24,7 +24,8 @@ import type { UsageResult } from "@/lib/usage/types";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { formatDate } from "@/lib/format";
 import type { ProjectDeadlineItem } from "@/lib/projects/deadlines";
-import type { StakeholderMapping } from "@/lib/stakeholders";
+import { CRITICAL_ROLES, ROLE_LABEL, stakeholderName, type StakeholderProfile } from "@/lib/stakeholders/profile";
+import { isActive } from "@/lib/stakeholders/facts";
 import type { HealthModelVersion } from "@/lib/health/model";
 import { accountDrag } from "@/lib/health/drag";
 import type { StoredHealthExtras } from "@/lib/health/to-stored";
@@ -39,7 +40,9 @@ export interface SignalInputs {
    *  as "no usage". */
   usage: UsageResult;
   contacts: Contact[];
-  stakeholderMappings: StakeholderMapping[];
+  /** The account's stakeholder profiles — the only source of stakeholder data
+   *  since the Communication matrix was retired. */
+  stakeholders: StakeholderProfile[];
   /** Overdue / due-soon projects & tasks for this account (pre-computed). */
   projectDeadlines: ProjectDeadlineItem[];
   /** The live model, so a recommendation names components the way the card
@@ -78,7 +81,7 @@ function normalizeCsat(value: number, scale: "percent" | "five"): number {
 }
 
 export function detectSignals(inputs: SignalInputs): ActionSignal[] {
-  const { client, trackedDeals, dealDates, usage, contacts, stakeholderMappings, projectDeadlines, model } = inputs;
+  const { client, trackedDeals, dealDates, usage, contacts, stakeholders, projectDeadlines, model } = inputs;
   const name = client.name;
   const out: ActionSignal[] = [];
 
@@ -195,20 +198,53 @@ export function detectSignals(inputs: SignalInputs): ActionSignal[] {
     }
   }
 
-  // ── #6a Stakeholder mapping ─────────────────────────────────────────────
-  const mappedCount = stakeholderMappings.filter((s) => s.contactIds.length > 0).length;
-  if (mappedCount === 0) {
+  // ── #6a Stakeholders ────────────────────────────────────────────────────
+  /* Reads stakeholder PROFILES, not the retired Communication matrix. The old
+     signal fired on "no row in the matrix names a contact", which said nothing
+     about whether the account had a sponsor, a champion or a buyer — the three
+     facts that decide whether a renewal is defensible. */
+  const active = stakeholders.filter(isActive);
+  if (active.length === 0) {
     out.push({
       category: "stakeholders",
       signalKey: "no_stakeholders",
       priority: "medium",
       title: `Map stakeholders for ${name}`,
-      insight:
-        contacts.length === 0
-          ? `No contacts or stakeholders are on file. Identify the champion and decision-maker so you know who to engage and protect the renewal.`
-          : `${contacts.length} contact${contacts.length === 1 ? "" : "s"} on file but none are mapped to a stakeholder role. Map the champion and decision-maker.`,
-      facts: { contactCount: contacts.length, mappedCount },
+      insight: contacts.length === 0
+        ? "No contacts or stakeholders are on file. Identify the champion and the person who signs the renewal."
+        : `${contacts.length} contact${contacts.length === 1 ? "" : "s"} on file but nobody is mapped as a stakeholder. Promote the champion and the decision-maker so the relationship is documented.`,
+      facts: { contactCount: contacts.length, stakeholderCount: stakeholders.length },
     });
+  } else {
+    /* One signal per uncovered critical role. Deliberately not one lumped
+       "coverage is incomplete": a missing economic buyer and a missing
+       champion need different conversations with different people. */
+    const covered = new Set(active.flatMap((p) => p.roles));
+    for (const role of CRITICAL_ROLES) {
+      if (covered.has(role)) continue;
+      out.push({
+        category: "stakeholders",
+        // Keyed by role so it closes by itself the moment someone is mapped.
+        signalKey: `missing_role:${role}`,
+        priority: role === "economic_buyer" || role === "executive_sponsor" ? "high" : "medium",
+        title: `No ${ROLE_LABEL[role].toLowerCase()} mapped on ${name}`,
+        insight: `${active.length} stakeholder${active.length === 1 ? " is" : "s are"} mapped on this account, but none carries the ${ROLE_LABEL[role]} role. `
+          + `Identify who that is and add the role on the Stakeholders tab.`,
+        facts: { role, activeStakeholders: active.length, rolesCovered: [...covered] },
+      });
+    }
+    /* Somebody mapped, and marked as gone, with nobody replacing them. */
+    const departed = stakeholders.filter((p) => !isActive(p) && p.roles.some((r) => CRITICAL_ROLES.includes(r)));
+    if (departed.length) {
+      out.push({
+        category: "stakeholders",
+        signalKey: "critical_stakeholder_left",
+        priority: "high",
+        title: `${departed.length === 1 ? "A key stakeholder has" : `${departed.length} key stakeholders have`} left ${name}`,
+        insight: `${departed.map((p) => stakeholderName(p)).join(", ")} held a critical role and ${departed.length === 1 ? "is" : "are"} marked as having left the company. Confirm who has taken over before the next renewal conversation.`,
+        facts: { departed: departed.map((p) => ({ name: stakeholderName(p), roles: p.roles })) },
+      });
+    }
   }
 
   const s = client.support;

@@ -16,6 +16,8 @@
    ============================================================================= */
 
 import type { AccountFacts, MetricBag, MetricInput } from "./model";
+import type { StakeholderProfile } from "@/lib/stakeholders/profile";
+import { stakeholderFacts, preferAnswered } from "@/lib/stakeholders/facts";
 
 /** The ticket fields the health model reads. Structurally a subset of
  *  lib/types SupportTicket, kept local so this file stays dependency-light. */
@@ -72,6 +74,10 @@ export interface HealthFactsInput {
   } | null;
   sentimentNps?: number | null; // survey NPS (-100..100), preferred sentiment source
   primaryContactCount?: number | null;
+  /** The account's stakeholder profiles. Fills the four relationship facts a
+   *  CSM left blank on the Pulse — see lib/stakeholders/facts.ts for why the
+   *  answered value always wins. */
+  stakeholders?: StakeholderProfile[] | null;
   /** Live use cases on the account (client.properties.use_cases_rollup). */
   useCaseCount?: number | null;
   pulse?: CsPulseInput | null;
@@ -106,6 +112,10 @@ export function buildAccountFacts(input: HealthFactsInput, now = new Date()): Ac
 
   /* CS Pulse (CSM ratings) — one categorical metric per configured dimension */
   const p = input.pulse;
+  /* What the mapped stakeholders can prove, used only where the Pulse left a
+     question blank. Empty roster -> all null, so an account with no records is
+     never asserted to be single-threaded or sponsorless. */
+  const sh = stakeholderFacts(input.stakeholders ?? []);
   if (p) for (const [metricKey, tierKey] of Object.entries(p.ratingsByMetricKey)) putRating(metricKey, tierKey);
 
   /* Support & Reliability — ticket satisfaction (SLA/incidents unavailable).
@@ -185,16 +195,22 @@ export function buildAccountFacts(input: HealthFactsInput, now = new Date()): Ac
 
        Unknown is not a Yes. Same rule the coverage answers below already
        follow: null survives, and the isTrue rule simply does not fire. */
-    single_threaded: p?.singleThreaded ?? (input.primaryContactCount == null ? null : input.primaryContactCount <= 1),
-    champion_left: p?.championLeft ?? false,
+    single_threaded: preferAnswered(
+      p?.singleThreaded, sh.single_threaded,
+      input.primaryContactCount == null ? null : input.primaryContactCount <= 1),
+    /* Was `?? false`, alone among the four. An account whose champion had left
+       without anyone recording it read as "champion has not left", which is a
+       claim rather than a gap. It now falls through to the roster and then to
+       null, like its three siblings. */
+    champion_left: preferAnswered(p?.championLeft, sh.champion_left),
     competitive_replacement: p?.competitiveReplacement ?? false,
     suspension_requested: p?.suspensionRequested ?? false,
     scope_reduction_requested: p?.scopeReductionRequested ?? false,
     executive_escalation_unresolved: p?.executiveEscalationUnresolved ?? false,
     days_to_renewal: daysToRenewal,
     // unknowns stay null so their "isFalse" rules don't fire on absence of data
-    sponsor_access: p?.sponsorAccess ?? null,
-    economic_buyer_known: p?.economicBuyerKnown ?? null,
+    sponsor_access: preferAnswered(p?.sponsorAccess, sh.sponsor_access),
+    economic_buyer_known: preferAnswered(p?.economicBuyerKnown, sh.economic_buyer_known),
     renewal_intent: p?.renewalIntent ?? null,
     valid_cs_pulse_exists: !!p,
   };
