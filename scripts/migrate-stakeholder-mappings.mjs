@@ -34,15 +34,27 @@ const APPLY = args.includes("--apply");
 const ONLY = args.find((a) => a.startsWith("--client="))?.split("=")[1] ?? null;
 const EXCEPTIONS_OUT = args.find((a) => a.startsWith("--exceptions="))?.split("=")[1] ?? null;
 
-const env = Object.fromEntries(
-  readFileSync(".env.local", "utf8").split("\n").filter((l) => l.includes("=") && !l.trim().startsWith("#"))
-    .map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "")]));
+const DB_URL = (() => {
+  /* An explicit --database-url wins, so production is named at the call site
+     rather than by editing .env.local — which would otherwise leave that file
+     pointed at production for whatever runs next. Falls back to .env.local. */
+  const flag = args.find((a) => a.startsWith("--database-url="))?.slice("--database-url=".length);
+  if (flag) return flag;
+  const env = Object.fromEntries(
+    readFileSync(".env.local", "utf8").split("\n").filter((l) => l.includes("=") && !l.trim().startsWith("#"))
+      .map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "")]));
+  return env.DATABASE_URL;
+})();
+/** Host only, credentials stripped — printed so a wrong-database run is
+ *  obvious in the first three lines rather than after it has written. */
+const DB_LABEL = DB_URL.replace(/\/\/[^@]*@/, "//***@").split("?")[0];
 
-const sql = postgres(env.DATABASE_URL, { ssl: "require", max: 3 });
+const sql = postgres(DB_URL, { ssl: "require", max: 3 });
 const NOW = new Date().toISOString();
 
 console.log(`\n=== Stakeholder mapping backfill — ${APPLY ? "APPLY" : "DRY RUN"} ===`);
-console.log(`    ${NOW}${ONLY ? `  ·  client ${ONLY}` : ""}\n`);
+console.log(`    ${NOW}${ONLY ? `  ·  client ${ONLY}` : ""}`);
+console.log(`    db: ${DB_LABEL}\n`);
 
 const clients = ONLY
   ? await sql`select id, name, properties from clients where id = ${ONLY}`

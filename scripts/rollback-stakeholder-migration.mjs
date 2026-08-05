@@ -28,11 +28,24 @@ import postgres from "postgres";
 import { normalizeStakeholderProfiles, normalizeStakeholderLinks, PROFILES_KEY, LINKS_KEY } from "../lib/stakeholders/profile.ts";
 
 const APPLY = process.argv.includes("--apply");
-const env = Object.fromEntries(readFileSync(".env.local", "utf8").split("\n").filter((l) => l.includes("=") && !l.trim().startsWith("#"))
-  .map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "")]));
+const DB_URL = (() => {
+  /* An explicit --database-url wins, so production is named at the call site
+     rather than by editing .env.local — which would otherwise leave that file
+     pointed at production for whatever runs next. Falls back to .env.local. */
+  const flag = process.argv.find((a) => a.startsWith("--database-url="))?.slice("--database-url=".length);
+  if (flag) return flag;
+  const env = Object.fromEntries(
+    readFileSync(".env.local", "utf8").split("\n").filter((l) => l.includes("=") && !l.trim().startsWith("#"))
+      .map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim().replace(/^["']|["']$/g, "")]));
+  return env.DATABASE_URL;
+})();
+/** Host only, credentials stripped — printed so a wrong-database run is
+ *  obvious before it writes. */
+const DB_LABEL = DB_URL.replace(/\/\/[^@]*@/, "//***@").split("?")[0];
 
-const sql = postgres(env.DATABASE_URL, { ssl: "require", max: 3 });
-console.log(`\n=== Stakeholder backfill rollback — ${APPLY ? "APPLY" : "DRY RUN"} ===\n`);
+const sql = postgres(DB_URL, { ssl: "require", max: 3 });
+console.log(`\n=== Stakeholder backfill rollback — ${APPLY ? "APPLY" : "DRY RUN"} ===`);
+console.log(`    db: ${DB_LABEL}\n`);
 
 const clients = await sql`select id, name, properties from clients order by name`;
 const T = { clients: 0, removed: 0, kept: 0, reconciled: [], linksDropped: 0, failed: [] };

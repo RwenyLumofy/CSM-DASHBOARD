@@ -33,9 +33,15 @@ all-null and the CS Pulse answers behave exactly as they did before.
 ## Preconditions
 
 1. `9d83a22` or later is deployed.
-2. You have a database URL for production and know which one it is. **Both
-   scripts read `DATABASE_URL` from `.env.local`** — pointing them at production
-   is a deliberate act, not a flag.
+2. You have the production database URL. **Pass it explicitly with
+   `--database-url=`.** Without it both scripts fall back to `DATABASE_URL` in
+   `.env.local`, which points at the test database — a run against the wrong
+   database looks like a success and changes nothing in production. Both print
+   the host they connected to in their first three lines; check it before
+   reading any other number.
+
+   Passing the flag also avoids editing `.env.local`, which would otherwise
+   leave your local dev server pointed at production.
 3. A database backup or point-in-time-restore window covering the run.
 4. Nobody is mid-edit on the Stakeholders tab. Runtime is seconds, so a quiet
    moment is enough; there is no maintenance window needed.
@@ -45,7 +51,7 @@ all-null and the CS Pulse answers behave exactly as they did before.
 ## Step 1 — Dry run
 
 ```bash
-npx tsx scripts/migrate-stakeholder-mappings.mjs
+npx tsx scripts/migrate-stakeholder-mappings.mjs --database-url='<PRODUCTION_URL>'
 ```
 
 Writes nothing. Expected, matching the clone:
@@ -72,7 +78,7 @@ Writes nothing. Expected, matching the clone:
 Capture the exception report for the record:
 
 ```bash
-npx tsx scripts/migrate-stakeholder-mappings.mjs --exceptions=stakeholder-exceptions.json
+npx tsx scripts/migrate-stakeholder-mappings.mjs --database-url='<PRODUCTION_URL>' --exceptions=stakeholder-exceptions.json
 ```
 
 ---
@@ -80,7 +86,7 @@ npx tsx scripts/migrate-stakeholder-mappings.mjs --exceptions=stakeholder-except
 ## Step 2 — Apply
 
 ```bash
-npx tsx scripts/migrate-stakeholder-mappings.mjs --apply
+npx tsx scripts/migrate-stakeholder-mappings.mjs --database-url='<PRODUCTION_URL>' --apply
 ```
 
 Each account is written in a single statement, so a mid-run failure cannot leave
@@ -92,7 +98,7 @@ exits non-zero; it is safe to re-run.
 preserved`:
 
 ```bash
-npx tsx scripts/migrate-stakeholder-mappings.mjs --apply
+npx tsx scripts/migrate-stakeholder-mappings.mjs --database-url='<PRODUCTION_URL>' --apply
 ```
 
 ---
@@ -135,8 +141,8 @@ that is run, treat health impact as unmeasured.
 ## Rollback
 
 ```bash
-npx tsx scripts/rollback-stakeholder-migration.mjs          # dry run
-npx tsx scripts/rollback-stakeholder-migration.mjs --apply
+npx tsx scripts/rollback-stakeholder-migration.mjs --database-url='<PRODUCTION_URL>'
+npx tsx scripts/rollback-stakeholder-migration.mjs --database-url='<PRODUCTION_URL>' --apply
 ```
 
 Removes only profiles carrying `source: "migration"`. Anything created by hand
