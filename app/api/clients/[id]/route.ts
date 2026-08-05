@@ -10,7 +10,11 @@ export const dynamic = "force-dynamic";
 // Property keys that are shared team knowledge rather than owner-private data.
 // A PATCH touching ONLY these is editable by any non-guest on any account (see
 // the collaborative carve-out in PATCH) — the whole CS team co-maintains them.
-const COLLABORATIVE_PROPERTY_KEYS = new Set(["stakeholder_mappings"]);
+/* Was ["stakeholder_mappings"]. The matrix is retired and its server action is
+   gone; leaving the key writable here would have left a second, unauthenticated
+   -by-edit-permission route back into the retired model. Empty rather than
+   deleted so the mechanism stays available for the next collaborative key. */
+const COLLABORATIVE_PROPERTY_KEYS = new Set<string>([]);
 
 /** True when the body is a properties-only edit whose keys are all in the
  *  collaborative allowlist — no field edits, no owner changes. */

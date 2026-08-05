@@ -109,7 +109,6 @@ import type {
   PropertyDefinition,
   SupportTicket,
 } from "@/lib/types";
-import { normalizeStakeholderMappings, type StakeholderMapping } from "@/lib/stakeholders";
 import { normalizeStakeholderProfiles, normalizeStakeholderLinks, PROFILES_KEY, LINKS_KEY } from "@/lib/stakeholders/profile";
 import { StakeholdersTab } from "@/components/clients/stakeholders/StakeholdersTab";
 import { UseCasePortfolio } from "@/components/clients/UseCasePortfolio";
@@ -118,7 +117,6 @@ import type { UseCaseImplementation } from "@/lib/use-case-implementation";
 import { ActionFeed } from "@/components/actions/ActionFeed";
 import { NotesTab } from "@/components/clients/notes/NotesTab";
 import type { Note } from "@/lib/notes/types";
-import { saveStakeholderMappingAction } from "@/app/(app)/clients/[id]/stakeholder-actions";
 
 type TabKey =
   | "stakeholders"
@@ -287,7 +285,7 @@ export function ClientProfileTabs(props: Props) {
           />
         )}
         {active === "usage" && <UsageTab clientId={client.id} />}
-        {active === "communication" && <CommunicationTab clientId={client.id} contacts={contacts} emails={emails} meetings={meetings} stakeholderMappings={normalizeStakeholderMappings(client.properties?.stakeholder_mappings)} />}
+        {active === "communication" && <CommunicationTab clientId={client.id} contacts={contacts} emails={emails} meetings={meetings} />}
         {active === "attachments" && <AttachmentsTab clientId={client.id} attachments={attachments} deals={deals} supabaseUrl={supabaseUrl} />}
         {active === "support" && <SupportTab client={client} />}
         {active === "satisfaction" && <SatisfactionTab client={client} />}
@@ -918,9 +916,13 @@ function AttachmentUploadButton({ clientId, deals, supabaseUrl, categories }: { 
 /* Communication (HubSpot)                                                */
 /* ===================================================================== */
 
-type CommView = "emails" | "meetings" | "contacts" | "stakeholders";
+/* Stakeholder Mapping was the fourth view here. It is retired: stakeholders
+   now live on their own tab as full relationship profiles, and the matrix's
+   107 role associations were migrated across (scripts/migrate-stakeholder-
+   mappings.mjs). Emails, Meetings and Contacts are untouched. */
+type CommView = "emails" | "meetings" | "contacts";
 
-function CommunicationTab({ clientId, contacts, emails, meetings, stakeholderMappings }: { clientId: string; contacts: Contact[]; emails: Email[]; meetings: Meeting[]; stakeholderMappings: StakeholderMapping[] }) {
+function CommunicationTab({ clientId, contacts, emails, meetings }: { clientId: string; contacts: Contact[]; emails: Email[]; meetings: Meeting[] }) {
   const [view, setView] = useState<CommView>("emails");
   // Only actually needed for the "emails"/"meetings" sub-view, but was
   // re-sorting on every render (including tab switches away from this
@@ -939,7 +941,6 @@ function CommunicationTab({ clientId, contacts, emails, meetings, stakeholderMap
     { key: "emails", label: "Emails", icon: Mail, count: emails.length },
     { key: "meetings", label: "Meetings", icon: Calendar, count: meetings.length },
     { key: "contacts", label: "Contacts", icon: Phone, count: contacts.length },
-    { key: "stakeholders", label: "Stakeholder Mapping", icon: Users },
   ];
 
   return (
@@ -1004,9 +1005,6 @@ function CommunicationTab({ clientId, contacts, emails, meetings, stakeholderMap
             <ContactsTable contacts={contacts} clientId={clientId} />
           ))}
 
-        {view === "stakeholders" && (
-          <StakeholderMatrix clientId={clientId} contacts={contacts} initialMappings={stakeholderMappings} />
-        )}
       </div>
     </Card>
   );
@@ -1640,166 +1638,6 @@ function PeoplePickerList({
   );
 }
 
-function StakeholderMatrix({ clientId, contacts, initialMappings }: { clientId: string; contacts: Contact[]; initialMappings: StakeholderMapping[] }) {
-  const [types, setTypes] = useState<string[]>([]);
-  const [staff, setStaff] = useState<LumofyStaffEntry[]>([]);
-  const [mappings, setMappings] = useState<StakeholderMapping[]>(initialMappings);
-  /* Which rows this session actually touched. Saving every row would rewrite
-     the whole matrix from the state loaded at page-open, so a colleague's edit
-     to a row you never looked at would still be clobbered — the element-level
-     write only removes the race between DIFFERENT rows if you send only the
-     rows you changed. */
-  const [dirtyTypes, setDirtyTypes] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const router = useRouter();
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const [typesRes, staffRes] = await Promise.all([
-          fetch("/api/admin/stakeholder-config?key=stakeholder_types"),
-          fetch("/api/admin/stakeholder-config?key=lumofy_staff"),
-        ]);
-        const [typesData, staffData] = await Promise.all([typesRes.json(), staffRes.json()]);
-        const loadedTypes: string[] = typesData.value?.length ? typesData.value : DEFAULT_STAKEHOLDER_TYPES;
-        const loadedStaff: LumofyStaffEntry[] = staffData.value ?? [];
-        setTypes(loadedTypes);
-        setStaff(loadedStaff);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, []);
-
-  function getMapping(type: string): StakeholderMapping {
-    return mappings.find((m) => m.type === type) ?? { type, contactIds: [], staffIds: [] };
-  }
-
-  function updateMapping(type: string, patch: Partial<Omit<StakeholderMapping, "type">>) {
-    // Any edit invalidates a prior "Saved" confirmation and clears a stale error.
-    setSaved(false);
-    setError(null);
-    setDirtyTypes((prev) => new Set(prev).add(type));
-    setMappings((prev) => {
-      const existing = prev.find((m) => m.type === type);
-      if (existing) return prev.map((m) => m.type === type ? { ...m, ...patch } : m);
-      return [...prev, { type, contactIds: [], staffIds: [], ...patch }];
-    });
-  }
-
-  async function saveMappings() {
-    setSaving(true);
-    setError(null);
-    setSaved(false);
-    try {
-      /* One row at a time through the gated server action, NOT a whole-array
-         PATCH of /api/clients/[id]. That route merges by replacing the key, so
-         a concurrent editor's row was silently erased, and its permission check
-         is a read gate — anyone who could see the account could overwrite the
-         matrix. saveStakeholderMappingAction rewrites a single element inside
-         Postgres, behind canEditClient.
-
-         Sequential, not Promise.all: these are UPDATEs against one row, and
-         firing them concurrently just makes them queue behind each other's
-         locks while making a partial failure harder to report. */
-      const changed = mappings.filter((m) => dirtyTypes.has(m.type));
-      if (changed.length === 0) { setSaved(true); return; }
-      for (const m of changed) {
-        const r = await saveStakeholderMappingAction(clientId, m.type, {
-          contactIds: m.contactIds, staffIds: m.staffIds,
-        });
-        if (!r.ok) {
-          setError(r.error ?? "Couldn't save the stakeholder map.");
-          return;
-        }
-      }
-      setDirtyTypes(new Set());
-      setSaved(true);
-      router.refresh();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (loading) {
-    return <div className="flex items-center justify-center py-12 text-fg-muted font-body text-sm">Loading stakeholder map…</div>;
-  }
-
-  const contactOptions = contacts.map(contactToOption);
-  const staffOptions = staff.map(staffToOption);
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-[180px_1fr_1fr] gap-3">
-        <div className="font-body text-[11px] font-semibold uppercase tracking-wider text-fg-muted px-1">Stakeholder Type</div>
-        <div className="font-body text-[11px] font-semibold uppercase tracking-wider text-fg-muted px-1">Client Stakeholder</div>
-        <div className="font-body text-[11px] font-semibold uppercase tracking-wider text-fg-muted px-1">Lumofy Owner</div>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        {types.map((type) => {
-          const mapping = getMapping(type);
-          return (
-            <div key={type} className="grid grid-cols-[180px_1fr_1fr] gap-3 rounded-lg border border-border bg-bg p-3 transition-shadow hover:shadow-sm">
-              <div className="flex items-center">
-                <span className="rounded-lg bg-accent-soft px-3 py-1.5 font-body text-xs font-semibold text-sirius">{type}</span>
-              </div>
-              <PeopleMultiSelect
-                options={contactOptions}
-                selectedIds={mapping.contactIds}
-                onChange={(ids) => updateMapping(type, { contactIds: ids })}
-                theme="sirius"
-                addLabel="Select contacts"
-                emptyOptionsHint="No contacts yet"
-              />
-              <PeopleMultiSelect
-                options={staffOptions}
-                selectedIds={mapping.staffIds}
-                onChange={(ids) => updateMapping(type, { staffIds: ids })}
-                theme="purple"
-                addLabel="Select team members"
-                emptyOptionsHint="No team members yet"
-              />
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="flex items-center gap-3 pt-2">
-        <button
-          type="button"
-          disabled={saving}
-          onClick={saveMappings}
-          className="flex items-center gap-1.5 rounded-lg bg-sirius px-4 py-2 font-body text-sm font-semibold text-white transition-opacity disabled:opacity-50"
-        >
-          <Check size={14} /> {saving ? "Saving…" : "Save mapping"}
-        </button>
-        {saved && !error && (
-          <span className="flex items-center gap-1.5 font-body text-xs font-semibold text-[#1F9D63]"><Check size={13} /> Saved</span>
-        )}
-        {error && (
-          <span className="flex items-center gap-1.5 font-body text-xs font-medium text-[#B23A57]"><AlertTriangle size={13} className="shrink-0" /> {error}</span>
-        )}
-        {types.length === 0 && (
-          <p className="font-body text-xs text-fg-muted">
-            Configure stakeholder types in <a href="/settings" className="text-sirius hover:underline">Settings → Stakeholder types</a>.
-          </p>
-        )}
-        {staff.length === 0 && (
-          <p className="font-body text-xs text-fg-muted">
-            Add Lumofy team members in <a href="/settings" className="text-sirius hover:underline">Settings → Lumofy team</a>.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /* ===================================================================== */
 /* Support (Intercom)                                                     */

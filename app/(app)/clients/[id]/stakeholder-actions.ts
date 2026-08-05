@@ -27,7 +27,6 @@ import {
   PROFILES_KEY, LINKS_KEY,
   type StakeholderProfile, type StakeholderLink,
 } from "@/lib/stakeholders/profile";
-import { normalizeStakeholderMappings } from "@/lib/stakeholders";
 
 export interface StakeholderResult {
   ok: boolean;
@@ -266,53 +265,16 @@ export async function deleteStakeholderLinkAction(clientId: string, linkId: stri
 }
 
 /* -------------------------------------------------------------------------
-   Stakeholder MAPPING matrix (the older Communication-tab feature, stored at
-   properties.stakeholder_mappings and keyed by `type` rather than `id`).
+   The stakeholder MAPPING matrix (properties.stakeholder_mappings) is retired.
 
-   It used to save by PATCHing /api/clients/[id] with the WHOLE array, which
-   went through mergeClientPropertiesDb — that replaces the key outright. Two
-   people editing different rows meant the last writer erased the other's, and
-   the route's own gate is a read gate, so anyone who could see the account
-   could overwrite the matrix.
+   Its writer lived here. It is deleted rather than left behind a disabled
+   button because a server action is reachable by anyone who can construct the
+   request — hiding the UI would have left the write path open, and a single
+   recreated mapping would put the account back into the two-sources state this
+   cutover exists to end.
 
-   Both are fixed the same way the profiles path already was: one element,
-   rewritten inside Postgres, behind canEditClient.
+   The DATA is deliberately still there. Every one of the 107 role associations
+   was migrated into stakeholder_profiles with provenance naming the row it came
+   from, and the legacy key stays untouched as rollback evidence until the
+   cutover is formally accepted. Dropping it is a separate, reviewed change.
    ------------------------------------------------------------------------- */
-
-const MAPPINGS_KEY = "stakeholder_mappings";
-
-export async function saveStakeholderMappingAction(
-  clientId: string,
-  type: string,
-  patch: { contactIds?: string[]; staffIds?: string[] },
-): Promise<StakeholderResult> {
-  const gate = await guard(clientId);
-  if ("error" in gate) return gate.error;
-
-  const rowType = type.trim().slice(0, 120);
-  if (!rowType) return { ok: false, error: "Name the stakeholder type." };
-
-  const ids = (v: unknown): string[] =>
-    Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === "string" && !!x))].slice(0, 100) : [];
-
-  try {
-    const { upsertJsonbArrayElementForClientDb } = await import("@/lib/repo/drizzle");
-    const client = await getClientById(clientId);
-    const current = normalizeStakeholderMappings(
-      (client?.properties as Record<string, unknown> | undefined)?.[MAPPINGS_KEY],
-    ).find((m) => m.type === rowType);
-
-    const element = {
-      type: rowType,
-      contactIds: patch.contactIds !== undefined ? ids(patch.contactIds) : current?.contactIds ?? [],
-      staffIds: patch.staffIds !== undefined ? ids(patch.staffIds) : current?.staffIds ?? [],
-    };
-
-    // Keyed on `type`, not `id` — that is what identifies a row here.
-    await upsertJsonbArrayElementForClientDb(clientId, MAPPINGS_KEY, rowType, element, "type");
-    revalidatePath(`/clients/${clientId}`);
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
-}
