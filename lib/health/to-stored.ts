@@ -24,7 +24,7 @@ import type { HealthScore } from "@/lib/types";
 /** Applied statuses the engine can produce, and the colour each renders in.
  *  Bands are admin-nameable, so an unknown name falls back to neutral grey
  *  rather than a colour that implies a severity nobody chose. */
-const STATUS_COLOR: Record<string, string> = {
+export const STATUS_COLOR: Record<string, string> = {
   Healthy: "#1F9D63",
   Watch: "#C99A14",
   "At Risk": "#C2610E",

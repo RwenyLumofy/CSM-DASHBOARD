@@ -3,52 +3,51 @@
 /* =========================================================================
    How the score works — one disclosure at the top of Health signals.
 
-   Collapsed by default and deliberately so. A CSM opening a profile wants
-   THIS account's verdict; the rules behind it are a question they ask once,
-   or when they disagree with a number. Occupying the top of the page with a
-   permanent wall of methodology pushes the actual answer below the fold.
+   Collapsed by default: a CSM opening a profile wants THIS account's verdict,
+   not methodology. The rules are a question you ask once, or when you disagree
+   with a number.
 
-   Every figure here comes from the assembled model the account was scored
-   with — nothing is typed into this file. Retune a weight in Settings and
-   this changes with it. See lib/health/describe-model.ts for why that matters.
+   SHOWN, NOT WRITTEN. The first version of this was four numbered steps of
+   prose — accurate, and nobody would read it twice. Weights are a proportion,
+   so they are drawn as one; bands are a scale, so they are drawn as one. The
+   text that survives is caption-length and says why a stage exists, which the
+   picture cannot.
 
-   The prose explains WHY each stage exists, not just what it does. "CS Pulse
-   ≥ 75" is already on screen; what a CSM needs is why a number alone was not
-   trusted to decide, and that reasoning is stable even as the numbers move.
+   Every figure comes from the assembled model the account was scored with —
+   nothing is typed into this file. Retune a weight in Settings and this
+   changes with it. See lib/health/describe-model.ts for why that matters.
    ========================================================================= */
 
 import { useState } from "react";
 import { ChevronRight, Info } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { ModelSummary } from "@/lib/health/describe-model";
+import { STATUS_COLOR } from "@/lib/health/to-stored";
 
 const pct = (w: number) => `${Math.round(w * 100)}%`;
 
-function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
-  return (
-    <div className="flex gap-3">
-      <span className="mt-px grid size-[19px] shrink-0 place-items-center rounded-full bg-bg-muted font-body text-[11px] font-bold text-fg-muted">
-        {n}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="font-body text-[12.5px] font-semibold text-fg">{title}</p>
-        <div className="mt-1.5 flex flex-col gap-2">{children}</div>
-      </div>
-    </div>
-  );
-}
+/* Weight segments read as proportion, not status, so they share one hue and
+   step down in weight order — position is the only thing they encode. */
+const WEIGHT_RAMP = ["#4C6FFF", "#7B93FF", "#A6B7FF", "#CBD5FF", "#E2E8FF"];
+const NEUTRAL = "#9AA0A6";
+const at = (ramp: string[], i: number) => ramp[i] ?? NEUTRAL;
 
-const P = ({ children }: { children: React.ReactNode }) => (
-  <p className="max-w-[68ch] font-body text-[12.5px] leading-relaxed text-fg-muted">{children}</p>
-);
-
-const B = ({ children }: { children: React.ReactNode }) => (
-  <strong className="font-semibold text-fg">{children}</strong>
-);
+/* Statuses take the colour they already wear on the pill, the clients list and
+   every other surface. Keyed by NAME, not by position: the escalation groups
+   run Churned → Watch while the bands run Healthy → Critical, and indexing both
+   off their own loop painted Churned green and Watch red. Bands are renameable,
+   so an unrecognised one falls back to a severity ramp by rank. */
+const BAND_FALLBACK = ["#1F9D63", "#C99A14", "#C2610E", "#B23A57"];
+const statusColor = (name: string, rank = -1) =>
+  STATUS_COLOR[name] ?? BAND_FALLBACK[rank] ?? NEUTRAL;
 
 export function HealthModelExplainer({ model }: { model: ModelSummary }) {
   const [open, setOpen] = useState(false);
   const required = model.components.filter((c) => c.mandatory);
+  const top = model.bands[0];
+  const floor = Math.min(...model.bands.map((b) => b.min));
+  const ceil = Math.max(...model.bands.map((b) => b.max));
+  const span = ceil - floor || 100;
 
   return (
     <div className="rounded-xl border border-border-subtle bg-bg-muted/40">
@@ -64,113 +63,108 @@ export function HealthModelExplainer({ model }: { model: ModelSummary }) {
       </button>
 
       {open && (
-        <div className="flex flex-col gap-4 border-t border-border-subtle px-3.5 py-4">
-          <P>
-            The score answers one question &mdash; how is this account actually doing &mdash; and it is
-            built in four stages. Understanding the last two matters most, because they are where an
-            account&rsquo;s number and the way we treat it can legitimately part company.
-          </P>
+        <div className="flex flex-col gap-5 border-t border-border-subtle px-3.5 py-4">
 
-          <Step n={1} title="Separate readings, combined by weight">
-            <P>
-              Each of these is scored 0&ndash;100 on its own evidence, then blended in these proportions.
-              None of them can carry the score alone.
-            </P>
+          {/* ---- what it's made of: one bar, because it IS a proportion ---- */}
+          <section className="flex flex-col gap-2">
+            <h4 className="font-body text-[11px] font-bold uppercase tracking-[0.06em] text-fg-subtle">
+              What it&rsquo;s made of
+            </h4>
+            <div className="flex h-2.5 w-full overflow-hidden rounded-pill">
+              {model.components.map((c, i) => (
+                <span key={c.id} style={{ width: pct(c.weight), background: at(WEIGHT_RAMP, i) }} />
+              ))}
+            </div>
             <ul className="flex flex-col gap-1">
-              {model.components.map((c) => (
-                <li key={c.id} className="flex items-baseline gap-2 font-body text-[12.5px]">
-                  <span className="tabular w-9 shrink-0 font-semibold text-fg">{pct(c.weight)}</span>
-                  <span className="text-fg-muted">{c.name}</span>
+              {model.components.map((c, i) => (
+                <li key={c.id} className="flex items-center gap-2 font-body text-[12px]">
+                  <span className="size-2 shrink-0 rounded-sm" style={{ background: at(WEIGHT_RAMP, i) }} aria-hidden />
+                  <span className="tabular w-8 shrink-0 font-semibold text-fg">{pct(c.weight)}</span>
+                  <span className="min-w-0 truncate text-fg-muted">{c.name}</span>
                   {c.mandatory && (
-                    <span className="rounded bg-[#B23A57]/10 px-1.5 py-0.5 font-body text-[9.5px] font-bold uppercase tracking-[0.05em] text-[#B23A57]">
+                    <span className="ml-auto shrink-0 font-body text-[10px] font-semibold uppercase tracking-[0.05em] text-[#B23A57]">
                       Required
                     </span>
                   )}
                 </li>
               ))}
             </ul>
-            {required.length > 0 && (
-              <P>
-                <B>Required</B> is a statement about evidence, not performance. With no reading at all for{" "}
-                {required.length === 1 ? "it" : "either of them"}, the account is left unassessed rather than
-                given a low score &mdash; there is nothing to judge, and a number invented in that gap would
-                be worse than an honest blank.
-              </P>
-            )}
-            <P>
-              Anywhere else, a missing reading is set aside and the remaining weights re-share to cover it.
-              A signal we simply do not have is never quietly counted as a zero. If less than {pct(model.minCoverage)}{" "}
-              of the weight has data behind it, the account is not scored at all.
-            </P>
-          </Step>
+            <p className="font-body text-[11.5px] leading-relaxed text-fg-subtle">
+              A component with no data is skipped and the others re-share its weight &mdash; never counted
+              as a zero.
+              {required.length > 0 && <> Without the required {required.length === 1 ? "one" : "ones"}, the account isn&rsquo;t scored at all.</>}
+            </p>
+          </section>
 
-          <Step n={2} title="The number lands in a band">
-            <div className="flex flex-wrap gap-1.5">
-              {model.bands.map((b) => (
-                <span key={b.name} className="rounded-pill bg-surface px-2.5 py-1 font-body text-[11.5px] text-fg-muted ring-1 ring-inset ring-border-subtle">
-                  <B>{b.name}</B> <span className="tabular">{b.min}&ndash;{b.max}</span>
-                </span>
+          {/* ---- where it lands: one scale, because it IS a scale ---- */}
+          <section className="flex flex-col gap-2">
+            <h4 className="font-body text-[11px] font-bold uppercase tracking-[0.06em] text-fg-subtle">
+              Where the number lands
+            </h4>
+            <div className="flex h-2.5 w-full flex-row-reverse overflow-hidden rounded-pill">
+              {model.bands.map((b, i) => (
+                <span key={b.name} style={{ width: `${((b.max - b.min + 1) / span) * 100}%`, background: statusColor(b.name, i) }} />
               ))}
             </div>
-            <P>
-              This much is arithmetic. Nothing about the account&rsquo;s circumstances has been weighed yet
-              &mdash; only its readings.
-            </P>
-          </Step>
-
-          <Step n={3} title="Then the checks the number can&rsquo;t see">
-            <P>
-              A band is earned by arithmetic; being shown as <B>{model.bands[0]?.name ?? "Healthy"}</B> has to
-              be earned twice. An account can be well adopted, actively used, scoring in the eighties, and
-              still resting entirely on one relationship that could end it. A weighted average cannot feel
-              that. So each check below has to hold before the top band is granted &mdash; and failing even
-              one caps the account at the status beside it, however high it scored.
-            </P>
-            <ul className="flex flex-col gap-1">
-              {model.gates.map((g) => (
-                <li key={g.name} className="flex items-baseline gap-2 font-body text-[12.5px] text-fg-muted">
-                  <span className="text-fg-subtle" aria-hidden>&middot;</span>
-                  <span>{g.name}</span>
-                  <span className="ml-auto shrink-0 font-body text-[11px] text-fg-subtle">else {g.capTo}</span>
+            <ul className="flex flex-wrap gap-x-3 gap-y-1">
+              {[...model.bands].reverse().map((b, i) => (
+                <li key={b.name} className="flex items-center gap-1.5 font-body text-[11.5px]">
+                  <span className="size-2 shrink-0 rounded-sm" style={{ background: statusColor(b.name, model.bands.length - 1 - i) }} aria-hidden />
+                  <span className="font-semibold text-fg">{b.name}</span>
+                  <span className="tabular text-fg-subtle">{b.min}&ndash;{b.max}</span>
                 </li>
               ))}
             </ul>
-            <P>
-              Thin evidence caps it too: below {pct(model.coverageCap.threshold)} coverage the status cannot
-              exceed {model.coverageCap.capTo}. A confident grade drawn from very little is more dangerous
-              than an uncertain one, because it reads as a reason not to call.
-            </P>
-          </Step>
+          </section>
 
-          <Step n={4} title="And the facts that settle it outright">
-            <P>
-              Some things are not an input to a judgement &mdash; they are the judgement. Where one of these
-              is true, the score stops being the deciding voice and the account moves to the status shown,
-              whatever the rest of the picture says.
-            </P>
-            <div className="flex flex-col gap-2">
+          {/* ---- the checks ---- */}
+          <section className="flex flex-col gap-2">
+            <h4 className="font-body text-[11px] font-bold uppercase tracking-[0.06em] text-fg-subtle">
+              Checks for {top?.name ?? "the top band"}
+            </h4>
+            <p className="font-body text-[11.5px] leading-relaxed text-fg-subtle">
+              A weighted average can&rsquo;t see that an account rests on one relationship. These can, and
+              all of them must hold.
+            </p>
+            <ul className="flex flex-col divide-y divide-border-subtle rounded-lg bg-surface ring-1 ring-inset ring-border-subtle">
+              {model.gates.map((g) => (
+                <li key={g.name} className="flex items-baseline gap-2 px-2.5 py-1.5 font-body text-[12px]">
+                  <span className="min-w-0 truncate text-fg-muted">{g.name}</span>
+                  <span className="ml-auto shrink-0 font-body text-[10.5px] text-fg-subtle">else {g.capTo}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="font-body text-[11.5px] leading-relaxed text-fg-subtle">
+              Below {pct(model.coverageCap.threshold)} data coverage it caps at {model.coverageCap.capTo} too
+              &mdash; a confident grade on thin evidence reads as a reason not to call.
+            </p>
+          </section>
+
+          {/* ---- the overrides ---- */}
+          <section className="flex flex-col gap-2">
+            <h4 className="font-body text-[11px] font-bold uppercase tracking-[0.06em] text-fg-subtle">
+              What overrides the score outright
+            </h4>
+            <div className="flex flex-col gap-1.5">
               {model.escalations.map((e) => (
-                <div key={e.status}>
-                  <p className="font-body text-[11.5px] font-semibold text-fg">{e.status}</p>
-                  <p className="font-body text-[12px] leading-relaxed text-fg-muted">{e.triggers.join(", ")}</p>
+                <div key={e.status} className="flex gap-2.5">
+                  <span
+                    className="mt-[3px] w-[68px] shrink-0 font-body text-[11px] font-bold"
+                    style={{ color: statusColor(e.status) }}
+                  >
+                    {e.status}
+                  </span>
+                  <span className="min-w-0 font-body text-[11.5px] leading-relaxed text-fg-muted">
+                    {e.triggers.join(" · ")}
+                  </span>
                 </div>
               ))}
             </div>
-          </Step>
+          </section>
 
-          <div className="rounded-lg bg-surface px-3.5 py-3 ring-1 ring-inset ring-border-subtle">
-            <P>
-              <B>None of this rewrites the score.</B> A failed check moves the status and leaves the number
-              exactly where it was, which is why an account can read 73 and still sit on Watch. Both are
-              true, and they answer different questions: the score is how the account is doing; the status
-              is how we have decided to treat it until something changes.
-            </P>
-          </div>
-
-          <p className="font-body text-[11px] leading-relaxed text-fg-subtle">
-            Every weight, band and check above is configured in Settings &rarr; Client health. This panel
-            reads that same configuration, so it always describes the rules this account was actually
-            scored under &mdash; not a description of them written down once.
+          <p className="border-t border-border-subtle pt-3 font-body text-[11.5px] leading-relaxed text-fg-muted">
+            <strong className="font-semibold text-fg">A failed check moves the status, never the score.</strong>{" "}
+            That&rsquo;s why an account can read 73 and still sit on Watch. Set in Settings &rarr; Client health.
           </p>
         </div>
       )}
