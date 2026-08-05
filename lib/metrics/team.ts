@@ -13,7 +13,7 @@
    ========================================================================= */
 
 import type { Client } from "@/lib/types";
-import { healthBand } from "@/lib/metrics/exec";
+import { isAtRisk } from "@/lib/health/status";
 
 /** Days until renewal, or null when the account has no renewal date. */
 function daysToRenewal(iso: string | null): number | null {
@@ -102,7 +102,10 @@ export function buildTeamBook(
 
     m.accounts += 1;
     m.arr += c.arr;
-    if (healthBand(c.health.score) === "at_risk") m.atRisk += 1;
+    // Applied status, not a re-band of the score: an account capped to At
+    // Risk despite scoring 83 is at risk, and one scoring 0 because it
+    // churned is not.
+    if (isAtRisk(c.health)) m.atRisk += 1;
     const d = daysToRenewal(c.renewalDate);
     if (d != null && d >= 0 && d <= 90) m.renewing90 += 1;
     if (c.status === "active" || c.status === "renewal") {

@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn";
 import { PopMenu } from "@/components/clients/projects/shared";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
-import { healthBand } from "@/lib/metrics/exec";
+import { isAtRisk, isJudged } from "@/lib/health/status";
 import { isAssessed } from "@/lib/metrics/health-evidence";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
 import { ImportDialog } from "@/components/clients/ImportDialog";
@@ -220,7 +220,8 @@ export function ClientsTable({
   const [accountTier, setAccountTier] = useState("all");
   // View presets (tabs / command tiles) toggle these two cross-cutting filters,
   // which don't map onto a single dropdown: "mine" = owned by the viewer,
-  // "risk" = health band at_risk (score-based, see lib/metrics/exec.healthBand).
+  // "risk" = the engine's applied status is At Risk or Critical
+  // (lib/health/status.ts) — never a re-band of the raw score.
   const [mineOnly, setMineOnly] = useState(false);
   const [riskOnly, setRiskOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("arr");
@@ -244,7 +245,7 @@ export function ClientsTable({
     return m;
   }, [clients]);
   const accountTiers = useMemo(() => [...new Set(clients.map(accountTierOf).filter(Boolean) as string[])].sort(), [clients]);
-  // Health tiers are admin-defined (Settings → Workflows → Client health), so
+  // Health tiers are admin-defined (Settings → Client health), so
   // the filter options come from whatever tier names are actually present,
   // ordered high→low by the top score seen in each.
   const healthTiers = useMemo(() => {
@@ -268,7 +269,7 @@ export function ClientsTable({
     let rows = clients.filter((c) => {
       if (statusFilter.size > 0 && !statusFilter.has(c.status)) return false;
       if (mineOnly && !(me && ((c.csm?.email ?? "").toLowerCase() === me || (c.implementationOwner?.email ?? "").toLowerCase() === me))) return false;
-      if (riskOnly && !(c.status !== "churned" && healthBand(c.health.score) === "at_risk")) return false;
+      if (riskOnly && !(c.status !== "churned" && isAtRisk(c.health))) return false;
       if (renewalRange) {
         if (!c.renewalDate) return false;
         const d = c.renewalDate.slice(0, 10);
@@ -334,7 +335,7 @@ export function ClientsTable({
          which lands most of them at 0 — and 0 is "at risk". Counting those
          inflated this headline with accounts nobody has any evidence about;
          they need a CSM to go and look, not to be triaged as failing. */
-      if (isAssessed(c.health) && healthBand(c.health.score) === "at_risk") atRisk++;
+      if (isJudged(c.health) && isAtRisk(c.health)) atRisk++;
       const d = daysToRenewal(c.renewalDate);
       if (d != null && d >= 0 && d <= 90) renewing++;
     }

@@ -18,6 +18,7 @@
    ========================================================================= */
 
 import type { ActionCategory, ActionPriority, Client, Contact, Deal } from "@/lib/types";
+import { accountStatus, STATUS_LABEL } from "@/lib/health/status";
 import type { DealDatesMap } from "@/lib/deal-overrides";
 import type { UsageResult } from "@/lib/usage/types";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
@@ -140,25 +141,32 @@ export function detectSignals(inputs: SignalInputs): ActionSignal[] {
   }
 
   // ── #5 Health score ─────────────────────────────────────────────────────
-  // score === 0 means "never computed / no data" (emptyHealth), not "at risk"
-  // — so it's skipped rather than flooding every unscored account.
+  /* Driven by the engine's APPLIED STATUS, not the raw score. Re-banding the
+     number here produced two wrong signals: a churned account scoring 0 looked
+     "at risk" and generated a proactive-touch action for a customer who had
+     already left, and an account capped to At Risk despite scoring 83 got no
+     signal at all because 83 read as healthy.
+
+     Lifecycle states — Churned, Implementation, Not Assessed — raise nothing.
+     They need a decision or a data fix, which is a different queue. */
   const score = client.health.score;
-  if (score > 0 && score < 55) {
+  const status = accountStatus(client.health);
+  if (status === "at_risk" || status === "critical") {
     out.push({
       category: "health",
       signalKey: "health_at_risk",
       priority: "high",
       title: `${name}'s health is at risk`,
-      insight: `Health score ${score}/100 (at risk). ${lowestHealthComponent(client)} is the weakest signal — worth a proactive touch before it escalates.`,
+      insight: `Health ${STATUS_LABEL[status]} (score ${score}/100). ${lowestHealthComponent(client)} is the weakest signal — worth a proactive touch before it escalates.`,
       facts: { score, tier: client.health.tier, weakest: lowestHealthComponent(client), trend: client.health.trend },
     });
-  } else if (score >= 55 && score < 75) {
+  } else if (status === "watch") {
     out.push({
       category: "health",
       signalKey: "health_watch",
       priority: "medium",
       title: `Keep an eye on ${name}`,
-      insight: `Health score ${score}/100 (watch). ${lowestHealthComponent(client)} is dragging it down — a check-in now keeps it from sliding to at-risk.`,
+      insight: `Health Watch (score ${score}/100). ${lowestHealthComponent(client)} is dragging it down — a check-in now keeps it from sliding to at-risk.`,
       facts: { score, tier: client.health.tier, weakest: lowestHealthComponent(client), trend: client.health.trend },
     });
   }
