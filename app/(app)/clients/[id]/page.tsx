@@ -30,7 +30,6 @@ import { applyDealOverrides, computeRenewal, dealOverridesMap, DEAL_DATES_KEY, t
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { getSupabaseProjectUrl } from "@/lib/integrations/supabase-storage";
-import { getClientHealthConfig } from "@/lib/metrics/health-config-store";
 import { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy, resolveGroups } from "@/lib/use-case-overlay";
 import { IMPLEMENTATION_KEY, normalizeImplementations } from "@/lib/use-case-implementation";
 
@@ -86,7 +85,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
     }
   };
 
-  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, healthConfig, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy] =
+  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy] =
     await Promise.all([
       getNotesForClient(id),
       getAttachmentsForClient(id),
@@ -100,7 +99,6 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       getRoleLabels(),
       isSuperAdmin(),
       getClientActionsFor(id),
-      getClientHealthConfig(),
       getCurrentUserRole(),
       getProjectBoard(id),
       getProjectConfig(),
@@ -150,6 +148,17 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   const statusLabel = STATUS_LABELS[client.status] ?? "Active";
   const statusTone: "sirius" | "neutral" = client.status === "churned" ? "neutral" : "sirius";
   const dealDates = (props[DEAL_DATES_KEY] as DealDatesMap | undefined) ?? {};
+  /* The SAME assembled model the recompute scored with, so the profile's
+     breakdown and the stored components can never describe different formulas. */
+  const { assembleModel } = await import("@/lib/health/model-assembly");
+  const { applyModelOverrides } = await import("@/lib/health/model-overrides");
+  const { getHealthModelOverrides } = await import("@/lib/health/model-overrides-store");
+  const { buildHealthBreakdown } = await import("@/lib/health/breakdown");
+  const healthBreakdown = buildHealthBreakdown(
+    client.health as never,
+    applyModelOverrides(assembleModel(pulseDimensions, pulseTiers), await getHealthModelOverrides()),
+  );
+
   const completeness = computeProfileCompleteness(client, effectiveTrackedDeals, dealDates);
   // Onboarding period (averaged across the account's deals) as a header badge —
   // computed live from the deals + milestone dates the page already has. The
@@ -256,7 +265,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         propertyDefs={propertyDefs}
         supabaseUrl={supabaseUrl}
         clientActions={clientActions}
-        healthConfig={healthConfig}
+        healthBreakdown={healthBreakdown}
         projects={projects}
         projectConfig={projectConfig}
         projectTemplates={projectTemplates.map((t) => ({ id: t.id, name: t.name }))}

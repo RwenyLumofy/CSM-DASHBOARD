@@ -67,7 +67,8 @@ import { Button } from "@/components/ui/Button";
 import { Progress } from "@/components/ui/Progress";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { LineChart } from "@/components/ui/charts";
-import { HEALTH_METRIC_LABELS, type ClientHealthConfig } from "@/lib/metrics/health-config";
+import { HealthSignals } from "@/components/clients/HealthSignals";
+import type { HealthBreakdown } from "@/lib/health/breakdown";
 import { recalculateClientHealthAction } from "@/app/(app)/clients/[id]/health-actions";
 import { formatCurrency, formatDate, formatNumber, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -146,7 +147,7 @@ interface Props {
   clientActions: ClientAction[];
   /** The formula that produced client.health — shown (read-only) on the
    *  Action list tab's Health signals card. Edited in Settings → Workflows. */
-  healthConfig: ClientHealthConfig;
+  healthBreakdown: HealthBreakdown | null;
   /** Project Management tab data (see lib/projects/*). */
   projects: ProjectDetail[];
   projectConfig: ProjectConfig;
@@ -176,7 +177,7 @@ interface Props {
 }
 
 export function ClientProfileTabs(props: Props) {
-  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthConfig, canEditClient, teamEmails, today, liveUseCaseEntries, allUseCaseEntries, useCaseGroups, useCaseImplementations } = props;
+  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthBreakdown, canEditClient, teamEmails, today, liveUseCaseEntries, allUseCaseEntries, useCaseGroups, useCaseImplementations } = props;
   const [active, setActive] = useState<TabKey>("general");
 
   const stakeholderProfiles = useMemo(
@@ -301,7 +302,7 @@ export function ClientProfileTabs(props: Props) {
           />
         )}
         {active === "notes" && <NotesTab clientId={client.id} deals={deals} notes={notes} />}
-        {active === "actions" && <ActionsTab client={client} actions={clientActions} healthConfig={healthConfig} />}
+        {active === "actions" && <ActionsTab client={client} actions={clientActions} healthBreakdown={healthBreakdown} />}
       </div>
     </div>
   );
@@ -2080,7 +2081,7 @@ function SatisfactionTab({ client }: { client: Client }) {
 /* Action list — health breakdown + auto-calc placeholder                 */
 /* ===================================================================== */
 
-function ActionsTab({ client, actions, healthConfig }: { client: Client; actions: ClientAction[]; healthConfig: ClientHealthConfig }) {
+function ActionsTab({ client, actions, healthBreakdown }: { client: Client; actions: ClientAction[]; healthBreakdown: HealthBreakdown | null }) {
   const router = useRouter();
   const [recalculating, setRecalculating] = useState(false);
 
@@ -2093,8 +2094,6 @@ function ActionsTab({ client, actions, healthConfig }: { client: Client; actions
       setRecalculating(false);
     }
   }
-
-  const enabledMetrics = healthConfig.metrics.filter((m) => m.enabled);
 
   return (
     <>
@@ -2122,29 +2121,11 @@ function ActionsTab({ client, actions, healthConfig }: { client: Client; actions
         />
       </Card>
       <Card>
-        <div className="flex items-center justify-between gap-3">
-          <CardEyebrow>Health signals</CardEyebrow>
-          <button
-            onClick={recalculate}
-            disabled={recalculating}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 font-body text-[12px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius disabled:opacity-50"
-          >
-            {recalculating ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Recalculate
-          </button>
-        </div>
-        <p className="mb-1 mt-0.5 font-body text-[12px] leading-relaxed text-fg-subtle">
-          Weighted per the formula set in Settings → Workflows → Client health. A signal with no data for this account
-          shows as &ldquo;No data&rdquo; rather than a guessed value.
+        <CardEyebrow>Health signals</CardEyebrow>
+        <p className="mb-3 mt-0.5 font-body text-[12px] leading-relaxed text-fg-subtle">
+          What this account&rsquo;s score is built from, and what moved it.
         </p>
-        <div className="mt-2 flex flex-col gap-3.5">
-          {enabledMetrics.length === 0 ? (
-            <p className="font-body text-[12.5px] text-fg-subtle">No signals are enabled in the health formula.</p>
-          ) : (
-            enabledMetrics.map((m) => (
-              <ComponentBar key={m.key} label={HEALTH_METRIC_LABELS[m.key]} value={client.health.components[m.key] ?? null} weight={m.weight} />
-            ))
-          )}
-        </div>
+        <HealthSignals breakdown={healthBreakdown} onRecalculate={recalculate} recalculating={recalculating} />
       </Card>
     </>
   );
