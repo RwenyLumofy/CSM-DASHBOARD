@@ -9,7 +9,7 @@
      Meaningful reach     active_users ÷ seats            (100% / 99% coverage)
      Workflow progress    learning_completions ÷ enroll.  (82% — broadest module)
      Completion/outcomes  pathway_completions ÷ enroll.   (78% — structured paths)
-     Manager participation pm_cycles (≈always missing → its weight redistributes)
+     Use-case breadth     count of live use cases          (100% coverage)
      Ticket satisfaction  support.csat × csatResponses
      Sentiment            survey NPS only, normalised (nps+100)/2
      SLA / incidents      no reliable source yet → left missing (redistributes)
@@ -42,6 +42,8 @@ export interface HealthFactsInput {
   support?: { csat?: number | null; csatResponses?: number | null; nps?: number | null } | null;
   sentimentNps?: number | null; // survey NPS (-100..100), preferred sentiment source
   primaryContactCount?: number | null;
+  /** Live use cases on the account (client.properties.use_cases_rollup). */
+  useCaseCount?: number | null;
   pulse?: CsPulseInput | null;
   previousScore?: number | null;
   previousCalculationDate?: string | null;
@@ -67,8 +69,10 @@ export function buildAccountFacts(input: HealthFactsInput, now = new Date()): Ac
   put("expected_progress", n(u.learning_enrollments), { source: "usage.learning_enrollments" });
   put("completed_matured_workflows", n(u.pathway_completions), { source: "usage.pathway_completions" });
   put("total_matured_workflows", n(u.pathway_enrollments), { source: "usage.pathway_enrollments" });
-  put("participating_managers", n(u.pm_cycles_completed), { source: "usage.pm_cycles_completed" });
-  put("expected_managers", n(u.pm_cycles_configured), { source: "usage.pm_cycles_configured" });
+  /* Use-case breadth — Signal's own data, not the product DB. Every live
+     account carries a rollup, so unlike the performance-cycle counts this
+     replaced, it is present for the whole book. */
+  put("live_use_cases", n(input.useCaseCount), { source: "client.use_cases_rollup" });
 
   /* CS Pulse (CSM ratings) — one categorical metric per configured dimension */
   const p = input.pulse;

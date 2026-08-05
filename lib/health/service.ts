@@ -21,6 +21,8 @@ export interface ScoreAccountInput {
   support?: { csat?: number | null; csatResponses?: number | null; nps?: number | null } | null;
   sentimentNps?: number | null; // survey NPS (-100..100)
   primaryContactCount?: number | null;
+  /** Live use cases on the account — Use Case Breadth. */
+  useCaseCount?: number | null;
   pulseRaw?: unknown; // client.properties.cs_pulse (raw JSON)
   previousScore?: number | null;
   previousCalculationDate?: string | null;
@@ -46,6 +48,7 @@ export function scoreAccount(
       support: input.support ?? null,
       sentimentNps: input.sentimentNps ?? null,
       primaryContactCount: input.primaryContactCount ?? null,
+      useCaseCount: input.useCaseCount ?? null,
       pulse: pulseToEngineInput(pulse, dimensions, now.getTime()),
       previousScore: input.previousScore ?? null,
       previousCalculationDate: input.previousCalculationDate ?? null,

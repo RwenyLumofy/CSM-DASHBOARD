@@ -872,6 +872,7 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
         : null,
       sentimentNps: client.support?.nps ?? null,
       primaryContactCount,
+      useCaseCount: useCasesRollup.length,
       pulseRaw: client.properties?.cs_pulse ?? null,
       // Momentum compares against the last stored score. An account with no
       // history gets "Insufficient History" rather than a fabricated delta.

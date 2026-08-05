@@ -48,9 +48,35 @@ export const MODEL_V1_1: HealthModelVersion = {
           formula: { type: "ratio", numerator_metric: "completed_matured_workflows", denominator_metric: "total_matured_workflows", multiplier: 100, minimum: 0, maximum: 100, zero_denominator_policy: "missing" },
         },
         {
-          id: "participation", code: "manager_admin_participation", name: "Manager and Admin Participation", displayOrder: 4, weight: 0.1,
+          /* Was "Manager and Admin Participation", fed pm_cycles_completed ÷
+             pm_cycles_configured. Both count performance CYCLES, not people:
+             an account that ended one cycle across 50 users scored 100 while
+             one running three cycles across 4,809 users scored 0. And it had
+             data on 19 of 121 usage snapshots, so 84% of the time its weight
+             silently redistributed.
+
+             Use-case breadth replaces it. Signal owns the data (100% of live
+             accounts carry a rollup), and it measures something a CSM can act
+             on: an account running a single use case is one budget review away
+             from having no reason to renew. On this book that is 22 of 54
+             accounts carrying $201k ARR.
+
+             A step table, not a ratio — there is no meaningful denominator for
+             "how many use cases SHOULD this account run", and inventing one
+             (against the catalogue size, say) would score every account by how
+             much of Lumofy they had not bought. */
+          id: "breadth", code: "use_case_breadth", name: "Use Case Breadth", displayOrder: 4, weight: 0.1,
           isEnabled: true, isMandatory: false, missingDataPolicy: "redistribute_weight",
-          formula: { type: "ratio", numerator_metric: "participating_managers", denominator_metric: "expected_managers", multiplier: 100, minimum: 0, maximum: 100, zero_denominator_policy: "missing" },
+          formula: {
+            type: "threshold_table",
+            rules: [
+              { when: { live_use_cases: { gte: 4 } }, score: 100 },
+              { when: { live_use_cases: { gte: 3 } }, score: 80 },
+              { when: { live_use_cases: { gte: 2 } }, score: 60 },
+              { when: { live_use_cases: { gte: 1 } }, score: 35 },
+            ],
+            default_score: 0,
+          },
         },
       ],
     },
