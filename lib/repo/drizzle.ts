@@ -868,7 +868,14 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
       renewalDate: client.renewalDate ?? null,
       usage: usageMetrics,
       support: client.support
-        ? { csat: client.support.csat ?? null, csatResponses: client.support.csatResponses ?? null, nps: client.support.nps ?? null }
+        ? {
+            csat: client.support.csat ?? null,
+            csatResponses: client.support.csatResponses ?? null,
+            nps: client.support.nps ?? null,
+            // Feeds SLA, incident burden and aged tickets — see facts.ts.
+            tickets: client.support.tickets ?? null,
+            supportLevelUsed: client.support.supportLevelUsed ?? null,
+          }
         : null,
       sentimentNps: client.support?.nps ?? null,
       primaryContactCount,

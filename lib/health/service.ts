@@ -6,7 +6,7 @@
    stays unit-testable.
    ============================================================================= */
 
-import { buildAccountFacts } from "./facts";
+import { buildAccountFacts, type HealthFactsInput } from "./facts";
 import { calculateAccountHealth } from "./engine";
 import { assembleModel } from "./model-assembly";
 import { CS_PULSE_DIMENSIONS, CS_PULSE_TIERS, normalizePulse, pulseToEngineInput, type PulseDimension, type RatingTier } from "./pulse";
@@ -18,7 +18,7 @@ export interface ScoreAccountInput {
   status: string; // onboarding | active | renewal | churned
   renewalDate?: string | null;
   usage?: Record<string, number | null> | null; // usage snapshot metrics
-  support?: { csat?: number | null; csatResponses?: number | null; nps?: number | null } | null;
+  support?: HealthFactsInput["support"];
   sentimentNps?: number | null; // survey NPS (-100..100)
   primaryContactCount?: number | null;
   /** Live use cases on the account — Use Case Breadth. */

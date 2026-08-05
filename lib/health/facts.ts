@@ -17,6 +17,24 @@
 
 import type { AccountFacts, MetricBag, MetricInput } from "./model";
 
+/** The ticket fields the health model reads. Structurally a subset of
+ *  lib/types SupportTicket, kept local so this file stays dependency-light. */
+export interface SupportTicketFact {
+  state: "open" | "snoozed" | "closed";
+  priority: "P1" | "P2" | "P3";
+  createdAt: string;
+  slaBreaches?: { kind?: string }[] | null;
+}
+
+/* How old an open ticket has to be before it counts as aged. Both are the
+   first defensible choice rather than a measured one, and both are easy to
+   move — a high-severity ticket open past a fortnight is a burden regardless
+   of SLA, and a month is a long time for anything to sit open. */
+const AGED_HIGH_SEVERITY_DAYS = 14;
+const AGED_TICKET_DAYS = 30;
+const HIGH_SEVERITY = new Set(["P1", "P2"]);
+const OPEN_STATES = new Set(["open", "snoozed"]);
+
 /** CS Pulse — the CSM's read on the relationship. Ratings are keyed by the
  *  metric key each configured dimension maps to (so dimensions can be added/
  *  renamed in Settings without touching this), plus the qualitative risk
@@ -39,7 +57,19 @@ export interface HealthFactsInput {
   status: string; // onboarding | active | renewal | churned
   renewalDate?: string | null;
   usage?: Record<string, number | null> | null; // usage snapshot metrics jsonb
-  support?: { csat?: number | null; csatResponses?: number | null; nps?: number | null } | null;
+  support?: {
+    csat?: number | null;
+    csatResponses?: number | null;
+    nps?: number | null;
+    /** Every ticket for the account, each carrying its own SLA breach status.
+     *  An ABSENT array means Intercom was never synced for this account; an
+     *  EMPTY one means we looked and there were no tickets. The difference
+     *  decides whether Support scores or is missing. */
+    tickets?: SupportTicketFact[] | null;
+    /** Null when no tracked deal sets a support level — SLA is then not
+     *  evaluated for this account, so a clean ticket proves nothing. */
+    supportLevelUsed?: string | null;
+  } | null;
   sentimentNps?: number | null; // survey NPS (-100..100), preferred sentiment source
   primaryContactCount?: number | null;
   /** Live use cases on the account (client.properties.use_cases_rollup). */
@@ -92,6 +122,47 @@ export function buildAccountFacts(input: HealthFactsInput, now = new Date()): Ac
   if (resp && resp > 0 && csat != null) {
     put("total_valid_rated_tickets", resp, { source: "support.csatResponses", observationCount: resp });
     put("satisfied_rated_tickets", Math.round((csat / 100) * resp), { source: "support.csat", observationCount: resp });
+  }
+
+  /* SLA, incidents and aged tickets, from the ticket list the Intercom sync
+     already stores. These were declared in the model and fed by nothing, so
+     Incident Burden and Aged & Reopened fell through to their default_score of
+     100 and handed Support a perfect mark on no observations at all.
+
+     Fed only when `tickets` is actually an array. Absent means Intercom was
+     never synced for the account and we know nothing; empty means we looked
+     and there were no tickets, which is a real (good) reading. That
+     distinction is the whole difference between this and the bug it fixes. */
+  const tickets = Array.isArray(s?.tickets) ? s!.tickets! : null;
+  if (tickets) {
+    const ageDays = (t: SupportTicketFact) =>
+      (now.getTime() - new Date(t.createdAt).getTime()) / 86_400_000;
+    const isOpen = (t: SupportTicketFact) => OPEN_STATES.has(t.state);
+    const closed = tickets.filter((t) => t.state === "closed");
+    const open = tickets.filter(isOpen);
+
+    /* SLA is only meaningful when the account HAS a support level — with none
+       resolved, the sync leaves every breach list empty and a clean ticket
+       proves nothing. Feeding it anyway would score 100% on-target for
+       accounts nobody ever measured. */
+    if (s?.supportLevelUsed) {
+      const onTarget = closed.filter((t) => !(t.slaBreaches ?? []).some((b) => b?.kind === "resolution"));
+      put("eligible_resolved_tickets", closed.length, { source: "support.tickets", observationCount: closed.length });
+      put("tickets_resolved_within_target", onTarget.length, { source: "support.tickets", observationCount: closed.length });
+    }
+
+    put("active_critical_incidents", open.filter((t) => t.priority === "P1").length, { source: "support.tickets" });
+    put("aged_high_severity_incidents",
+      open.filter((t) => HIGH_SEVERITY.has(t.priority) && ageDays(t) > AGED_HIGH_SEVERITY_DAYS).length,
+      { source: "support.tickets" });
+    put("resolved_high_severity_incidents",
+      closed.filter((t) => HIGH_SEVERITY.has(t.priority)).length, { source: "support.tickets" });
+    /* "Reopened" has no representation in the synced ticket — Intercom's state
+       is a snapshot, not a history — so this counts aged only. Named as the
+       model names it; the gap is real and worth closing at the sync, not
+       papered over by pretending a reopen can be inferred. */
+    put("aged_or_reopened_tickets",
+      open.filter((t) => ageDays(t) > AGED_TICKET_DAYS).length, { source: "support.tickets (aged only)" });
   }
 
   /* Client Sentiment — NPS only, normalised to 0–100 */
