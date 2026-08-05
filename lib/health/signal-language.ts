@@ -106,6 +106,52 @@ export const REMEDY_BY_REASON: Record<string, string> = {
  *  card can say "You rated this Weak" rather than showing a bare 40. */
 export const PULSE_RATED_IDS = new Set(["stakeholder", "engagement", "renewal"]);
 
+/** What a gate's fact key is called on screen, and how its number reads.
+ *  `data_coverage` is stored 0–1 and would otherwise show "0.63 → 0.85". */
+const GAP_METRIC: Record<string, { label: string; percent?: boolean }> = {
+  cs_pulse_score: { label: "CS Pulse" },
+  product_adoption_score: { label: "Product Adoption" },
+  data_coverage: { label: "Data coverage", percent: true },
+};
+
+export interface ReasonGap {
+  label: string;
+  /** Formatted for display — "63" or "63%". */
+  actual: string;
+  target: string;
+  /** How far along, 0–1, for the meter. */
+  progress: number;
+  /** The distance left, already worded: "12 points short". */
+  distance: string;
+}
+
+/**
+ * Turn a stored shortfall into the line a CSM can act on.
+ *
+ * "CS Pulse below the Healthy minimum of 75" says a rule exists. It does not
+ * say the account is at 63 and twelve points short, which is the only part that
+ * tells you whether this is one good conversation away or a quarter of work.
+ */
+export function describeGap(
+  shortfall: { metric: string; actual: number; target: number } | undefined,
+): ReasonGap | null {
+  if (!shortfall || !Number.isFinite(shortfall.actual) || !Number.isFinite(shortfall.target)) return null;
+  const meta = GAP_METRIC[shortfall.metric];
+  if (!meta) return null; // An unmapped fact key gets no invented label.
+  const scale = meta.percent ? 100 : 1;
+  const a = Math.round(shortfall.actual * scale);
+  const t = Math.round(shortfall.target * scale);
+  if (t <= 0 || a >= t) return null;
+  const unit = meta.percent ? "%" : "";
+  return {
+    label: meta.label,
+    actual: `${a}${unit}`,
+    target: `${t}${unit}`,
+    progress: Math.max(0, Math.min(1, a / t)),
+    distance: meta.percent ? `${t - a} points of coverage short` : `${t - a} point${t - a === 1 ? "" : "s"} short`,
+  };
+}
+
 /**
  * One line of evidence beneath a signal, built from the metrics the engine
  * actually read. Returns null when there is nothing worth saying — better a

@@ -17,7 +17,7 @@
 import type { HealthModelVersion } from "./model";
 import type { HealthScore } from "@/lib/types";
 import type { StoredHealthExtras } from "./to-stored";
-import { SIGNAL_MEANING, REMEDY_BY_RULE, REMEDY_BY_REASON, describeEvidence } from "./signal-language";
+import { SIGNAL_MEANING, REMEDY_BY_RULE, REMEDY_BY_REASON, describeEvidence, describeGap, type ReasonGap } from "./signal-language";
 
 export interface BreakdownLeaf {
   id: string;
@@ -44,8 +44,9 @@ export interface HealthBreakdown {
   applied: string;
   /** True when a gate or rule moved it — the case that needs explaining. */
   capped: boolean;
-  /** Each reason with what actually clears it, where we know. */
-  reasons: { text: string; remedy: string | null }[];
+  /** Each reason with what actually clears it, and — for a threshold gate —
+   *  how far off the account actually is. */
+  reasons: { text: string; remedy: string | null; gap: ReasonGap | null }[];
   coverage: number | null;
   momentum: string | null;
   components: BreakdownComponent[];
@@ -97,9 +98,10 @@ export function buildHealthBreakdown(
     /* Prefer the id-keyed remedy; fall back to matching the sentence for rows
        scored before `reasonDetails` was written, and to nothing at all rather
        than inventing advice for a rule somebody added in Settings. */
-    reasons: (health.reasonDetails ?? (health.reasons ?? []).map((text) => ({ id: "", text }))).map(({ id, text }) => ({
+    reasons: (health.reasonDetails ?? (health.reasons ?? []).map((text) => ({ id: "", text })) as NonNullable<StoredHealthExtras["reasonDetails"]>).map(({ id, text, shortfall }) => ({
       text,
       remedy: REMEDY_BY_RULE[id] ?? REMEDY_BY_REASON[text] ?? null,
+      gap: describeGap(shortfall),
     })),
     coverage: health.coverage ?? null,
     momentum: health.momentum ?? null,

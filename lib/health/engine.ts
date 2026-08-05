@@ -7,8 +7,8 @@
 
 import { evalFormula, matchConditionSet, round3, type Scalar } from "./formula";
 import type {
-  AccountFacts, AccountHealthResult, ComponentResult, Formula, HealthComponent,
-  HealthModelVersion, MetricBag, MetricResult, TriggeredRule,
+  AccountFacts, AccountHealthResult, ComponentResult, ConditionSet, Formula, HealthComponent,
+  HealthModelVersion, MetricBag, MetricResult, RuleShortfall, TriggeredRule,
 } from "./model";
 
 /* ------------------------------------------------------------- helpers */
@@ -134,6 +134,34 @@ function computeComponent(component: HealthComponent, metrics: MetricBag): Compo
 
 /* --------------------------------------------------- applied status */
 
+/**
+ * The gap between where a threshold rule found the account and where it has to
+ * get to. A gate fires when its condition FAILS, a status rule fires when its
+ * condition HOLDS, so the same `{ gte: 75 }` means opposite things depending on
+ * which list it came from — hence `firesWhen`.
+ *
+ * Returns null unless clearing the rule means the number going UP. Rules keyed
+ * on a count that must fall to zero ("1 critical incident open") would read as
+ * "1 now, needs to be under 1"; their remedy text says it better.
+ */
+function shortfallOf(
+  when: ConditionSet,
+  factBag: Record<string, Scalar>,
+  firesWhen: "conditionFails" | "conditionHolds",
+): RuleShortfall | null {
+  for (const [metric, cmp] of Object.entries(when)) {
+    const actual = factBag[metric];
+    if (typeof actual !== "number") continue;
+    // A gate that failed `gte: N`, or a rule that fired on `lt: N` — both clear
+    // at the same place: the value reaching N.
+    const target = firesWhen === "conditionFails"
+      ? (typeof cmp.gte === "number" ? cmp.gte : typeof cmp.gt === "number" ? cmp.gt : null)
+      : (typeof cmp.lt === "number" ? cmp.lt : typeof cmp.lte === "number" ? cmp.lte : null);
+    if (target != null && actual < target) return { metric, actual, target };
+  }
+  return null;
+}
+
 interface StatusOutcome {
   status: string;
   triggered: TriggeredRule[];
@@ -144,14 +172,15 @@ function resolveAppliedStatus(model: HealthModelVersion, band: string, factBag: 
   const triggered: TriggeredRule[] = [];
   let idx = sev(band);
   let replacement: string | null = null;
-  const record = (id: string, name: string, action: TriggeredRule["action"], reason: string, priority: number, before: string, after: string) =>
-    triggered.push({ ruleId: id, ruleName: name, action, reason, priority, previousStatus: before, resultingStatus: after });
+  const record = (id: string, name: string, action: TriggeredRule["action"], reason: string, priority: number, before: string, after: string, shortfall?: RuleShortfall) =>
+    triggered.push({ ruleId: id, ruleName: name, action, reason, priority, previousStatus: before, resultingStatus: after, ...(shortfall ? { shortfall } : {}) });
 
   // Coverage cap (§14): below threshold, status cannot exceed the cap.
   if (coverage < model.coverageCapThreshold) {
     const before = model.severityOrder[idx];
     idx = Math.max(idx, sev(model.coverageCapTo));
-    if (model.severityOrder[idx] !== before) record("coverage_cap", "Low data coverage", "cap_max", `Data Coverage ${Math.round(coverage * 100)}% below ${Math.round(model.coverageCapThreshold * 100)}%`, 5, before, model.severityOrder[idx]);
+    if (model.severityOrder[idx] !== before) record("coverage_cap", "Low data coverage", "cap_max", `Data Coverage ${Math.round(coverage * 100)}% below ${Math.round(model.coverageCapThreshold * 100)}%`, 5, before, model.severityOrder[idx],
+      { metric: "data_coverage", actual: coverage, target: model.coverageCapThreshold });
   }
 
   // Healthy qualification (§16.1): only bites when the calculated band is Healthy.
@@ -161,7 +190,8 @@ function resolveAppliedStatus(model: HealthModelVersion, band: string, factBag: 
       if (!matchConditionSet((k) => factBag[k] ?? null, q.when)) {
         const before = model.severityOrder[idx];
         idx = Math.max(idx, sev(q.capTo));
-        record(q.id, q.name, "cap_max", q.reasonTemplate, 6, before, model.severityOrder[idx]);
+        record(q.id, q.name, "cap_max", q.reasonTemplate, 6, before, model.severityOrder[idx],
+          shortfallOf(q.when, factBag, "conditionFails") ?? undefined);
       }
     }
   }
@@ -176,7 +206,8 @@ function resolveAppliedStatus(model: HealthModelVersion, band: string, factBag: 
       record(rule.id, rule.name, rule.action, rule.reasonTemplate, rule.priority, before, replacement);
     } else if (rule.action === "force" || rule.action === "cap_max") {
       idx = Math.max(idx, sev(rule.targetStatus ?? band));
-      record(rule.id, rule.name, rule.action, rule.reasonTemplate, rule.priority, before, replacement ?? model.severityOrder[idx]);
+      record(rule.id, rule.name, rule.action, rule.reasonTemplate, rule.priority, before, replacement ?? model.severityOrder[idx],
+        shortfallOf(rule.when, factBag, "conditionHolds") ?? undefined);
     } else {
       record(rule.id, rule.name, "warn", rule.reasonTemplate, rule.priority, before, before);
     }

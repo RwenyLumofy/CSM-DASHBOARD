@@ -275,6 +275,23 @@ export interface ComponentResult {
   metrics?: MetricResult[];
 }
 
+/**
+ * For a threshold gate or rule, the number the account is at and the number it
+ * has to reach. "CS Pulse below the Healthy minimum of 75" tells a CSM the rule
+ * exists; it does not tell them the account is at 63 and twelve points short.
+ *
+ * Only produced when clearing the rule means a value going UP. A count that has
+ * to reach zero reads badly as a threshold — "1 now, needs to be under 1" — and
+ * those rules carry a remedy that already says what to do.
+ */
+export interface RuleShortfall {
+  /** The fact key, e.g. `cs_pulse_score`. */
+  metric: string;
+  actual: number;
+  /** The value that clears the rule. */
+  target: number;
+}
+
 export interface TriggeredRule {
   ruleId: string;
   ruleName: string;
@@ -283,6 +300,7 @@ export interface TriggeredRule {
   priority: number;
   previousStatus: string;
   resultingStatus: string;
+  shortfall?: RuleShortfall;
 }
 
 export interface AccountHealthResult {

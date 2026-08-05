@@ -14,7 +14,7 @@ const HEALTH = {
     support: 78, sla: 67, incidents: 75, aged: 100, sentiment: 72 },
   reasons: ["CS Pulse below the Healthy minimum of 75", "Account is single-threaded"],
   reasonDetails: [
-    { id: "q_pulse", text: "CS Pulse below the Healthy minimum of 75" },
+    { id: "q_pulse", text: "CS Pulse below the Healthy minimum of 75", shortfall: { metric: "cs_pulse_score", actual: 63, target: 75 } },
     { id: "q_multithreaded", text: "Account is single-threaded" },
   ],
   evidence: {

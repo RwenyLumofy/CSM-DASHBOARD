@@ -9,7 +9,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MODEL_V1_1 } from "./model-v1";
-import { REMEDY_BY_RULE, REMEDY_BY_REASON } from "./signal-language";
+import { REMEDY_BY_RULE, REMEDY_BY_REASON, describeGap } from "./signal-language";
 
 const RULE_IDS = [
   ...MODEL_V1_1.qualificationRules.map((r) => r.id),
@@ -38,4 +38,33 @@ test("the text fallback matches the model's shipped wording exactly", () => {
   ]);
   const unmatched = Object.keys(REMEDY_BY_REASON).filter((t) => !templates.has(t));
   assert.deepEqual(unmatched, [], `not a reason the model emits: ${unmatched.join(" | ")}`);
+});
+
+test("a threshold gate reports the distance, not just the rule", () => {
+  const g = describeGap({ metric: "cs_pulse_score", actual: 63, target: 75 });
+  assert.equal(g?.label, "CS Pulse");
+  assert.equal(g?.actual, "63");
+  assert.equal(g?.target, "75");
+  assert.equal(g?.distance, "12 points short");
+  assert.equal(Math.round((g?.progress ?? 0) * 100), 84);
+});
+
+test("coverage reads as a percentage, not as 0.63", () => {
+  /* data_coverage is stored 0–1. Rendered raw it says "needs 0.85", which is
+     not a number anybody has ever seen on this product. */
+  const g = describeGap({ metric: "data_coverage", actual: 0.63, target: 0.85 });
+  assert.equal(g?.actual, "63%");
+  assert.equal(g?.target, "85%");
+});
+
+test("no gap is invented where there is nothing to close", () => {
+  assert.equal(describeGap(undefined), null);
+  // Already clear of the bar — a rule fired for some other reason.
+  assert.equal(describeGap({ metric: "cs_pulse_score", actual: 80, target: 75 }), null);
+  // An unmapped fact key gets no made-up label.
+  assert.equal(describeGap({ metric: "some_future_fact", actual: 1, target: 5 }), null);
+});
+
+test("a single point short says point, not points", () => {
+  assert.equal(describeGap({ metric: "product_adoption_score", actual: 64, target: 65 })?.distance, "1 point short");
 });

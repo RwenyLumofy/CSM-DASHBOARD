@@ -142,9 +142,27 @@ export function HealthSignals({
                 <span className="mt-px grid size-[19px] shrink-0 place-items-center rounded-full bg-[#C99A14] font-body text-[11px] font-bold text-white">
                   {i + 1}
                 </span>
-                <span className="min-w-0">
+                <span className="min-w-0 flex-1">
                   <span className="block font-body text-[13px] leading-relaxed text-fg">{x.text}</span>
-                  {x.remedy && <span className="mt-0.5 block font-body text-[12.5px] leading-relaxed text-fg-muted">{x.remedy}</span>}
+                  {/* The distance, not just the rule. "63 → 75, 12 points short"
+                      is what tells a CSM whether this is one conversation away
+                      or a quarter of work; the sentence alone never said. */}
+                  {x.gap && (
+                    <span className="mt-1.5 block max-w-[22rem]">
+                      <span className="flex items-baseline justify-between gap-2 font-body text-[11.5px]">
+                        <span className="text-fg-muted">
+                          {x.gap.label} is <span className="tabular font-semibold text-fg">{x.gap.actual}</span>
+                          {" · needs "}
+                          <span className="tabular font-semibold text-fg">{x.gap.target}</span>
+                        </span>
+                        <span className="shrink-0 tabular text-fg-subtle">{x.gap.distance}</span>
+                      </span>
+                      <span className="relative mt-1 block h-1.5 overflow-hidden rounded-pill bg-bg-muted">
+                        <span className="block h-full rounded-pill bg-[#C99A14]" style={{ width: `${x.gap.progress * 100}%` }} />
+                      </span>
+                    </span>
+                  )}
+                  {x.remedy && <span className="mt-1.5 block font-body text-[12.5px] leading-relaxed text-fg-muted">{x.remedy}</span>}
                 </span>
               </li>
             ))}

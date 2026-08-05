@@ -57,7 +57,7 @@ export interface StoredHealthExtras {
    *  sentence and would silently orphan a text-keyed remedy. Written alongside
    *  `reasons` rather than replacing it — health rows scored before this exist
    *  and must keep rendering. */
-  reasonDetails?: { id: string; text: string }[];
+  reasonDetails?: { id: string; text: string; shortfall?: { metric: string; actual: number; target: number } }[];
   notAssessed?: boolean;
   notAssessedReason?: string | null;
   modelVersion?: string;
@@ -127,7 +127,8 @@ export function toStoredHealth(result: AccountHealthResult): StoredHealth {
        reason template — "Account is single-threaded" is both q_multithreaded
        failing and r_single_threaded firing — and the drawer showed it twice. */
     reasons: [...new Set((result.activeStatusRules ?? []).map((r) => r.reason))],
-    reasonDetails: [...new Map((result.activeStatusRules ?? []).map((r) => [r.reason, { id: r.ruleId, text: r.reason }])).values()],
+    reasonDetails: [...new Map((result.activeStatusRules ?? []).map((r) =>
+      [r.reason, { id: r.ruleId, text: r.reason, ...(r.shortfall ? { shortfall: r.shortfall } : {}) }])).values()],
     notAssessed: result.notAssessed,
     notAssessedReason: result.notAssessedReason ?? null,
     modelVersion: result.modelVersion,
