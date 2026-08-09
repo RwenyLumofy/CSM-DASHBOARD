@@ -150,12 +150,12 @@ export const EVIDENCE_STATE: Record<EvidenceState, {
   tone: "ok" | "warn" | "blocked" | "unknown";
   action: { label: string; implemented: boolean } | null;
 }> = {
-  activity_present:      { label: "Activity recorded",     tone: "ok",      action: null },
+  activity_present:      { label: "Supporting activity present", tone: "ok", action: null },
   no_activity_recorded:  { label: "No activity recorded",  tone: "warn",    action: { label: "Create task", implemented: true } },
-  not_entitled:          { label: "Not entitled",          tone: "blocked", action: { label: "Review account plan", implemented: false } },
-  telemetry_unavailable: { label: "Telemetry unavailable", tone: "unknown", action: { label: "Investigate connection", implemented: false } },
-  sync_failed:           { label: "Sync failed",           tone: "unknown", action: { label: "Retry sync", implemented: true } },
-  no_product_mapping:    { label: "No product mapping",    tone: "unknown", action: { label: "Open use-case definition", implemented: true } },
+  not_entitled:          { label: "Cannot be evidenced",   tone: "blocked", action: { label: "Review account plan", implemented: false } },
+  telemetry_unavailable: { label: "Cannot be evidenced",   tone: "blocked", action: { label: "Investigate connection", implemented: false } },
+  sync_failed:           { label: "Partial evidence",      tone: "unknown", action: { label: "Retry sync", implemented: true } },
+  no_product_mapping:    { label: "Cannot be evidenced",   tone: "blocked", action: { label: "Open use-case definition", implemented: true } },
 };
 
 export interface ProductEvidence {
@@ -305,3 +305,33 @@ export const SCENARIOS: Record<Scenario, ScenarioState> = {
     note: null,
   },
 };
+
+/* The PARENT state for a use case, rolled up from its products. It describes
+   the EVIDENCE, never the outcome — Signal can show what product usage sits
+   behind a use case, and cannot say whether the use case is succeeding.
+   "Partial evidence" exists because a two-product use case with activity on one
+   is neither of the other two answers. */
+export type ParentState = "supporting" | "partial" | "none" | "cannot";
+
+export const PARENT_LABEL: Record<ParentState, string> = {
+  supporting: "Supporting activity present",
+  partial: "Partial evidence",
+  none: "No activity recorded",
+  cannot: "Cannot be evidenced",
+};
+
+export function parentState(products: ProductEvidence[]): ParentState {
+  const blocked = products.every((p) => ["not_entitled", "telemetry_unavailable", "no_product_mapping"].includes(p.state));
+  if (blocked) return "cannot";
+  const active = products.filter((p) => p.state === "activity_present").length;
+  if (active === products.length) return "supporting";
+  if (active > 0 || products.some((p) => p.state === "sync_failed")) return "partial";
+  return "none";
+}
+
+/** The evidence line shown beside the parent state. */
+export function parentReading(r: UseCaseRow): string {
+  if (r.products.length === 1) return `${r.products[0].product} · ${r.products[0].reading}`;
+  const active = r.products.filter((p) => p.state === "activity_present").length;
+  return `${r.products.length} products · activity on ${active === 0 ? "none" : active}`;
+}

@@ -29,7 +29,7 @@ import {
   ActivityChart, Disclosure, InsufficientHistory, KnownLimitation, MetricRow,
   NoEnvironment, Notice, Observations, Section, SmallPopulation, StaleBanner,
   StatePill, StateAction, TaskDraft, TrendFallback, TrustBar,
-  UseCasesFlat, UseCasesNested,
+  UseCasesFlat, UseCasesNested, SummaryStrip, UseCaseEvidence,
 } from "./parts";
 
 /* ------------------------------------------------------ shared sections */
@@ -312,6 +312,76 @@ export function StateGallery() {
       ))}
       <TaskDraft open={!!task} title={task ?? ""} onClose={() => setTask(null)}
         evidence={["Account · Bank of Bahrain & Kuwait", "Period · 2026-07", "Product · Perform", "State · No activity recorded"]} />
+    </div>
+  );
+}
+
+/* ================================================== HYBRID (B refined) */
+
+export function PrototypeHybrid() {
+  const p = useProto("default");
+  const empty = p.scenario === "no_environment";
+  const obs = empty ? [] : OBSERVATIONS.slice(0, 3);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <ScenarioSwitch value={p.scenario} onChange={p.pick} />
+
+      <div className="rounded-xl border border-border bg-surface p-4">
+        {/* 1 · trust controls, full width, on their own rule */}
+        <div className="border-b border-border">
+          <TrustBar s={p.s} freshness={p.freshness} onPeriod={p.setPeriod} />
+        </div>
+
+        {empty ? <div className="pt-3"><NoEnvironment /></div> : (
+          <>
+            {p.freshness === "stale" && <div className="pt-3"><StaleBanner note={p.s.note ?? ""} /></div>}
+            {p.s.periodStatus === "in_progress" && (
+              <div className="pt-3"><Notice tone="info">
+                <span className="font-semibold text-fg">August is in progress.</span> {p.s.note} {p.s.comparisonDisabled}
+              </Notice></div>
+            )}
+
+            {/* 2 · compact summary strip */}
+            <SummaryStrip blocked={p.s.comparisonDisabled} />
+
+            {/* 3 · analysis row — chart at A's height, at most three observations */}
+            <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+              <div>
+                <p className="mb-2 flex items-baseline gap-2 font-body text-[11px] font-bold uppercase tracking-[0.06em] text-fg-subtle">
+                  Active users by month
+                  <span className="font-normal normal-case tracking-normal text-[11px] text-fg-subtle">absolute counts · monthly series</span>
+                </p>
+                <ActivityChart highlight={p.focus?.periods ?? []} blocked={null} height={168} />
+              </div>
+              <div>
+                <p className="mb-2 flex items-baseline gap-2 font-body text-[11px] font-bold uppercase tracking-[0.06em] text-fg-subtle">
+                  Observations
+                  <span className="font-normal normal-case tracking-normal text-[11px] text-fg-subtle">max three · click to trace</span>
+                </p>
+                <Observations items={obs} focused={p.focus?.id ?? null} dense
+                  onFocus={(o) => p.setFocus(p.focus?.id === o.id ? null : o)}
+                  onTask={(t) => p.setTask({ title: t })} />
+              </div>
+            </div>
+
+            {/* 4 · use-case evidence, full width */}
+            <Section title="Use-case evidence"
+              aside={<span className="font-body text-[11px] text-fg-subtle">what product usage supports each recorded use case</span>}>
+              <UseCaseEvidence rows={USE_CASES} onTask={(t) => p.setTask({ title: t })} />
+            </Section>
+
+            {/* 5 · reference, progressive disclosure */}
+            <Section title="Reference">
+              <ReferenceSections dense />
+              <div className="mt-2.5"><KnownLimitation /></div>
+            </Section>
+          </>
+        )}
+      </div>
+
+      <TaskDraft open={!!p.task} title={p.task?.title ?? ""} onClose={() => p.setTask(null)}
+        evidence={["Account · Bank of Bahrain & Kuwait", `Period · ${p.period}`, "Metric · Active users (317)", "Source · client_usage_monthly"]} />
     </div>
   );
 }

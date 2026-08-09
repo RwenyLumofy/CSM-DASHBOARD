@@ -14,6 +14,7 @@ import {
   CHART_COMMENTARY, EVIDENCE_STATE, FRESHNESS_COPY, LICENCES, MONTHS,
   type EvidenceState, type Freshness, type MetricFact, type MonthPoint,
   type Observation, type ScenarioState, type UseCaseRow,
+  PARENT_LABEL, parentState, parentReading, type ParentState,
 } from "./fixtures";
 
 /* ------------------------------------------------------------ primitives */
@@ -486,3 +487,119 @@ export const KnownLimitation = () => (
     </span>
   </p>
 );
+
+/* ==================================================== hybrid additions */
+
+/** Compact summary strip — four facts on one line, ~62px tall. Replaces the
+ *  oversized metric cards. Licences are PEERS of the metrics here, not a
+ *  footnote beneath them, because they are facts of the same standing; they are
+ *  simply as-of-today rather than for the period. */
+export function SummaryStrip({ blocked }: { blocked: string | null }) {
+  const cells = [
+    { k: "Active users", v: "317", u: "people", d: blocked ? null : { txt: "↘ −16 vs Jun", tone: "dn" }, def: METRIC_DEFS.m1 },
+    { k: "Weekly-to-monthly ratio", v: "35", u: "%", d: blocked ? null : { txt: "— no change vs Jun", tone: "fl" }, def: METRIC_DEFS.m2 },
+    { k: "Used licences", v: String(LICENCES.used), u: null, d: { txt: `as of ${LICENCES.asOf}`, tone: "n" }, def: LICENCES.note },
+    { k: "Available licences", v: String(LICENCES.available), u: null, d: { txt: `as of ${LICENCES.asOf}`, tone: "n" }, def: LICENCES.note },
+  ];
+  return (
+    <div>
+      <div className="mt-3 flex flex-wrap overflow-hidden rounded-lg border border-border-subtle">
+        {cells.map((c, i) => (
+          <div key={c.k} className={cn("min-w-[10rem] flex-1 px-3.5 py-2", i > 0 && "border-l border-border-subtle")}>
+            <span className="flex items-center gap-1.5 font-body text-[11px] text-fg-muted">
+              {c.k}<DefinitionButton name={c.k} text={c.def} />
+            </span>
+            <span className="mt-0.5 flex items-baseline gap-1">
+              <span className="tabular font-display text-[20px] font-bold leading-tight text-fg">{c.v}</span>
+              {c.u && <span className="font-body text-[11px] text-fg-subtle">{c.u}</span>}
+            </span>
+            <span className={cn("tabular block font-body text-[11px]",
+              c.d?.tone === "dn" ? "font-semibold text-[#C2610E]" : c.d?.tone === "fl" ? "text-fg-subtle" : "text-fg-subtle")}>
+              {c.d ? c.d.txt : "Comparison unavailable"}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-1.5 font-body text-[10.5px] leading-relaxed text-fg-subtle">
+        Licence figures are current-snapshot facts with no stored history. Neither is a contracted seat
+        count, and active users are never expressed as a percentage of them.
+      </p>
+    </div>
+  );
+}
+
+const METRIC_DEFS = {
+  m1: "Distinct users with at least one recorded product action in the selected period. Not logins. Deduplicated across modules. Shown as an absolute count — no percentage of licences, because the licence count for a past period is not stored.",
+  m2: "Weekly actives divided by monthly actives within the selected period. Both sides come from the same window, so no historical seat count is involved.",
+};
+
+/** Use-case evidence at FULL width, with a rolled-up parent state that
+ *  describes the evidence rather than the outcome. */
+export function UseCaseEvidence({ rows, onTask }: { rows: UseCaseRow[]; onTask: (t: string) => void }) {
+  const [open, setOpen] = useState<string[]>(["uc2"]);
+  const toggle = (id: string) => setOpen((o) => (o.includes(id) ? o.filter((x) => x !== id) : [...o, id]));
+  const TONE: Record<ParentState, string> = {
+    supporting: "bg-[#1F9D63]/12 text-[#1F9D63]",
+    partial: "bg-[#C99A14]/15 text-[#8A6D12]",
+    none: "bg-[#C2610E]/12 text-[#C2610E]",
+    cannot: "bg-bg-muted text-fg-muted",
+  };
+  return (
+    <div>
+      <ul className="flex flex-col divide-y divide-border-subtle">
+        {rows.map((r) => {
+          const multi = r.products.length > 1;
+          const ps = parentState(r.products);
+          const isOpen = open.includes(r.id);
+          const only = r.products[0];
+          return (
+            <li key={r.id}>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2">
+                {multi ? (
+                  <button onClick={() => toggle(r.id)} aria-expanded={isOpen}
+                    className="flex min-w-[13rem] flex-1 items-center gap-1.5 text-left">
+                    <ChevronRight size={12} className={cn("shrink-0 text-fg-subtle transition-transform", isOpen && "rotate-90")} aria-hidden />
+                    <span className="font-body text-[13px] text-fg">{r.name}</span>
+                  </button>
+                ) : (
+                  <span className="min-w-[13rem] flex-1 pl-[18px] font-body text-[13px] text-fg">{r.name}</span>
+                )}
+                <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-body text-[9.5px] font-bold uppercase tracking-[0.05em]", TONE[ps])}>
+                  {PARENT_LABEL[ps]}
+                </span>
+                <span className="w-[20rem] font-body text-[11.5px] text-fg-muted">{parentReading(r)}</span>
+                {!multi && only.state !== "activity_present" && (
+                  <button onClick={() => onTask(EVIDENCE_STATE[only.state].action?.label ?? "Create task")}
+                    className="shrink-0 rounded-lg border border-border px-2 py-0.5 font-body text-[11px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+                    {EVIDENCE_STATE[only.state].action?.label}
+                  </button>
+                )}
+              </div>
+              {multi && isOpen && (
+                <ul className="flex flex-col gap-1.5 pb-2 pl-[26px]">
+                  {r.products.map((pr) => (
+                    <li key={pr.product} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="w-[5rem] shrink-0 font-body text-[11.5px] font-semibold text-fg-muted">{pr.product}</span>
+                      <StatePill s={pr.state} />
+                      <span className="min-w-[12rem] flex-1 font-body text-[11.5px] text-fg-muted">{pr.reading}</span>
+                      {pr.state !== "activity_present" && (
+                        <button onClick={() => onTask(EVIDENCE_STATE[pr.state].action?.label ?? "Create task")}
+                          className="shrink-0 rounded-lg border border-border px-2 py-0.5 font-body text-[11px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+                          {EVIDENCE_STATE[pr.state].action?.label}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-2.5 max-w-[92ch] font-body text-[11px] leading-relaxed text-fg-subtle">
+        Parent states describe the evidence, not the outcome. Signal can show what product usage sits behind
+        a use case; it cannot say whether the use case is succeeding.
+      </p>
+    </div>
+  );
+}
