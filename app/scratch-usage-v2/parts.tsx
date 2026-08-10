@@ -608,86 +608,87 @@ const METRIC_DEFS = {
 /** Use-case evidence at FULL width, with a rolled-up parent state that
  *  describes the evidence rather than the outcome. */
 export function UseCaseEvidence({ rows, onTask }: { rows: UseCaseRow[]; onTask: (t: string) => void }) {
-  const [open, setOpen] = useState<string[]>(["uc2"]);
+  const [open, setOpen] = useState<string[]>([]);
+  const [showRest, setShowRest] = useState(false);
   const toggle = (id: string) => setOpen((o) => (o.includes(id) ? o.filter((x) => x !== id) : [...o, id]));
-  /* Seven rows each carrying a loud uppercase pill made the section shout
-     uniformly, including at the rows that need nothing. Three levels now:
 
-       supporting  no chip at all — the evidence text says it
-       cannot      plain muted text, because it is a fact about our data
-                   rather than something wrong with the account
-       partial /   a coloured chip, sentence case — these are the only two
-       none        rows a CSM has to do anything about
+  /* The section was seven rows of equal weight — an inventory pretending to be
+     an action list. Only the rows where evidence is missing or partial need a
+     CSM to do anything; the rest are reference, and reference does not need to
+     be on screen by default.
 
-     Same principle as the trust bar: mark the exception, not the norm. */
-  const TONE: Record<ParentState, string> = {
-    supporting: "",
-    partial: "bg-[#C99A14]/15 text-[#8A6D12]",
-    none: "bg-[#C2610E]/12 text-[#C2610E]",
-    cannot: "",
-  };
-  const Marker = ({ ps }: { ps: ParentState }) => {
-    if (ps === "supporting") return null;
-    if (ps === "cannot") return <span className="shrink-0 font-body text-[11px] text-fg-subtle">{PARENT_LABEL[ps]}</span>;
+     Split, not sorted: sorting would still leave seven rows competing. */
+  const needsAttention = rows.filter((r) => ["partial", "none"].includes(parentState(r.products)));
+  const rest = rows.filter((r) => !needsAttention.includes(r));
+  const supporting = rest.filter((r) => parentState(r.products) === "supporting");
+  const cannot = rest.filter((r) => parentState(r.products) === "cannot");
+
+  const Row = ({ r, muted }: { r: UseCaseRow; muted?: boolean }) => {
+    const multi = r.products.length > 1;
+    const ps = parentState(r.products);
+    const isOpen = open.includes(r.id);
+    const only = r.products[0];
     return (
-      <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-body text-[10.5px] font-semibold", TONE[ps])}>
-        {PARENT_LABEL[ps]}
-      </span>
+      <li className="border-t border-border-subtle first:border-t-0">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+          {multi ? (
+            <button onClick={() => toggle(r.id)} aria-expanded={isOpen}
+              className="flex min-w-[12rem] flex-1 items-center gap-1.5 text-left">
+              <ChevronRight size={12} className={cn("shrink-0 text-fg-subtle transition-transform", isOpen && "rotate-90")} aria-hidden />
+              <span className="font-body text-[13px] text-fg">{r.name}</span>
+            </button>
+          ) : (
+            <span className={cn("min-w-[12rem] flex-1 font-body text-[13px]", muted ? "text-fg-muted" : "text-fg")}>{r.name}</span>
+          )}
+          <span className="font-body text-[11.5px] text-fg-muted">{parentReading(r)}</span>
+          {!muted && !multi && (
+            <button onClick={() => onTask(EVIDENCE_STATE[only.state].action?.label ?? "Create task")}
+              className="shrink-0 rounded-lg border border-border px-2 py-0.5 font-body text-[11px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+              {EVIDENCE_STATE[only.state].action?.label}
+            </button>
+          )}
+        </div>
+        {multi && isOpen && (
+          <ul className="flex flex-col gap-1.5 pb-2 pl-[26px]">
+            {r.products.map((pr) => (
+              <li key={pr.product} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="w-[5rem] shrink-0 font-body text-[11.5px] font-semibold text-fg-muted">{pr.product}</span>
+                <span className="min-w-[12rem] flex-1 font-body text-[11.5px] text-fg-muted">{pr.reading}</span>
+                {pr.state !== "activity_present" && (
+                  <button onClick={() => onTask(EVIDENCE_STATE[pr.state].action?.label ?? "Create task")}
+                    className="shrink-0 rounded-lg border border-border px-2 py-0.5 font-body text-[11px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+                    {EVIDENCE_STATE[pr.state].action?.label}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </li>
     );
   };
+
   return (
     <div>
-      <ul className="flex flex-col divide-y divide-border-subtle">
-        {rows.map((r) => {
-          const multi = r.products.length > 1;
-          const ps = parentState(r.products);
-          const isOpen = open.includes(r.id);
-          const only = r.products[0];
-          return (
-            <li key={r.id}>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2">
-                {multi ? (
-                  <button onClick={() => toggle(r.id)} aria-expanded={isOpen}
-                    className="flex min-w-[13rem] flex-1 items-center gap-1.5 text-left">
-                    <ChevronRight size={12} className={cn("shrink-0 text-fg-subtle transition-transform", isOpen && "rotate-90")} aria-hidden />
-                    <span className="font-body text-[13px] text-fg">{r.name}</span>
-                  </button>
-                ) : (
-                  <span className="min-w-[13rem] flex-1 pl-[18px] font-body text-[13px] text-fg">{r.name}</span>
-                )}
-                <Marker ps={ps} />
-                <span className="w-[20rem] font-body text-[11.5px] text-fg-muted">{parentReading(r)}</span>
-                {!multi && only.state !== "activity_present" && (
-                  <button onClick={() => onTask(EVIDENCE_STATE[only.state].action?.label ?? "Create task")}
-                    className="shrink-0 rounded-lg border border-border px-2 py-0.5 font-body text-[11px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
-                    {EVIDENCE_STATE[only.state].action?.label}
-                  </button>
-                )}
-              </div>
-              {multi && isOpen && (
-                <ul className="flex flex-col gap-1.5 pb-2 pl-[26px]">
-                  {r.products.map((pr) => (
-                    <li key={pr.product} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <span className="w-[5rem] shrink-0 font-body text-[11.5px] font-semibold text-fg-muted">{pr.product}</span>
-                      {pr.state !== "activity_present" && <StatePill s={pr.state} />}
-                      <span className="min-w-[12rem] flex-1 font-body text-[11.5px] text-fg-muted">{pr.reading}</span>
-                      {pr.state !== "activity_present" && (
-                        <button onClick={() => onTask(EVIDENCE_STATE[pr.state].action?.label ?? "Create task")}
-                          className="shrink-0 rounded-lg border border-border px-2 py-0.5 font-body text-[11px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
-                          {EVIDENCE_STATE[pr.state].action?.label}
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          );
-        })}
+      <ul className="flex flex-col">
+        {needsAttention.map((r) => <Row key={r.id} r={r} />)}
       </ul>
+
+      <button onClick={() => setShowRest((v) => !v)} aria-expanded={showRest}
+        className="mt-2 flex w-full items-center gap-2 rounded-lg px-1 py-1.5 text-left font-body text-[11.5px] text-fg-subtle transition-colors hover:text-fg">
+        <ChevronRight size={11} className={cn("transition-transform", showRest && "rotate-90")} aria-hidden />
+        {supporting.length} with supporting activity · {cannot.length} that cannot be evidenced
+      </button>
+
+      {showRest && (
+        <ul className="flex flex-col rounded-lg bg-bg-muted/30 px-2.5">
+          {[...supporting, ...cannot].map((r) => <Row key={r.id} r={r} muted />)}
+        </ul>
+      )}
+
       <p className="mt-2.5 max-w-[92ch] font-body text-[11px] leading-relaxed text-fg-subtle">
-        Parent states describe the evidence, not the outcome. Signal can show what product-usage evidence
-        is available for a use case; it cannot say whether the use case is succeeding.
+        Signal can show what product-usage evidence is available for a use case; it cannot say whether the
+        use case is succeeding.
       </p>
     </div>
   );
