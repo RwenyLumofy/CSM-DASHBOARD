@@ -131,19 +131,30 @@ export function TrustBar({ s, freshness, onPeriod, dense, compareMode = "previou
           </select>
           <ChevronRight size={11} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rotate-90 text-fg-subtle" aria-hidden />
         </span>
-        <span className={cn("rounded-pill px-2 py-0.5 font-body text-[11px] font-medium",
-          s.periodStatus === "complete" ? "bg-bg-muted text-fg-muted" : "bg-[#C99A14]/15 text-[#8A6D12]")}>
-          {s.periodStatus === "complete" ? "Complete" : "In progress"}
-        </span>
       </label>
 
-      <span className="flex items-center gap-1.5">
-        <span className="font-body text-[10.5px] font-semibold uppercase tracking-[0.05em] text-fg-subtle">Data</span>
+      {/* The two status pills used to show unconditionally, and in the default
+          state both said "nothing is wrong" — two chips confirming the absence
+          of a problem, above the numbers that matter. Each now appears only
+          when it is the exception and therefore carries information.
+
+          The timestamp stays unconditionally: a CSM about to quote a figure in
+          a QBR wants positive confirmation the data is current, and "synced 6h
+          ago" gives that without a chip. */}
+      {s.periodStatus === "in_progress" && (
+        <span className="rounded-pill bg-[#C99A14]/15 px-2 py-0.5 font-body text-[11px] font-semibold text-[#8A6D12]">
+          In progress · month to date
+        </span>
+      )}
+
+      {freshness === "current" ? (
+        <span className="font-body text-[11px] text-fg-subtle">synced {s.syncHoursAgo}h ago</span>
+      ) : (
         <span className={cn("rounded-pill px-2 py-0.5 font-body text-[11px] font-semibold", FRESH_STYLE[freshness])}>
           {FRESHNESS_COPY[freshness].label}
           {s.syncHoursAgo != null && <span className="font-normal"> · synced {s.syncHoursAgo}h ago</span>}
         </span>
-      </span>
+      )}
 
       {onCompare && (
         <label className="flex items-center gap-1.5">
