@@ -152,8 +152,11 @@ export const EVIDENCE_STATE: Record<EvidenceState, {
 }> = {
   activity_present:      { label: "Supporting activity present", tone: "ok", action: null },
   no_activity_recorded:  { label: "No activity recorded",  tone: "warn",    action: { label: "Create task", implemented: true } },
-  not_entitled:          { label: "Cannot be evidenced",   tone: "blocked", action: { label: "Review account plan", implemented: false } },
-  telemetry_unavailable: { label: "Cannot be evidenced",   tone: "blocked", action: { label: "Investigate connection", implemented: false } },
+  /* "Review account plan" and "Investigate connection" had no destination. An
+     action that goes nowhere is worse than none, so until those routes exist
+     both fall back to the one real flow — a task carrying the evidence. */
+  not_entitled:          { label: "Cannot be evidenced",   tone: "blocked", action: { label: "Create task", implemented: true } },
+  telemetry_unavailable: { label: "Cannot be evidenced",   tone: "blocked", action: { label: "Create task", implemented: true } },
   sync_failed:           { label: "Partial evidence",      tone: "unknown", action: { label: "Retry sync", implemented: true } },
   no_product_mapping:    { label: "Cannot be evidenced",   tone: "blocked", action: { label: "Open use-case definition", implemented: true } },
 };
