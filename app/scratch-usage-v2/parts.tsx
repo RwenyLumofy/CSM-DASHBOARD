@@ -54,7 +54,10 @@ export function Disclosure({ label, count, children, dense }: {
  *  hover-only title attribute. */
 export function DefinitionButton({ name, text }: { name: string; text: string }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  /** Opens leftwards when there is not 19rem of room to the right, so the panel
+   *  is never cut off by the edge of the tab. */
+  const [flip, setFlip] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
@@ -62,15 +65,21 @@ export function DefinitionButton({ name, text }: { name: string; text: string })
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
   return (
-    <span className="relative inline-flex" ref={ref as never}>
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+    <span className="relative inline-flex" ref={ref}>
+      <button type="button" aria-expanded={open}
+        onClick={(e) => {
+          const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          setFlip(window.innerWidth - box.left < 320);
+          setOpen((o) => !o);
+        }}
         aria-label={`How ${name} is defined`}
         className="rounded text-fg-subtle transition-colors hover:text-sirius focus-visible:outline focus-visible:outline-2 focus-visible:outline-sirius">
         <Info size={12} aria-hidden />
       </button>
       {open && (
         <span role="dialog" aria-label={`${name} definition`}
-          className="absolute left-0 top-5 z-30 w-[19rem] rounded-lg border border-border bg-surface p-3 shadow-lg">
+          className={cn("absolute top-5 z-50 w-[19rem] rounded-lg border border-border bg-surface p-3 shadow-lg",
+            flip ? "right-0" : "left-0")}>
           <span className="flex items-start gap-2">
             <span className="min-w-0 flex-1">
               <span className="block font-body text-[12px] font-bold text-fg">{name}</span>
@@ -562,7 +571,11 @@ export function SummaryStrip({ blocked, comparison }: {
   ];
   return (
     <div>
-      <div className="mt-3 flex flex-wrap overflow-hidden rounded-lg border border-border-subtle">
+      {/* No overflow-hidden: it was here to clip cell dividers to the rounded
+          corners, and it clipped the definition popover too — the ⓘ opened into a
+          box that was cut off at the strip edge. The cells have no background,
+          so there is nothing to clip. */}
+      <div className="mt-3 flex flex-wrap rounded-lg border border-border-subtle">
         {cells.map((c, i) => (
           <div key={c.k} className={cn("min-w-[10rem] flex-1 px-3.5 py-2", i > 0 && "border-l border-border-subtle")}>
             <span className="flex items-center gap-1.5 font-body text-[11px] text-fg-muted">
