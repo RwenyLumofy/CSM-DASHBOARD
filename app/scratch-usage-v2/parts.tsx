@@ -94,8 +94,10 @@ const FRESH_STYLE: Record<Freshness, string> = {
   unavailable: "bg-bg-muted text-fg-muted",
 };
 
-export function TrustBar({ s, freshness, onPeriod, dense }: {
+export function TrustBar({ s, freshness, onPeriod, dense, compareBasis }: {
   s: ScenarioState; freshness: Freshness; onPeriod: (k: string) => void; dense?: boolean;
+  /** The period release 1 compares against, or null when comparison is off. */
+  compareBasis?: string | null;
 }) {
   const options = MONTHS.slice(-6);
   return (
@@ -114,13 +116,28 @@ export function TrustBar({ s, freshness, onPeriod, dense }: {
         </div>
       </div>
 
-      <span className={cn("rounded-pill px-2 py-0.5 font-body text-[11px] font-semibold", FRESH_STYLE[freshness])}>
-        {FRESHNESS_COPY[freshness].label}
+      {/* Each pill carries its own noun. "Current" beside "Complete" read as two
+          period states; a CSM should not need a definition to tell freshness
+          from period status. */}
+      <span className="flex items-center gap-1.5">
+        <span className="font-body text-[10.5px] text-fg-subtle">Data</span>
+        <span className={cn("rounded-pill px-2 py-0.5 font-body text-[11px] font-semibold", FRESH_STYLE[freshness])}>
+          {FRESHNESS_COPY[freshness].label}
+        </span>
       </span>
-      <span className="rounded-pill bg-bg-muted px-2 py-0.5 font-body text-[11px] font-medium text-fg-muted">
-        {s.periodStatus === "complete" ? "Complete" : "In progress"}
+      <span className="flex items-center gap-1.5">
+        <span className="font-body text-[10.5px] text-fg-subtle">Period</span>
+        <span className="rounded-pill bg-bg-muted px-2 py-0.5 font-body text-[11px] font-medium text-fg-muted">
+          {s.periodStatus === "complete" ? "Complete" : "In progress"}
+        </span>
       </span>
       <span className="font-body text-[11px] text-fg-subtle">{FRESHNESS_COPY[freshness].detail(s.syncHoursAgo)}</span>
+      {/* Release 1 always compares against the immediately preceding complete
+          month. Stated, not configurable — a comparison control is complexity
+          nobody has asked for yet, but an unstated basis is a guess. */}
+      <span className="font-body text-[11px] text-fg-subtle">
+        {compareBasis ? `Compared with ${compareBasis}` : "No comparison"}
+      </span>
 
       <button className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 font-body text-[11.5px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
         <RefreshCw size={11} aria-hidden /> Refresh
@@ -597,8 +614,8 @@ export function UseCaseEvidence({ rows, onTask }: { rows: UseCaseRow[]; onTask: 
         })}
       </ul>
       <p className="mt-2.5 max-w-[92ch] font-body text-[11px] leading-relaxed text-fg-subtle">
-        Parent states describe the evidence, not the outcome. Signal can show what product usage sits behind
-        a use case; it cannot say whether the use case is succeeding.
+        Parent states describe the evidence, not the outcome. Signal can show what product-usage evidence
+        is available for a use case; it cannot say whether the use case is succeeding.
       </p>
     </div>
   );

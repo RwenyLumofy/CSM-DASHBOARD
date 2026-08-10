@@ -173,7 +173,8 @@ export function PrototypeA() {
       <ScenarioSwitch value={p.scenario} onChange={p.pick} />
 
       <div className="rounded-xl border border-border bg-surface p-4">
-        <TrustBar s={p.s} freshness={p.freshness} onPeriod={p.setPeriod} />
+        <TrustBar s={p.s} freshness={p.freshness} onPeriod={p.setPeriod}
+            compareBasis={p.s.comparisonDisabled ? null : "Jun 2026"} />
 
         {empty ? <NoEnvironment /> : (
           <>
@@ -226,7 +227,8 @@ export function PrototypeB() {
       <ScenarioSwitch value={p.scenario} onChange={p.pick} />
 
       <div className="rounded-xl border border-border bg-surface p-3.5">
-        <TrustBar s={p.s} freshness={p.freshness} onPeriod={p.setPeriod} dense />
+        <TrustBar s={p.s} freshness={p.freshness} onPeriod={p.setPeriod} dense
+            compareBasis={p.s.comparisonDisabled ? null : "Jun 2026"} />
 
         {empty ? <NoEnvironment /> : (
           <>
@@ -327,10 +329,11 @@ export function PrototypeHybrid() {
     <div className="flex flex-col gap-3">
       <ScenarioSwitch value={p.scenario} onChange={p.pick} />
 
-      <div className="rounded-xl border border-border bg-surface p-4">
+      <div className="@container/tab rounded-xl border border-border bg-surface p-4">
         {/* 1 · trust controls, full width, on their own rule */}
         <div className="border-b border-border">
-          <TrustBar s={p.s} freshness={p.freshness} onPeriod={p.setPeriod} />
+          <TrustBar s={p.s} freshness={p.freshness} onPeriod={p.setPeriod}
+            compareBasis={p.s.comparisonDisabled ? null : "Jun 2026"} />
         </div>
 
         {empty ? <div className="pt-3"><NoEnvironment /></div> : (
@@ -346,7 +349,11 @@ export function PrototypeHybrid() {
             <SummaryStrip blocked={p.s.comparisonDisabled} />
 
             {/* 3 · analysis row — chart at A's height, at most three observations */}
-            <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+            {/* @container, not lg:. The tab sits inside Signal's nav and profile
+                chrome, so a 1280px viewport leaves roughly 940px of content —
+                a viewport breakpoint would hold two columns at widths where
+                neither panel is readable. Stacks below 62rem of CONTAINER. */}
+            <div className="mt-4 grid gap-5 @[62rem]/tab:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
               <div>
                 <p className="mb-2 flex items-baseline gap-2 font-body text-[11px] font-bold uppercase tracking-[0.06em] text-fg-subtle">
                   Active users by month
@@ -367,7 +374,7 @@ export function PrototypeHybrid() {
 
             {/* 4 · use-case evidence, full width */}
             <Section title="Use-case evidence"
-              aside={<span className="font-body text-[11px] text-fg-subtle">what product usage supports each recorded use case</span>}>
+              aside={<span className="font-body text-[11px] text-fg-subtle">available product-usage evidence for each recorded use case</span>}>
               <UseCaseEvidence rows={USE_CASES} onTask={(t) => p.setTask({ title: t })} />
             </Section>
 
