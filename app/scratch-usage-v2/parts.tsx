@@ -349,7 +349,7 @@ const TONE: Record<string, string> = {
 };
 
 export const StatePill = ({ s }: { s: EvidenceState }) => (
-  <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-body text-[9.5px] font-bold uppercase tracking-[0.05em]", TONE[EVIDENCE_STATE[s].tone])}>
+  <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-body text-[10.5px] font-semibold", TONE[EVIDENCE_STATE[s].tone])}>
     {EVIDENCE_STATE[s].label}
   </span>
 );
@@ -610,11 +610,30 @@ const METRIC_DEFS = {
 export function UseCaseEvidence({ rows, onTask }: { rows: UseCaseRow[]; onTask: (t: string) => void }) {
   const [open, setOpen] = useState<string[]>(["uc2"]);
   const toggle = (id: string) => setOpen((o) => (o.includes(id) ? o.filter((x) => x !== id) : [...o, id]));
+  /* Seven rows each carrying a loud uppercase pill made the section shout
+     uniformly, including at the rows that need nothing. Three levels now:
+
+       supporting  no chip at all — the evidence text says it
+       cannot      plain muted text, because it is a fact about our data
+                   rather than something wrong with the account
+       partial /   a coloured chip, sentence case — these are the only two
+       none        rows a CSM has to do anything about
+
+     Same principle as the trust bar: mark the exception, not the norm. */
   const TONE: Record<ParentState, string> = {
-    supporting: "bg-[#1F9D63]/12 text-[#1F9D63]",
+    supporting: "",
     partial: "bg-[#C99A14]/15 text-[#8A6D12]",
     none: "bg-[#C2610E]/12 text-[#C2610E]",
-    cannot: "bg-bg-muted text-fg-muted",
+    cannot: "",
+  };
+  const Marker = ({ ps }: { ps: ParentState }) => {
+    if (ps === "supporting") return null;
+    if (ps === "cannot") return <span className="shrink-0 font-body text-[11px] text-fg-subtle">{PARENT_LABEL[ps]}</span>;
+    return (
+      <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-body text-[10.5px] font-semibold", TONE[ps])}>
+        {PARENT_LABEL[ps]}
+      </span>
+    );
   };
   return (
     <div>
@@ -636,9 +655,7 @@ export function UseCaseEvidence({ rows, onTask }: { rows: UseCaseRow[]; onTask: 
                 ) : (
                   <span className="min-w-[13rem] flex-1 pl-[18px] font-body text-[13px] text-fg">{r.name}</span>
                 )}
-                <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-body text-[9.5px] font-bold uppercase tracking-[0.05em]", TONE[ps])}>
-                  {PARENT_LABEL[ps]}
-                </span>
+                <Marker ps={ps} />
                 <span className="w-[20rem] font-body text-[11.5px] text-fg-muted">{parentReading(r)}</span>
                 {!multi && only.state !== "activity_present" && (
                   <button onClick={() => onTask(EVIDENCE_STATE[only.state].action?.label ?? "Create task")}
@@ -652,7 +669,7 @@ export function UseCaseEvidence({ rows, onTask }: { rows: UseCaseRow[]; onTask: 
                   {r.products.map((pr) => (
                     <li key={pr.product} className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span className="w-[5rem] shrink-0 font-body text-[11.5px] font-semibold text-fg-muted">{pr.product}</span>
-                      <StatePill s={pr.state} />
+                      {pr.state !== "activity_present" && <StatePill s={pr.state} />}
                       <span className="min-w-[12rem] flex-1 font-body text-[11.5px] text-fg-muted">{pr.reading}</span>
                       {pr.state !== "activity_present" && (
                         <button onClick={() => onTask(EVIDENCE_STATE[pr.state].action?.label ?? "Create task")}
