@@ -96,47 +96,50 @@ const FRESH_STYLE: Record<Freshness, string> = {
 
 export function TrustBar({ s, freshness, onPeriod, dense, compareBasis }: {
   s: ScenarioState; freshness: Freshness; onPeriod: (k: string) => void; dense?: boolean;
-  /** The period release 1 compares against, or null when comparison is off. */
+  /** Kept in the signature: the basis is still a fact the tab must state — it
+   *  is just stated by the metric cells ("−16 vs Jun"), not repeated here. */
   compareBasis?: string | null;
 }) {
-  const options = MONTHS.slice(-6);
-  return (
-    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-2", dense ? "pb-2" : "pb-3")}>
-      <div className="flex items-center gap-1.5">
-        <span className="font-body text-[11px] font-semibold uppercase tracking-[0.05em] text-fg-subtle">Period</span>
-        <div className="flex rounded-lg border border-border p-0.5">
-          {options.map((m) => (
-            <button key={m.key} onClick={() => onPeriod(m.key)}
-              className={cn("rounded-md px-2 py-1 font-body text-[12px] transition-colors",
-                s.selectedPeriod === m.key ? "bg-accent-soft font-semibold text-sirius" : "text-fg-muted hover:text-fg")}>
-              {m.label}
-              {m.status === "in_progress" && <span className="ml-1 text-[10px] text-fg-subtle">MTD</span>}
-            </button>
-          ))}
-        </div>
-      </div>
+  /* This bar had ten elements: six month chips, two labelled pills, a sync
+     line, a comparison line and a button. Three cuts:
 
-      {/* Each pill carries its own noun. "Current" beside "Complete" read as two
-          period states; a CSM should not need a definition to tell freshness
-          from period status. */}
-      <span className="flex items-center gap-1.5">
-        <span className="font-body text-[10.5px] text-fg-subtle">Data</span>
-        <span className={cn("rounded-pill px-2 py-0.5 font-body text-[11px] font-semibold", FRESH_STYLE[freshness])}>
-          {FRESHNESS_COPY[freshness].label}
+       · six chips became one select — period changes rarely and does not earn
+         six permanent controls
+       · "Compared with Jun 2026" is gone; every cell in the summary strip
+         already reads "vs Jun", so the bar was repeating it
+       · "Data Current" and "Last sync 6h ago" were one fact stated twice.
+         Current MEANS synced within 24h, so they are now one unit
+
+     What survives is what a CSM needs before trusting a number: which period,
+     whether it has finished, and how old the data is. */
+  const current = MONTHS.find((m) => m.key === s.selectedPeriod);
+  return (
+    <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-2", dense ? "pb-2" : "pb-3")}>
+      <label className="flex items-center gap-1.5">
+        <span className="font-body text-[10.5px] font-semibold uppercase tracking-[0.05em] text-fg-subtle">Period</span>
+        <span className="relative inline-flex">
+          <select value={s.selectedPeriod} onChange={(e) => onPeriod(e.target.value)}
+            className="appearance-none rounded-lg border border-border bg-surface py-1 pl-2.5 pr-7 font-body text-[12.5px] font-semibold text-fg">
+            {MONTHS.slice(-6).map((m) => (
+              <option key={m.key} value={m.key}>
+                {m.label} 20{m.year}{m.status === "in_progress" ? " · month to date" : ""}
+              </option>
+            ))}
+          </select>
+          <ChevronRight size={11} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rotate-90 text-fg-subtle" aria-hidden />
         </span>
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="font-body text-[10.5px] text-fg-subtle">Period</span>
-        <span className="rounded-pill bg-bg-muted px-2 py-0.5 font-body text-[11px] font-medium text-fg-muted">
+        <span className={cn("rounded-pill px-2 py-0.5 font-body text-[11px] font-medium",
+          s.periodStatus === "complete" ? "bg-bg-muted text-fg-muted" : "bg-[#C99A14]/15 text-[#8A6D12]")}>
           {s.periodStatus === "complete" ? "Complete" : "In progress"}
         </span>
-      </span>
-      <span className="font-body text-[11px] text-fg-subtle">{FRESHNESS_COPY[freshness].detail(s.syncHoursAgo)}</span>
-      {/* Release 1 always compares against the immediately preceding complete
-          month. Stated, not configurable — a comparison control is complexity
-          nobody has asked for yet, but an unstated basis is a guess. */}
-      <span className="font-body text-[11px] text-fg-subtle">
-        {compareBasis ? `Compared with ${compareBasis}` : "No comparison"}
+      </label>
+
+      <span className="flex items-center gap-1.5">
+        <span className="font-body text-[10.5px] font-semibold uppercase tracking-[0.05em] text-fg-subtle">Data</span>
+        <span className={cn("rounded-pill px-2 py-0.5 font-body text-[11px] font-semibold", FRESH_STYLE[freshness])}>
+          {FRESHNESS_COPY[freshness].label}
+          {s.syncHoursAgo != null && <span className="font-normal"> · synced {s.syncHoursAgo}h ago</span>}
+        </span>
       </span>
 
       <button className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 font-body text-[11.5px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
