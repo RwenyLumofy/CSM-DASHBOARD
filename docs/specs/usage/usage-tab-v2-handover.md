@@ -1,6 +1,36 @@
 # Usage tab v2 — handover
 
-**State: prototypes complete, awaiting approval. No production code modified.**
+> ## ⚠ Direction changed — read this before implementing anything
+>
+> On review of the live tab, the product owner's position is that **the existing
+> Usage tab does the job better than the prototype**, and that the work should be
+> a set of targeted switches into it rather than a replacement.
+>
+> That judgement is worth taking at face value. Across five review passes the
+> prototype was reduced repeatedly in response to "too noisy" — and each pass
+> optimised for LESS, which is not the same target as more useful. By the end it
+> showed three of seven use cases, no state chips, and four collapsed
+> disclosures. The original brief warned about exactly this: *"the failure mode
+> is crowded, not detailed."* Density in an operational tool is not automatically
+> noise.
+>
+> **Do not implement the hybrid wholesale.** Start by reading
+> `components/clients/UsageTab.tsx` (1,149 lines) properly — it was never read in
+> full, only its section headings — and identify what it already does well.
+>
+> Candidate switches, from what this work established:
+>
+> 1. **Period + comparison control** — the live tab has no period selection at all
+> 2. **Freshness and period status** — no trust signal today; a CSM cannot tell how old a number is
+> 3. **Remove the active-seat percentage** — the live tab divides by today's seats, which the spec forbids
+> 4. **Use cases versus product usage** — the one genuinely new idea; that join does not exist today
+> 5. **Observations with chart tracing** — the "what deserves attention" layer
+>
+> The prototypes stay as reference for those five pieces. Everything below still
+> applies to whichever route is taken — particularly the settled decisions, the
+> banned vocabulary and the data constraints.
+
+**State: prototypes complete. Direction under revision — see the notice above.**
 Written so another agent or engineer can pick this up without the conversation.
 
 Source of truth: [usage-tab-developer-handoff.md](usage-tab-developer-handoff.md).
@@ -130,6 +160,20 @@ Do not treat as clear:
 - Whether "Add to CS Pulse" can retain structured evidence
 - Existing task-creation flow and whether the state-to-CTA destinations exist
 - Full migration matrix from the current 1,149-line `UsageTab.tsx`
+- **`UsageTab.tsx` read in full.** Only its section headings were ever read. This
+  is now the first task, not the last.
+
+### Two constraints established late, easy to lose
+
+- **Use-case evidence is fixture-fed.** `parentState()` genuinely computes the
+  parent from its children, but the children are hardcoded. Making it live needs
+  each definition's `products[]`, entitlement from the plan, and per-product
+  activity for the period.
+- **Quarterly cannot be summed from monthly.** Active users is a DISTINCT COUNT
+  of people. Someone active in April, May and June is one quarterly active user,
+  not three — Apr+May+Jun = 1,014 against a true figure that is much lower, and
+  inflated by exactly the people who came back. Quarterly needs a distinct count
+  at source; weekly needs a new writer. Neither is UI work.
 
 ---
 
