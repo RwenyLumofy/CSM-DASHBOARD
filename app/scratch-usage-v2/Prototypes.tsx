@@ -23,7 +23,7 @@ import { cn } from "@/lib/cn";
 import {
   ALL_METRICS, CONTENT_MIX, FOLLOW_THROUGH, AI_LEVERAGE, METRICS, MODULES,
   OBSERVATIONS, SCENARIOS, SETUP_CHECKLIST, USE_CASES,
-  freshnessFromHours, type Observation, type Scenario,
+  freshnessFromHours, comparisonFor, type Observation, type Scenario, type CompareMode,
 } from "./fixtures";
 import {
   ActivityChart, Disclosure, InsufficientHistory, KnownLimitation, MetricRow,
@@ -129,6 +129,7 @@ function useProto(initial: Scenario) {
   const [period, setPeriod] = useState(SCENARIOS[initial].selectedPeriod);
   const [focus, setFocus] = useState<Observation | null>(null);
   const [task, setTask] = useState<{ title: string } | null>(null);
+  const [compareMode, setCompareMode] = useState<CompareMode>("previous");
 
   const base = SCENARIOS[scenario];
   const inProgress = period === "2026-08";
@@ -143,7 +144,9 @@ function useProto(initial: Scenario) {
   const freshness = freshnessFromHours(s.syncHoursAgo);
   const pick = (sc: Scenario) => { setScenario(sc); setPeriod(SCENARIOS[sc].selectedPeriod); setFocus(null); };
 
-  return { scenario, pick, s, freshness, period, setPeriod, focus, setFocus, task, setTask };
+  const comparison = comparisonFor(period, compareMode);
+  return { scenario, pick, s, freshness, period, setPeriod, focus, setFocus, task, setTask,
+           compareMode, setCompareMode, comparison };
 }
 
 function ScenarioSwitch({ value, onChange }: { value: Scenario; onChange: (s: Scenario) => void }) {
@@ -174,7 +177,7 @@ export function PrototypeA() {
 
       <div className="rounded-xl border border-border bg-surface p-4">
         <TrustBar s={p.s} freshness={p.freshness} onPeriod={p.setPeriod}
-            compareBasis={p.s.comparisonDisabled ? null : "Jun 2026"} />
+            compareMode={p.compareMode} onCompare={p.setCompareMode} />
 
         {empty ? <NoEnvironment /> : (
           <>
@@ -228,7 +231,7 @@ export function PrototypeB() {
 
       <div className="rounded-xl border border-border bg-surface p-3.5">
         <TrustBar s={p.s} freshness={p.freshness} onPeriod={p.setPeriod} dense
-            compareBasis={p.s.comparisonDisabled ? null : "Jun 2026"} />
+            compareMode={p.compareMode} onCompare={p.setCompareMode} />
 
         {empty ? <NoEnvironment /> : (
           <>
@@ -333,7 +336,7 @@ export function PrototypeHybrid() {
         {/* 1 · trust controls, full width, on their own rule */}
         <div className="border-b border-border">
           <TrustBar s={p.s} freshness={p.freshness} onPeriod={p.setPeriod}
-            compareBasis={p.s.comparisonDisabled ? null : "Jun 2026"} />
+            compareMode={p.compareMode} onCompare={p.setCompareMode} />
         </div>
 
         {empty ? <div className="pt-3"><NoEnvironment /></div> : (
@@ -346,7 +349,7 @@ export function PrototypeHybrid() {
             )}
 
             {/* 2 · compact summary strip */}
-            <SummaryStrip blocked={p.s.comparisonDisabled} />
+            <SummaryStrip blocked={p.s.comparisonDisabled} comparison={p.comparison} />
 
             {/* 3 · analysis row — chart at A's height, at most three observations */}
             {/* @container, not lg:. The tab sits inside Signal's nav and profile

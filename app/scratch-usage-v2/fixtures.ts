@@ -338,3 +338,49 @@ export function parentReading(r: UseCaseRow): string {
   const active = r.products.filter((p) => p.state === "activity_present").length;
   return `${r.products.length} products · activity on ${active === 0 ? "none" : active}`;
 }
+
+/* ------------------------------------------------------- comparison */
+
+export type CompareMode = "previous" | "year" | "none";
+
+export const COMPARE_LABEL: Record<CompareMode, string> = {
+  previous: "Previous complete month",
+  year: "Same month last year",
+  none: "No comparison",
+};
+
+/**
+ * What the selected period is compared against, and whether that is possible.
+ *
+ * Year-over-year is offered because CSMs ask for it, and refused honestly when
+ * the data does not exist: client_usage_monthly starts Nov 2025, so Jul 2025
+ * has no row. Returning a silent null there would render "—" and look like a
+ * flat month rather than an absent one.
+ */
+export function comparisonFor(periodKey: string, mode: CompareMode):
+  { basis: string; from: number; available: true } | { basis: string; reason: string; available: false } | null {
+  if (mode === "none") return null;
+  const idx = MONTHS.findIndex((m) => m.key === periodKey);
+  if (idx < 0) return null;
+
+  const target = mode === "previous"
+    ? MONTHS[idx - 1]?.key
+    : `${Number(periodKey.slice(0, 4)) - 1}${periodKey.slice(4)}`;
+
+  const row = MONTHS.find((m) => m.key === target);
+  const label = (k?: string) => {
+    const m = MONTHS.find((x) => x.key === k);
+    return m ? `${m.label} 20${m.year}` : k ? `${k.slice(5)}/${k.slice(0, 4)}` : "—";
+  };
+
+  if (!row || row.activeUsers == null) {
+    return {
+      basis: label(target),
+      available: false,
+      reason: mode === "year"
+        ? `The monthly series starts Nov 2025, so ${label(target)} has no reading.`
+        : `${label(target)} has no reading.`,
+    };
+  }
+  return { basis: label(target), from: row.activeUsers, available: true };
+}

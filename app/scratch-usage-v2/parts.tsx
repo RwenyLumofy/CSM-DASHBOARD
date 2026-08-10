@@ -15,6 +15,7 @@ import {
   type EvidenceState, type Freshness, type MetricFact, type MonthPoint,
   type Observation, type ScenarioState, type UseCaseRow,
   PARENT_LABEL, parentState, parentReading, type ParentState,
+  COMPARE_LABEL, type CompareMode,
 } from "./fixtures";
 
 /* ------------------------------------------------------------ primitives */
@@ -94,11 +95,13 @@ const FRESH_STYLE: Record<Freshness, string> = {
   unavailable: "bg-bg-muted text-fg-muted",
 };
 
-export function TrustBar({ s, freshness, onPeriod, dense, compareBasis }: {
+export function TrustBar({ s, freshness, onPeriod, dense, compareMode = "previous", onCompare }: {
   s: ScenarioState; freshness: Freshness; onPeriod: (k: string) => void; dense?: boolean;
   /** Kept in the signature: the basis is still a fact the tab must state — it
    *  is just stated by the metric cells ("−16 vs Jun"), not repeated here. */
   compareBasis?: string | null;
+  compareMode?: CompareMode;
+  onCompare?: (m: CompareMode) => void;
 }) {
   /* This bar had ten elements: six month chips, two labelled pills, a sync
      line, a comparison line and a button. Three cuts:
@@ -141,6 +144,21 @@ export function TrustBar({ s, freshness, onPeriod, dense, compareBasis }: {
           {s.syncHoursAgo != null && <span className="font-normal"> · synced {s.syncHoursAgo}h ago</span>}
         </span>
       </span>
+
+      {onCompare && (
+        <label className="flex items-center gap-1.5">
+          <span className="font-body text-[10.5px] font-semibold uppercase tracking-[0.05em] text-fg-subtle">Compare</span>
+          <span className="relative inline-flex">
+            <select value={compareMode} onChange={(e) => onCompare(e.target.value as CompareMode)}
+              className="appearance-none rounded-lg border border-border bg-surface py-1 pl-2.5 pr-7 font-body text-[12px] text-fg">
+              {(Object.keys(COMPARE_LABEL) as CompareMode[]).map((k) => (
+                <option key={k} value={k}>{COMPARE_LABEL[k]}</option>
+              ))}
+            </select>
+            <ChevronRight size={11} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rotate-90 text-fg-subtle" aria-hidden />
+          </span>
+        </label>
+      )}
 
       <button className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 font-body text-[11.5px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
         <RefreshCw size={11} aria-hidden /> Refresh
@@ -514,10 +532,20 @@ export const KnownLimitation = () => (
  *  oversized metric cards. Licences are PEERS of the metrics here, not a
  *  footnote beneath them, because they are facts of the same standing; they are
  *  simply as-of-today rather than for the period. */
-export function SummaryStrip({ blocked }: { blocked: string | null }) {
+export function SummaryStrip({ blocked, comparison }: {
+  blocked: string | null;
+  /** Resolved comparison — null when the CSM chose none, unavailable when the
+   *  period they picked has no stored reading. */
+  comparison?: { basis: string; available: boolean; reason?: string } | null;
+}) {
+  const cmp = blocked ? null : comparison;
+  const deltaNote = (base: string) =>
+    !cmp ? (blocked ? "Comparison unavailable" : "No comparison")
+      : cmp.available ? `${base} vs ${cmp.basis}`
+      : `No reading for ${cmp.basis}`;
   const cells = [
-    { k: "Active users", v: "317", u: "people", d: blocked ? null : { txt: "↘ −16 vs Jun", tone: "dn" }, def: METRIC_DEFS.m1 },
-    { k: "Weekly-to-monthly ratio", v: "35", u: "%", d: blocked ? null : { txt: "— no change vs Jun", tone: "fl" }, def: METRIC_DEFS.m2 },
+    { k: "Active users", v: "317", u: "people", d: { txt: deltaNote("↘ −16"), tone: cmp?.available ? "dn" : "n" }, def: METRIC_DEFS.m1 },
+    { k: "Weekly-to-monthly ratio", v: "35", u: "%", d: { txt: deltaNote("— no change"), tone: "fl" }, def: METRIC_DEFS.m2 },
     { k: "Used licences", v: String(LICENCES.used), u: null, d: { txt: `as of ${LICENCES.asOf}`, tone: "n" }, def: LICENCES.note },
     { k: "Available licences", v: String(LICENCES.available), u: null, d: { txt: `as of ${LICENCES.asOf}`, tone: "n" }, def: LICENCES.note },
   ];
@@ -534,7 +562,7 @@ export function SummaryStrip({ blocked }: { blocked: string | null }) {
               {c.u && <span className="font-body text-[11px] text-fg-subtle">{c.u}</span>}
             </span>
             <span className={cn("tabular block font-body text-[11px]",
-              c.d?.tone === "dn" ? "font-semibold text-[#C2610E]" : c.d?.tone === "fl" ? "text-fg-subtle" : "text-fg-subtle")}>
+              c.d?.tone === "dn" ? "font-semibold text-[#C2610E]" : "text-fg-subtle")}>
               {c.d ? c.d.txt : "Comparison unavailable"}
             </span>
           </div>
