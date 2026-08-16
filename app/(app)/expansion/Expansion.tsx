@@ -63,7 +63,7 @@ export function Expansion({ data }: { data: ExpansionBoardData }) {
   const [items, setItems] = useState<Opportunity[]>(data.opportunities);
   useEffect(() => { setItems(data.opportunities); }, [data.opportunities]);
 
-  const { today, people, accounts, canWrite, me } = data;
+  const { today, people, accounts, canWrite, canDelete, me } = data;
 
   const [layout, setLayout] = useState<Layout>("board");
   const [q, setQ] = useState("");
@@ -290,7 +290,7 @@ export function Expansion({ data }: { data: ExpansionBoardData }) {
 
       {record && (
         <OpportunityRecord
-          o={record} today={today} people={people} canWrite={canWrite}
+          o={record} today={today} people={people} canWrite={canWrite} canDelete={canDelete}
           accounts={accounts}
           onClose={() => setOpenId(null)}
           onMove={(s) => moveStage(record, s)}

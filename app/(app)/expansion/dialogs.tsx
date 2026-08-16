@@ -19,8 +19,8 @@ import { cn } from "@/lib/cn";
 import { moneyFull } from "@/lib/expansion/format";
 import {
   CONFIDENCE_LABEL, DROP_REASONS, LOSS_REASONS, OUTCOME_LABEL, STAGE_LABEL, TYPES, TYPE_LABEL,
-  type AgreementType, type Confidence, type ExpansionAccount, type ExpansionPerson,
-  type ExpansionType, type NewOpportunityInput, type Opportunity, type Outcome,
+  type AgreementType, type Confidence, type EditOpportunityInput, type ExpansionAccount,
+  type ExpansionPerson, type ExpansionType, type NewOpportunityInput, type Opportunity, type Outcome,
 } from "@/lib/expansion/types";
 import { closeOpportunityAction } from "./actions";
 import { Btn, DateField, Fld, Row, field } from "./ui";
@@ -200,6 +200,158 @@ export function CreateForm({ accounts, people, me, today, onClose, onCreate }: {
             <Btn onClick={onClose}>Cancel</Btn>
             <Btn primary disabled={!ready && touched} onClick={submit}>Create</Btn>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Editing ──────────────────────────────────────────────────────────────── */
+
+/**
+ * Correct the details that creation froze.
+ *
+ * A sheet rather than six inline editors, deliberately. The record is a place
+ * to read an opportunity and act on it — next step, note, stage, owner — and
+ * scattering six more click-to-edit affordances through it turns it back into
+ * the form the wide overlay exists to avoid. Correcting a mistyped ARR is an
+ * occasional, deliberate act; it can afford a dialog.
+ *
+ * ARR and expected close are disabled once closed: the recorded value of a won
+ * deal is a commercial fact, and a close date means nothing after the close.
+ * The server refuses them too — this only explains why.
+ */
+export function EditSheet({ o, canDelete, onCancel, onSave, onDelete, saving }: {
+  o: Opportunity;
+  canDelete: boolean;
+  onCancel: () => void;
+  onSave: (patch: EditOpportunityInput) => void;
+  onDelete: () => void;
+  saving?: boolean;
+}) {
+  const closed = o.outcome !== null;
+  const [name, setName] = useState(o.name);
+  const [description, setDescription] = useState(o.description ?? "");
+  const [arr, setArr] = useState(o.expectedArr == null ? "" : String(o.expectedArr));
+  const [expansionType, setExpansionType] = useState<ExpansionType>(o.expansionType);
+  const [product, setProduct] = useState(o.product ?? "");
+  const [closeDate, setCloseDate] = useState(o.expectedCloseDate ?? "");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  /* Only what actually CHANGED goes to the server.
+     Sending the whole form would be simpler, but the activity log names the
+     fields it was given — so a one-word fix to the name would be recorded as
+     "Details edited · name, description, product, type, ARR, expected close"
+     and the log would stop being usable as a record of what happened. */
+  const submit = () => {
+    if (!name.trim()) return;
+    const patch: EditOpportunityInput = {};
+    const nextName = name.trim();
+    const nextDesc = description.trim() || null;
+    const nextProduct = product.trim() || null;
+
+    if (nextName !== o.name) patch.name = nextName;
+    if (nextDesc !== (o.description ?? null)) patch.description = nextDesc;
+    if (nextProduct !== (o.product ?? null)) patch.product = nextProduct;
+    if (expansionType !== o.expansionType) patch.expansionType = expansionType;
+
+    // Omitted entirely when closed, so the action never has to refuse them.
+    if (!closed) {
+      const nextArr = arr === "" ? null : Number(arr);
+      if (nextArr !== (o.expectedArr ?? null)) patch.expectedArr = nextArr;
+      const nextClose = closeDate || null;
+      if (nextClose !== (o.expectedCloseDate ?? null)) patch.expectedCloseDate = nextClose;
+    }
+
+    onSave(patch);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[55] flex items-start justify-center bg-cosmos/25 p-6" onClick={onCancel}>
+      <div onClick={(e) => e.stopPropagation()}
+        className="mt-[9vh] flex max-h-[82vh] w-full max-w-[520px] flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
+        <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+          <h2 className="text-[14px] font-semibold text-fg">Edit opportunity</h2>
+          <button onClick={onCancel} className="ml-auto rounded-md px-1.5 text-fg-subtle hover:bg-bg-subtle hover:text-fg" aria-label="Close">✕</button>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto px-5 py-4">
+          <Fld label="Opportunity" required error={!name.trim() ? "A name is required" : undefined}>
+            <input value={name} onChange={(e) => setName(e.target.value)} className={cn(field, "py-2 text-[14px]")} />
+          </Fld>
+
+          <Fld label="Description">
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
+              className={cn(field, "resize-none py-2")} />
+          </Fld>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Fld label="Expected ARR"
+              hint={closed ? "Locked — a closed opportunity's value is a record" : undefined}>
+              <div className={cn("flex items-center gap-1.5 rounded-md border border-border px-2.5 py-2 focus-within:border-accent",
+                closed && "opacity-50")}>
+                <span className="text-[13px] text-fg-subtle">{o.currency}</span>
+                <input value={arr} disabled={closed} onChange={(e) => setArr(e.target.value.replace(/\D/g, ""))}
+                  inputMode="numeric" placeholder="0"
+                  className="w-full min-w-0 bg-transparent text-[14px] tabular-nums text-fg outline-none placeholder:text-fg-subtle disabled:cursor-not-allowed" />
+              </div>
+            </Fld>
+            <Fld label="Expected close" hint={closed ? "Locked — it already closed" : undefined}>
+              {closed
+                ? <div className={cn(field, "py-2 opacity-50")}>{o.expectedCloseDate ?? "—"}</div>
+                : <DateField value={closeDate} onChange={setCloseDate} />}
+            </Fld>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Fld label="Expansion type">
+              <select value={expansionType} onChange={(e) => setExpansionType(e.target.value as ExpansionType)}
+                className={cn(field, "py-2")}>
+                {TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
+              </select>
+            </Fld>
+            <Fld label="Product or module">
+              <input value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Develop"
+                className={cn(field, "py-2")} />
+            </Fld>
+          </div>
+
+          {/* Delete lives here, at the bottom, behind a confirm, and only for the
+              tiers allowed it. The copy names the alternative, because deleting
+              a real motion that was lost destroys the loss data. */}
+          {canDelete && (
+            <div className="mt-2 border-t border-border pt-3.5">
+              {confirmingDelete ? (
+                <div className="rounded-lg border border-danger/40 bg-danger-bg px-3 py-2.5">
+                  <p className="text-[12px] font-medium text-danger-fg">
+                    Delete this opportunity and its whole history?
+                  </p>
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-fg-muted">
+                    Permanent, and it takes the next steps, notes and activity with it. If this was a
+                    real motion you stopped pursuing, close it as <span className="text-fg">Dropped</span>{" "}
+                    instead — that stays countable.
+                  </p>
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <button onClick={onDelete} disabled={saving}
+                      className="rounded-md bg-danger px-2.5 py-1.5 text-[12px] font-medium text-white transition hover:opacity-90 disabled:opacity-40">
+                      Delete permanently
+                    </button>
+                    <Btn onClick={() => setConfirmingDelete(false)}>Keep it</Btn>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmingDelete(true)}
+                  className="text-[11.5px] text-fg-subtle transition hover:text-danger-fg hover:underline">
+                  Delete this opportunity
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+          <Btn onClick={onCancel}>Cancel</Btn>
+          <Btn primary disabled={!name.trim() || saving} onClick={submit}>Save changes</Btn>
         </div>
       </div>
     </div>

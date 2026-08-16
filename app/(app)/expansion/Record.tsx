@@ -23,19 +23,24 @@ import {
   type ActivityEntry, type Confidence, type ExpansionAccount, type ExpansionPerson,
   type Opportunity, type OpportunityNote, type Stage,
 } from "@/lib/expansion/types";
-import { addNoteAction, loadOpportunityDetailAction, setArrRecordedAction } from "./actions";
+import {
+  addNoteAction, deleteOpportunityAction, loadOpportunityDetailAction, setArrRecordedAction,
+  updateOpportunityDetailsAction,
+} from "./actions";
+import { EditSheet } from "./dialogs";
 import {
   Btn, DUE_TONE, Line, MOMENTUM_DOT, MOMENTUM_TEXT, OutcomeChip, OwnerPicker, TypeChip,
   field, type EditHandlers,
 } from "./ui";
 
 export function OpportunityRecord({
-  o, today, people, canWrite, accounts, onClose, onMove, onClosing, edit, onChanged, onError,
+  o, today, people, canWrite, canDelete, accounts, onClose, onMove, onClosing, edit, onChanged, onError,
 }: {
   o: Opportunity;
   today: string;
   people: ExpansionPerson[];
   canWrite: boolean;
+  canDelete: boolean;
   accounts: ExpansionAccount[];
   onClose: () => void;
   onMove: (s: Stage) => void;
@@ -57,6 +62,7 @@ export function OpportunityRecord({
   const [justPosted, setJustPosted] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [promptDue, setPromptDue] = useState("");
+  const [editing, setEditing] = useState(false);
 
   const load = useCallback(() => {
     startTransition(async () => {
@@ -110,6 +116,12 @@ export function OpportunityRecord({
                 {closed && o.outcome === "won" ? "Final ARR" : closed ? "Potential ARR" : "ARR"}
               </div>
             </div>
+            {canWrite && (
+              <button onClick={() => setEditing(true)} title="Edit the details"
+                className="shrink-0 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-fg-muted transition hover:bg-bg-subtle hover:text-fg">
+                Edit
+              </button>
+            )}
             <button onClick={onClose} className="-mr-1 shrink-0 rounded-md px-1.5 py-0.5 text-fg-subtle hover:bg-bg-subtle hover:text-fg" aria-label="Close">✕</button>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -368,6 +380,18 @@ export function OpportunityRecord({
           </aside>
         </div>
       </div>
+
+      {editing && (
+        <EditSheet
+          o={o}
+          canDelete={canDelete}
+          onCancel={() => setEditing(false)}
+          onSave={(patch) => run(() => updateOpportunityDetailsAction(o.id, patch), () => setEditing(false))}
+          /* Closes the whole record, not just the sheet: the thing it was
+             showing no longer exists. */
+          onDelete={() => run(() => deleteOpportunityAction(o.id), () => { setEditing(false); onClose(); })}
+        />
+      )}
     </div>
   );
 }

@@ -188,6 +188,18 @@ export async function getOpportunityClientIdDb(id: string): Promise<string | nul
   return row?.clientId ?? null;
 }
 
+/** Is this opportunity closed, and how? The edit action needs exactly this and
+ *  nothing else — two columns, not a whole row, so a details edit does not read
+ *  every commercial figure it is not allowed to touch. */
+export async function getOpportunityOutcomeDb(id: string): Promise<{ outcome: string | null } | null> {
+  const db = getDb();
+  const [row] = await withDbTimeout(
+    db.select({ outcome: schema.expansionOpportunities.outcome })
+      .from(schema.expansionOpportunities).where(eq(schema.expansionOpportunities.id, id)).limit(1),
+  );
+  return row ?? null;
+}
+
 /** Same, for a next step: which opportunity, and therefore which account. */
 export async function getStepOwnerDb(stepId: string): Promise<{ opportunityId: string; clientId: string } | null> {
   const db = getDb();
@@ -451,6 +463,31 @@ export async function completeNextStepDb(
     .where(eq(schema.expansionNextSteps.id, stepId))
     .returning({ id: schema.expansionNextSteps.id });
   if (rows.length) await touch(opportunityId, actorEmail, summary);
+  return rows.length;
+}
+
+/**
+ * Remove an opportunity and everything hanging off it.
+ *
+ * A HARD delete, not a soft one. A soft-deleted row would have to be filtered
+ * out of the board, the counts, attention(), the client profile, the Action
+ * list and the Today lane — six places, each one a chance to forget — and this
+ * is only ever used for a row that should not exist. There is nothing to
+ * preserve and no report that wants it.
+ *
+ * Steps, notes and activity go with it by ON DELETE CASCADE, so there are no
+ * orphans and no second query to forget.
+ *
+ * Returns the number of rows removed: 0 means it was already gone, which the
+ * caller reports rather than treating as success.
+ */
+export async function deleteOpportunityDb(id: string): Promise<number> {
+  const db = getDb();
+  const rows = await withDbTimeout(
+    db.delete(schema.expansionOpportunities)
+      .where(eq(schema.expansionOpportunities.id, id))
+      .returning({ id: schema.expansionOpportunities.id }),
+  );
   return rows.length;
 }
 

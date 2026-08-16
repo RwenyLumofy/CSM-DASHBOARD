@@ -22,7 +22,7 @@ import { hasDatabase } from "@/lib/config";
 import { dbHealthy } from "@/lib/db/health";
 import { getClients, getRoleLabels } from "@/lib/data";
 import { permissionTier, roleLabel, type Role } from "@/lib/roles";
-import { canEditExpansion, canSeeExpansion } from "@/lib/expansion/access";
+import { canDeleteExpansion, canEditExpansion, canSeeExpansion } from "@/lib/expansion/access";
 import { attention, needsAttention, surfacesOnActionList, todayIso, ATTENTION_ORDER } from "@/lib/expansion/attention";
 import {
   getAccountPlansDb, getAccountsWithOpenOpportunitiesDb, getOpportunitiesForClientsDb,
@@ -33,7 +33,7 @@ import type {
 } from "@/lib/expansion/types";
 
 const EMPTY: ExpansionBoardData = {
-  opportunities: [], accounts: [], people: [], me: null, canWrite: false,
+  opportunities: [], accounts: [], people: [], me: null, canWrite: false, canDelete: false,
   today: todayIso(), unavailable: false,
 };
 
@@ -162,6 +162,9 @@ export const getExpansionBoard = cache(async (): Promise<ExpansionBoardData> => 
     me: email,
     // Hiding the controls is courtesy; every action re-checks server-side.
     canWrite: canEditExpansion(role),
+    // Narrower than canWrite on purpose: hard delete is for a row that should
+    // never have existed. Stopping a real motion is Dropped. See ./access.ts.
+    canDelete: canDeleteExpansion(role),
     today,
     unavailable,
   };

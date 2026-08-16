@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canSeeExpansion, canEditExpansion } from "./access";
+import { canSeeExpansion, canEditExpansion, canDeleteExpansion } from "./access";
 import { ROLES, type Role } from "@/lib/roles";
 
 /* A GUEST HAS NO ACCESS TO EXPANSION AT ALL — not read-only access, none.
@@ -57,4 +57,34 @@ test("nothing is writable that is not also readable", () => {
   for (const role of ROLES) {
     if (canEditExpansion(role)) assert.equal(canSeeExpansion(role), true, role);
   }
+});
+
+/* ── Delete is narrower than edit, and deliberately so ────────────────────── */
+
+test("only the management tiers may hard delete", () => {
+  assert.equal(canDeleteExpansion("super_admin"), true);
+  assert.equal(canDeleteExpansion("admin"), true);
+  assert.equal(canDeleteExpansion("operator"), false);
+  assert.equal(canDeleteExpansion("guest"), false);
+  assert.equal(canDeleteExpansion(null), false);
+});
+
+test("every legacy operator tier is kept out of delete too", () => {
+  for (const role of ROLES as readonly Role[]) {
+    if (role === "admin" || role === "super_admin") continue;
+    assert.equal(canDeleteExpansion(role), false, `${role} must not be able to delete`);
+  }
+});
+
+test("delete is strictly narrower than edit — never the other way round", () => {
+  for (const role of ROLES as readonly Role[]) {
+    if (canDeleteExpansion(role)) {
+      assert.equal(canEditExpansion(role), true, `${role} can delete but not edit`);
+    }
+  }
+});
+
+test("an operator can edit but cannot delete — Dropped is their removal path", () => {
+  assert.equal(canEditExpansion("operator"), true);
+  assert.equal(canDeleteExpansion("operator"), false);
 });

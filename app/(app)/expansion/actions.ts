@@ -26,16 +26,17 @@ import { revalidatePath } from "next/cache";
 import { denyClientWrite, getCurrentUserEmail, getCurrentUserRole } from "@/lib/auth";
 import { getClients } from "@/lib/data";
 import { hasDatabase } from "@/lib/config";
-import { canEditExpansion } from "@/lib/expansion/access";
+import { canDeleteExpansion, canEditExpansion } from "@/lib/expansion/access";
 import { OUTCOME_LABEL, CONFIDENCE_LABEL, LOSS_REASONS, DROP_REASONS,
   isConfidence, isExpansionType, isStage,
-  type CloseInput, type Confidence, type NewOpportunityInput, type Outcome, type Stage,
+  type CloseInput, type Confidence, type EditOpportunityInput, type NewOpportunityInput,
+  type Outcome, type Stage,
 } from "@/lib/expansion/types";
 import { assignableOwnerEmails } from "@/lib/expansion/read";
 import {
   addNextStepDb, addNoteDb, closeOpportunityDb, completeNextStepDb, createOpportunityDb,
-  getOpportunityClientIdDb, getStepOwnerDb, moveStageDb, setArrRecordedDb, updateNextStepDb,
-  updateOpportunityDb,
+  deleteOpportunityDb, getOpportunityClientIdDb, getOpportunityOutcomeDb, getStepOwnerDb, moveStageDb,
+  setArrRecordedDb, updateNextStepDb, updateOpportunityDb,
 } from "@/lib/expansion/repo";
 
 export interface ExpansionActionResult {
@@ -330,6 +331,115 @@ export async function setConfidenceAction(id: string, confidence: Confidence | n
       await getCurrentUserEmail(),
       confidence ? `Confidence → ${CONFIDENCE_LABEL[confidence]}` : "Confidence cleared",
     );
+    if (!n) return { ok: false, error: GONE };
+    revalidate(gate.clientId);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/* ── Correcting the record ────────────────────────────────────────────────── */
+
+/**
+ * Edit the details that were previously frozen at creation.
+ *
+ * The create form deliberately blocks on nothing but the account and the name,
+ * because blocking creation is how opportunities stop being recorded at all.
+ * That only works if the thin and mistyped records it accepts can be corrected
+ * afterwards — otherwise the price of recording something quickly is a wrong
+ * number nobody can fix.
+ *
+ * TWO FIELDS ARE REFUSED ONCE CLOSED. `expectedArr` on a won deal is a
+ * commercial fact of record, and the figure the page shows for it is
+ * `finalArr`, which only the close dialog may set; `expectedCloseDate` means
+ * nothing after the close. Everything else — name, description, type, product —
+ * stays editable forever, because a typo does not become true by being old.
+ */
+export async function updateOpportunityDetailsAction(
+  id: string,
+  patch: EditOpportunityInput,
+): Promise<ExpansionActionResult> {
+  const gate = await guardOpportunity(id);
+  if ("error" in gate) return { ok: false, error: gate.error };
+
+  const row = await getOpportunityOutcomeDb(id).catch(() => null);
+  if (!row) return { ok: false, error: GONE };
+  const closed = row.outcome !== null;
+
+  const clean: Parameters<typeof updateOpportunityDb>[1] = {};
+
+  if (patch.name !== undefined) {
+    const name = patch.name.trim();
+    if (!name) return { ok: false, error: "An opportunity needs a name." };
+    clean.name = name;
+  }
+  if (patch.description !== undefined) clean.description = patch.description?.trim() || null;
+  if (patch.product !== undefined) clean.product = patch.product?.trim() || null;
+  if (patch.expansionType !== undefined) {
+    if (!isExpansionType(patch.expansionType)) return { ok: false, error: "That isn't an expansion type." };
+    clean.expansionType = patch.expansionType;
+  }
+  if (patch.expectedArr !== undefined) {
+    if (closed) return { ok: false, error: "A closed opportunity's value can't be edited here." };
+    const arr = money(patch.expectedArr);
+    if ("error" in arr) return { ok: false, error: arr.error };
+    clean.expectedArr = arr.value;
+  }
+  if (patch.expectedCloseDate !== undefined) {
+    if (closed) return { ok: false, error: "A closed opportunity has no expected close date." };
+    clean.expectedCloseDate = optionalDate(patch.expectedCloseDate);
+  }
+
+  if (!Object.keys(clean).length) return { ok: true };
+
+  try {
+    // Names the fields rather than the values: an activity log is a record of
+    // what changed, not a place to re-print commercial figures on every edit.
+    const changed = Object.keys(clean)
+      .map((k) => FIELD_LABEL[k] ?? k)
+      .join(", ");
+    const n = await updateOpportunityDb(id, clean, await getCurrentUserEmail(), `Details edited · ${changed}`);
+    if (!n) return { ok: false, error: GONE };
+    revalidate(gate.clientId);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+const FIELD_LABEL: Record<string, string> = {
+  name: "name",
+  description: "description",
+  expectedArr: "ARR",
+  expansionType: "type",
+  product: "product",
+  expectedCloseDate: "expected close",
+};
+
+/**
+ * Hard delete — for a row that should never have existed.
+ *
+ * TWO GATES, and both are load-bearing:
+ *   canDeleteExpansion   the TIER. Admin and super-admin only, so a CSM
+ *                        tidying their board cannot quietly erase a lost deal
+ *                        and take the drop-reason data with it.
+ *   denyClientWrite      the ACCOUNT. An admin scoped to a subset of accounts
+ *                        still cannot reach outside it.
+ *
+ * This is NOT the way to stop pursuing something — that is Dropped, which is a
+ * commercial outcome with a reason and stays countable. Deleting a real motion
+ * because it was lost destroys the answer to "why do we lose expansion".
+ */
+export async function deleteOpportunityAction(id: string): Promise<ExpansionActionResult> {
+  const role = await getCurrentUserRole();
+  if (!canDeleteExpansion(role)) {
+    return { ok: false, error: "Only an admin can delete an opportunity. To stop pursuing it, close it as Dropped." };
+  }
+  const gate = await guardOpportunity(id);
+  if ("error" in gate) return { ok: false, error: gate.error };
+  try {
+    const n = await deleteOpportunityDb(id);
     if (!n) return { ok: false, error: GONE };
     revalidate(gate.clientId);
     return { ok: true };

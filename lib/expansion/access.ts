@@ -63,3 +63,32 @@ export function canEditExpansion(role: Role | null): boolean {
   if (!role) return false;
   return permissionTier(role) !== "guest";
 }
+
+/**
+ * May this role HARD DELETE an opportunity? Admin and super-admin only.
+ *
+ * Delete and Dropped answer different questions, and the whole reason this is a
+ * narrower gate than `canEditExpansion` is to keep them apart:
+ *
+ *   Dropped  a real motion we stopped pursuing. A commercial outcome, with a
+ *            reason from a fixed list, and it must stay countable — "why do we
+ *            lose expansion" is the first question anyone asks of this data.
+ *   Delete   a row that should never have existed: wrong account, duplicate,
+ *            something typed in by accident. Not an outcome. Nothing to count.
+ *
+ * If every CSM could delete, tidying the board would quietly erase lost deals
+ * and the drop-reason counts would empty out — the loss data disappearing
+ * exactly as it became interesting. If nobody could, every mis-keyed row would
+ * have to masquerade as "we stopped pursuing it" and would poison the same
+ * counts from the other direction. Restricting it to the management tiers keeps
+ * the honest path (Dropped) the easy one, and leaves a way to remove a mistake.
+ *
+ * This is the TIER gate only. `deleteOpportunityAction` still calls
+ * `denyClientWrite` for the opportunity's own account: an admin scoped to a
+ * subset of accounts cannot delete outside it.
+ */
+export function canDeleteExpansion(role: Role | null): boolean {
+  if (!role) return false;
+  const tier = permissionTier(role);
+  return tier === "admin" || tier === "super_admin";
+}

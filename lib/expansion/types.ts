@@ -192,6 +192,9 @@ export interface ExpansionBoardData {
   me: string | null;
   /** False for a guest: every control that writes is hidden AND gated server-side. */
   canWrite: boolean;
+  /** Admin and super-admin only. Hard delete is for a row that should never
+   *  have existed; stopping a real motion is Dropped. See lib/expansion/access.ts. */
+  canDelete: boolean;
   /** "YYYY-MM-DD" resolved on the server, so every read-out agrees on the date. */
   today: string;
   /**
@@ -219,6 +222,27 @@ export interface NewOpportunityInput {
   expectedCloseDate?: string | null;
   confidence?: Confidence | null;
   nextStep?: { text: string; dueDate: string } | null;
+}
+
+/**
+ * The details a CSM may correct after creation.
+ *
+ * Every one of these is set at creation and was, until now, frozen — which sat
+ * badly with a create form that deliberately blocks on nothing: thin and
+ * mistyped records are exactly what it is designed to accept, so they have to
+ * be fixable.
+ *
+ * `expectedArr` and `expectedCloseDate` are refused once the opportunity is
+ * closed (the action enforces it): the recorded value of a won deal is a
+ * commercial fact, and a close date is meaningless after the close.
+ */
+export interface EditOpportunityInput {
+  name?: string;
+  description?: string | null;
+  expectedArr?: number | null;
+  expansionType?: ExpansionType;
+  product?: string | null;
+  expectedCloseDate?: string | null;
 }
 
 export interface CloseInput {
