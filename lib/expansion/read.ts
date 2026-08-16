@@ -23,7 +23,7 @@ import { dbHealthy } from "@/lib/db/health";
 import { getClients, getRoleLabels } from "@/lib/data";
 import { permissionTier, roleLabel, type Role } from "@/lib/roles";
 import { canEditExpansion, canSeeExpansion } from "@/lib/expansion/access";
-import { attention, needsAttention, todayIso, ATTENTION_ORDER } from "@/lib/expansion/attention";
+import { attention, needsAttention, surfacesOnActionList, todayIso, ATTENTION_ORDER } from "@/lib/expansion/attention";
 import {
   getAccountPlansDb, getAccountsWithOpenOpportunitiesDb, getOpportunitiesForClientsDb,
   getOpportunityHistoryDb,
@@ -270,7 +270,16 @@ export async function getExpansionActionItems(): Promise<{
       return owner === null || !me || owner === me;
     })
     .map((o) => ({ o, a: attention(o, board.today) }))
-    .filter(({ a }) => a.needs)
+    /* The brief's rule for this surface is FOUR cases: overdue, due today, no
+       next step, or untouched for 14 days. `a.needs` is only the first, third
+       and fourth — it deliberately excludes due_soon, which is right for the
+       board (a step due in three days is not a problem) and wrong here (a step
+       due TODAY is exactly what a daily work list is for).
+
+       surfacesOnActionList() is that rule, and it reads attention() rather than
+       restating it. Filtering on `a.needs` here was a fifth place quietly
+       deciding what "needs attention" means. */
+    .filter(({ o }) => surfacesOnActionList(o, board.today))
     .sort((x, y) => ATTENTION_ORDER.indexOf(x.a.state) - ATTENTION_ORDER.indexOf(y.a.state))
     .map(({ o, a }) => ({ opportunity: o, state: a.state, line: a.label }));
   return { items, today: board.today };
