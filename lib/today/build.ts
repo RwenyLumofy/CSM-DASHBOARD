@@ -40,8 +40,13 @@ const STATE_TONE: Record<OperationalState, LaneItemTone> = {
 };
 
 /** Bucket the derived priorities/signals/commitments into board lanes. Shared
- *  by the real and mock paths (both produce the same domain types). */
-function buildLaneSeeds(accounts: Account[], priorities: Priority[], signals: Signal[], commitments: Commitment[], projectSeeds: LaneItem[]): Record<LaneKey, LaneItem[]> {
+ *  by the real and mock paths (both produce the same domain types).
+ *
+ *  `expansionSeeds` are REAL opportunities, already filtered by attention().
+ *  `accountsWithOpportunity` is every account holding an OPEN opportunity —
+ *  a superset of the seeds, and the right key for suppressing the derived
+ *  "this account might expand" signals. */
+function buildLaneSeeds(accounts: Account[], priorities: Priority[], signals: Signal[], commitments: Commitment[], projectSeeds: LaneItem[], expansionSeeds: LaneItem[] = [], accountsWithOpportunity: Set<string> = new Set()): Record<LaneKey, LaneItem[]> {
   const name = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
   const RISK = new Set<OperationalState>(["rescue", "stabilise", "renew", "investigate"]);
   const derisking: LaneItem[] = [];
@@ -67,8 +72,20 @@ function buildLaneSeeds(accounts: Account[], priorities: Priority[], signals: Si
   for (const s of signals) if (s.category === "delivery") escalations.push({ id: `es_${s.id}`, source: "signal", sourceRefId: s.id, title: `${name(s.accountId)} — ${s.type}`, subtitle: "Delivery risk", accountId: s.accountId, tone: "danger" });
   const stakeholders: LaneItem[] = [];
   for (const s of signals) if (s.category === "relationship") stakeholders.push({ id: `sk_${s.id}`, source: "signal", sourceRefId: s.id, title: name(s.accountId), subtitle: s.type, accountId: s.accountId, tone: "warning" });
-  const expansion: LaneItem[] = [];
+  /* Real opportunities first, then the derived signals that might become one.
+     A recorded motion that needs attention outranks a hint that one exists. */
+  const expansion: LaneItem[] = [...expansionSeeds];
+  /* Suppress the derived signal for any account that ALREADY HAS an open
+     opportunity — not merely one that needs attention.
+
+     Keying this on `expansionSeeds` was a bug: the seeds are the
+     attention-needing subset, so an account whose opportunity was healthy and
+     on track (GCCIA, with a next step due in four days) still got a signal
+     suggesting it might expand, directly underneath the opportunity proving it
+     already is. "We have recorded this" outranks "this might be worth
+     recording" whatever state the recorded one is in. */
   for (const s of [...signals].filter((s) => s.category === "expansion" && s.direction === "positive").sort((a, b) => b.commercialImpact - a.commercialImpact)) {
+    if (s.accountId && accountsWithOpportunity.has(s.accountId)) continue;
     expansion.push({ id: `ex_${s.id}`, source: "signal", sourceRefId: s.id, title: name(s.accountId), subtitle: s.type, accountId: s.accountId, tone: "success" });
   }
   return { derisking, projects: projectSeeds, escalations, expansion, stakeholders };
@@ -413,7 +430,51 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
     }
   }
 
-  const laneSeeds = buildLaneSeeds(accounts, priorities, signals, commitments, projectSeeds);
+  /* Expansion opportunities that need attention — overdue or due today, no next
+     step, or untouched for 14 days.
+
+     The rule is READ from lib/expansion/attention.ts, never re-implemented
+     here: the board's count, the Action list and this lane have to agree, and
+     the only way to guarantee that is one function.
+
+     Deduplication is structural, not a stored flag. Each row is DERIVED from
+     current state, one per opportunity, so an unchanged fact produces the same
+     single row tomorrow rather than a fresh alert every day. */
+  const { expansionSeeds, accountsWithOpportunity } = await (async (): Promise<{
+    expansionSeeds: LaneItem[]; accountsWithOpportunity: Set<string>;
+  }> => {
+    const none = { expansionSeeds: [], accountsWithOpportunity: new Set<string>() };
+    if (!hasDatabase()) return none;
+    try {
+      const { getExpansionActionItems, getAccountsWithOpenExpansion } = await import("@/lib/expansion/read");
+      // Both come off the same request-cached board read, so this is one query
+      // set, not two. The second is a SUPERSET of the first: every account with
+      // an open opportunity, not only the ones flagged.
+      const [{ items }, withOpen] = await Promise.all([
+        getExpansionActionItems(),
+        getAccountsWithOpenExpansion([...clientById.keys()]),
+      ]);
+      return {
+        expansionSeeds: items
+          .filter((i) => clientById.has(i.opportunity.clientId))
+          .map(({ opportunity: o, state, line }) => ({
+            id: `xp_${o.id}`,
+            source: "expansion" as const,
+            title: `${o.accountName} — ${o.name}`,
+            subtitle: line,
+            accountId: o.clientId,
+            tone: (state === "overdue" ? "danger" : "warning") as LaneItemTone,
+            dueDate: o.expectedCloseDate ?? null,
+          })),
+        accountsWithOpportunity: withOpen,
+      };
+    } catch {
+      // Expansion unreadable must never blank the whole Today board.
+      return none;
+    }
+  })();
+
+  const laneSeeds = buildLaneSeeds(accounts, priorities, signals, commitments, projectSeeds, expansionSeeds, accountsWithOpportunity);
 
   const bandOf = (score: number): "healthy" | "watch" | "atrisk" => (score >= 75 ? "healthy" : score >= 55 ? "watch" : "atrisk");
   const statusByAccount: Record<string, "healthy" | "watch" | "atrisk"> = {};

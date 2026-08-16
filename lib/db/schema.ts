@@ -5,6 +5,7 @@
 
 import {
   boolean,
+  date,
   doublePrecision,
   index,
   integer,
@@ -644,6 +645,117 @@ export const projectTasks = pgTable("project_tasks", {
   index("project_tasks_milestone_id_idx").on(t.milestoneId),
   index("project_tasks_client_id_idx").on(t.clientId),
 ]);
+
+/* =========================================================================
+   Expansion — the expansion CRM for existing clients.
+     expansion_opportunities ─< expansion_next_steps
+                             ─< expansion_notes
+                             ─< expansion_activity
+   Account → Opportunity, four stages, three closed outcomes. Spec:
+   docs/specs/revenue/expansion-opportunities-specification.md
+   ========================================================================= */
+
+/**
+ * One expansion motion on one account.
+ *
+ * `client_id` is always a clients.id — expansion is by definition into an
+ * existing account, so there is no free-text account anywhere in this feature.
+ *
+ * Two timestamps are stored rather than derived, because both are facts the
+ * board reads on every render and neither can be recovered from the activity
+ * log without parsing prose (decision D-7):
+ *   last_activity_at   any change at all — drives `waiting` and `stalled`
+ *   stage_changed_at   when it entered its CURRENT stage — drives `progressed`
+ *
+ * CURRENCY: `currency` defaults from clients.currency, but every one of the
+ * 132 accounts is USD (verified 2026-08-16) and `arr_events` has no currency
+ * column at all. Release 1 is therefore USD-only — see decision D-4. The column
+ * exists so a future non-USD account is representable rather than silently
+ * mis-summed, NOT because mixed-currency reporting works today.
+ *
+ * CLOSING WRITES NOTHING TO THE ARR LEDGER. `arr_events` stays the source of
+ * truth for recorded ARR; `arr_recorded` only records whether a Won opportunity
+ * and the ledger have been reconciled by a human. It is an indicator, not a
+ * state — a Won opportunity with arr_recorded = false is still Won.
+ */
+export const expansionOpportunities = pgTable("expansion_opportunities", {
+  id: text("id").primaryKey(), // "exp-{uuid}"
+  clientId: text("client_id").notNull(), // clients.id — never free text
+  name: text("name").notNull(),
+  description: text("description"),
+  // identified | qualified | proposed | closed
+  stage: text("stage").notNull().default("identified"),
+  // won | lost | dropped. Non-null IFF stage = 'closed'.
+  outcome: text("outcome"),
+  // Null is legitimate: a real motion can be live before anyone can size it.
+  expectedArr: doublePrecision("expected_arr"),
+  currency: text("currency").notNull().default("USD"),
+  // module | licences | geography | content | services | use_case
+  expansionType: text("expansion_type").notNull().default("module"),
+  product: text("product"), // "Perform", "Develop" — free text, may be null
+  // app_users.email (the app's user directory is keyed by login email, not an
+  // id). Null = unowned, which the board flags rather than hides.
+  ownerEmail: text("owner_email"),
+  // A date, not a quarter. Null renders "Not set".
+  expectedCloseDate: date("expected_close_date"),
+  // high | medium | low. A judgement, never a number — there is no calibration
+  // data behind this product, so a percentage would be invented precision.
+  confidence: text("confidence"),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+  stageChangedAt: timestamp("stage_changed_at", { withTimezone: true }).notNull().defaultNow(),
+  proposalDate: date("proposal_date"), // set when it first reaches 'proposed'
+  // Closed-only facts.
+  outcomeDate: date("outcome_date"),
+  finalArr: doublePrecision("final_arr"), // won only
+  agreementType: text("agreement_type"), // verbal | written — won only
+  confirmedBy: text("confirmed_by"), // won only — the person at the client who agreed
+  arrRecorded: boolean("arr_recorded").notNull().default(false), // won only
+  closeReason: text("close_reason"), // lost/dropped — from a fixed list (D-2)
+  closeNote: text("close_note"), // lost/dropped — the optional free-text half
+  createdByEmail: text("created_by_email"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("expansion_opportunities_client_id_idx").on(t.clientId),
+  index("expansion_opportunities_stage_idx").on(t.stage),
+]);
+
+/**
+ * A QUEUE, not a checklist. Ordered by due date; the soonest-due row is "next"
+ * and is the only one the card and attention() read.
+ *
+ * Completing a step DELETES the row — deliberately. A completed-step archive
+ * would have to be filtered out of primaryStep and of every count on the page,
+ * and nothing in the product ever asks "what did we finish"; the activity log
+ * already records that a step was completed.
+ */
+export const expansionNextSteps = pgTable("expansion_next_steps", {
+  id: text("id").primaryKey(), // "exs-{uuid}"
+  opportunityId: text("opportunity_id").notNull(), // cascade-deleted with its opportunity
+  text: text("text").notNull(),
+  dueDate: date("due_date").notNull(),
+  createdByEmail: text("created_by_email"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("expansion_next_steps_opportunity_idx").on(t.opportunityId, t.dueDate)]);
+
+/** Free-text notes on an opportunity. The record shows the latest; the rest sit
+ *  in the activity list. Plain text, not HTML — this is a sentence, not a doc. */
+export const expansionNotes = pgTable("expansion_notes", {
+  id: text("id").primaryKey(), // "exn-{uuid}"
+  opportunityId: text("opportunity_id").notNull(),
+  body: text("body").notNull(),
+  authorEmail: text("author_email"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("expansion_notes_opportunity_idx").on(t.opportunityId, t.createdAt)]);
+
+/** The activity log — one line of text plus actor and timestamp. Append-only.
+ *  Never parsed: every fact the UI needs is a column on the opportunity. */
+export const expansionActivity = pgTable("expansion_activity", {
+  id: text("id").primaryKey(), // "exa-{uuid}"
+  opportunityId: text("opportunity_id").notNull(),
+  what: text("what").notNull(),
+  actorEmail: text("actor_email"),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("expansion_activity_opportunity_idx").on(t.opportunityId, t.at)]);
 
 /** Reusable project templates — workspace-global (any CSM/super-admin can use
  *  any template). The milestone/task blueprint is stored as JSONB. */

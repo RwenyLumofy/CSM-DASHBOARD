@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Inbox, ListChecks, PanelLeftClose, Settings, ShieldCheck, Sun, Users , Compass} from "lucide-react";
+import { BarChart3, Inbox, ListChecks, PanelLeftClose, Settings, ShieldCheck, Sun, TrendingUp, Users , Compass} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
 import { Logo } from "@/components/brand/Logo";
@@ -20,6 +20,10 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: "/today", label: "Today", icon: Sun },
   { href: "/clients", label: "Clients", icon: Users },
+  // Between Clients and the Action list: expansion is account work you go
+  // looking for, not work that arrives in a queue. Hidden from guests, who
+  // have no access to the feature — see lib/expansion/access.ts.
+  { href: "/expansion", label: "Expansion", icon: TrendingUp },
   { href: "/inbox", label: "Action list", icon: Inbox },
   { href: "/playbooks", label: "Playbooks", icon: ListChecks },
   { href: "/reports", label: "Insights", icon: BarChart3 },
@@ -35,15 +39,20 @@ export function Sidebar({
   roleLabel,
   notifications = [],
   unreadCount = 0,
+  showExpansion = true,
   onCollapse,
 }: {
   authEnabled: boolean;
   roleLabel?: string | null;
   notifications?: Notification[];
   unreadCount?: number;
+  /** False for a guest. Courtesy only — the route 404s and the read layer
+   *  returns nothing, so removing the link is not what enforces this. */
+  showExpansion?: boolean;
   onCollapse?: () => void;
 }) {
   const pathname = usePathname();
+  const nav = showExpansion ? NAV : NAV.filter((i) => i.href !== "/expansion");
 
   function isActive(href: string) {
     if (href === "/") return pathname === "/";
@@ -68,7 +77,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex flex-col gap-0.5">
-        {NAV.map((item) => {
+        {nav.map((item) => {
           const active = isActive(item.href);
           const Icon = item.icon;
           return (

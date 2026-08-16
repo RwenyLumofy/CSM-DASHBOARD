@@ -11,12 +11,15 @@ export function AppShell({
   roleLabel,
   notifications,
   unreadCount,
+  showExpansion = true,
   children,
 }: {
   authEnabled: boolean;
   roleLabel?: string | null;
   notifications: Notification[];
   unreadCount: number;
+  /** False for a guest — Expansion is not visible to them at all. */
+  showExpansion?: boolean;
   children: React.ReactNode;
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -35,6 +38,7 @@ export function AppShell({
           roleLabel={roleLabel}
           notifications={notifications}
           unreadCount={unreadCount}
+          showExpansion={showExpansion}
           onCollapse={() => setSidebarOpen(false)}
         />
       </div>

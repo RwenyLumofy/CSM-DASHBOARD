@@ -430,7 +430,10 @@ export type LaneItemTone = "danger" | "warning" | "info" | "success" | "eclipse"
  *  a user task. Auto items are read-only; tasks are checkable. */
 export interface LaneItem {
   id: string;
-  source: "signal" | "task" | "project" | "commitment";
+  /** "expansion" is a real `expansion_opportunities` row, not a derived signal.
+   *  Kept distinct so the provenance chip and the "turn this into a task" path
+   *  never claim it came from a signal id that does not exist. */
+  source: "signal" | "task" | "project" | "commitment" | "expansion";
   title: string;
   subtitle?: string;
   accountId?: string;

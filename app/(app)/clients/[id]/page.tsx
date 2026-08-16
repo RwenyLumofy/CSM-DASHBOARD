@@ -6,6 +6,9 @@ import { ClientHeaderCard } from "@/components/clients/ClientHeaderCard";
 import { ChurnReasonBanner } from "@/components/clients/ChurnReasonBanner";
 import { CsPulsePanel } from "@/components/clients/CsPulsePanel";
 import { AccountTasks } from "@/components/clients/AccountTasks";
+import { ClientExpansionCard } from "@/components/expansion/ClientExpansionCard";
+import { getExpansionForClient } from "@/lib/expansion/read";
+import { canSeeExpansion } from "@/lib/expansion/access";
 import {
   getAttachmentsForClient,
   getClientForProfile,
@@ -85,7 +88,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
     }
   };
 
-  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy] =
+  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy, expansion] =
     await Promise.all([
       getNotesForClient(id),
       getAttachmentsForClient(id),
@@ -108,6 +111,9 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       getCsPulseDimensions(),
       getCsPulseTiers(),
       readUseCaseTaxonomy(),
+      // Scoped through the same board read as /expansion, so a profile can
+      // never show expansion for an account the viewer only reached by URL.
+      getExpansionForClient(id),
     ]);
   const useCaseImplementations = normalizeImplementations(
     (client.properties as Record<string, unknown> | undefined)?.[IMPLEMENTATION_KEY],
@@ -251,6 +257,24 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
           canAssignOthers={editsAllClients(role)}
         />
       </div>
+
+      {/* ── Expansion — this account's opportunities and their total.
+             A summary and links, never a second board: the place to work an
+             opportunity is /expansion, and both directions link.
+
+             Absent entirely for a guest, who has no access to the feature.
+             Rendering the card's empty state would announce that Expansion
+             exists and assert there is nothing in it — and the second half
+             would be a claim the guest is not entitled to. The read layer
+             returns nothing to them regardless. ─────────────────────────── */}
+      {canSeeExpansion(role) && (
+        <ClientExpansionCard
+          clientId={client.id}
+          opportunities={expansion.opportunities}
+          today={expansion.today}
+          canWrite={mayEditClient}
+        />
+      )}
 
       {/* ── Churn reason — classify why a churned account left ────────── */}
       {client.status === "churned" && (

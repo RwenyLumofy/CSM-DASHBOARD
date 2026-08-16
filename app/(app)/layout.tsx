@@ -4,6 +4,7 @@ import { authEnabled, hasDatabase } from "@/lib/config";
 import { getCurrentUserRole } from "@/lib/auth";
 import { getMyNotifications, getMyUnreadCount, getRoleLabels } from "@/lib/data";
 import { roleLabel } from "@/lib/roles";
+import { viewerCanSeeExpansion } from "@/lib/expansion/read";
 
 // The dashboard reads live data (DB/sample) and supports in-app mutations, so
 // render per-request rather than prerendering a build-time snapshot.
@@ -21,11 +22,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // serialized in front of notifications/labels that don't actually need it.
   // getRoleLabels() degrades to defaults on its own if the DB is unavailable,
   // so it's safe to fetch unconditionally rather than gating it on role.
-  const [role, customLabels, notifications, unreadCount] = await Promise.all([
+  const [role, customLabels, notifications, unreadCount, showExpansion] = await Promise.all([
     authEnabled() ? getCurrentUserRole() : Promise.resolve(null),
     getRoleLabels(),
     getMyNotifications(20),
     getMyUnreadCount(),
+    /* Deliberately NOT `canSeeExpansion(role)`. The `role` above is nulled on
+       purpose when auth is disabled — it exists to label the sidebar and skip a
+       Clerk round-trip, not to answer permission questions — so reusing it hid
+       the Expansion entry from EVERYONE in dev rather than from guests.
+       viewerCanSeeExpansion() asks getCurrentUserRole(), which resolves the
+       dev bypass to super_admin, and it is request-cached so this costs
+       nothing the page was not already paying. */
+    viewerCanSeeExpansion(),
   ]);
   return (
     <AppShell
@@ -33,6 +42,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       roleLabel={role ? roleLabel(role, customLabels) : null}
       notifications={notifications}
       unreadCount={unreadCount}
+      // Guests have no access to Expansion, so they get no nav entry either.
+      // The route 404s and the read layer returns nothing regardless — this
+      // just avoids offering a link that would dead-end.
+      showExpansion={showExpansion}
     >
       {children}
     </AppShell>
