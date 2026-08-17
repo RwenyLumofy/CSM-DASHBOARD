@@ -24,13 +24,38 @@ import { randomUUID } from "crypto";
 import postgres from "postgres";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const envContent = readFileSync(join(__dirname, "../.env.local"), "utf-8");
-const env = Object.fromEntries(
-  envContent.split("\n").filter((l) => l.includes("=") && !l.startsWith("#"))
-    .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, "")]; })
-);
 
-const sql = postgres(env.DIRECT_DATABASE_URL || env.DATABASE_URL, { max: 1 });
+/* process.env WINS over .env.local — see the same note in
+   add-expansion-tables.mjs. Reading only the file made this script incapable of
+   seeding anything but the test database, while reporting success. */
+let fileEnv = {};
+try {
+  const envContent = readFileSync(join(__dirname, "../.env.local"), "utf-8");
+  fileEnv = Object.fromEntries(
+    envContent.split("\n").filter((l) => l.includes("=") && !l.startsWith("#"))
+      .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, "")]; })
+  );
+} catch {
+  /* No .env.local — the environment must supply the URL. */
+}
+
+const conn =
+  process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL ||
+  fileEnv.DIRECT_DATABASE_URL || fileEnv.DATABASE_URL;
+
+if (!conn) {
+  console.error("No database URL. Set DIRECT_DATABASE_URL or DATABASE_URL, or provide .env.local.");
+  process.exit(1);
+}
+
+/* This one WRITES BUSINESS DATA, so it says where before it does. */
+const target = (() => {
+  try { const u = new URL(conn); return `${u.hostname}/${u.pathname.replace(/^\//, "") || "postgres"}`; }
+  catch { return "an unparseable connection string"; }
+})();
+console.log(`→ seeding: ${target}  (from ${process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL ? "the environment" : ".env.local"})\n`);
+
+const sql = postgres(conn, { max: 1 });
 
 const AS_OF = "2026-08-13";
 

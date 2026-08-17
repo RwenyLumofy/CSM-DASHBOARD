@@ -14,13 +14,44 @@ import { fileURLToPath } from "url";
 import postgres from "postgres";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const envContent = readFileSync(join(__dirname, "../.env.local"), "utf-8");
-const env = Object.fromEntries(
-  envContent.split("\n").filter((l) => l.includes("=") && !l.startsWith("#"))
-    .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, "")]; })
-);
 
-const conn = env.DIRECT_DATABASE_URL || env.DATABASE_URL;
+/* process.env WINS over .env.local.
+   This script previously read the file and nothing else, which made it unable to
+   target production at all: .env.local holds TEST credentials, so
+   `DIRECT_DATABASE_URL=<prod> node scripts/add-expansion-tables.mjs` silently
+   re-ran against test and printed "✓ ready" while production stayed without the
+   tables. A migration that reports success against the wrong database is worse
+   than one that fails. */
+let fileEnv = {};
+try {
+  const envContent = readFileSync(join(__dirname, "../.env.local"), "utf-8");
+  fileEnv = Object.fromEntries(
+    envContent.split("\n").filter((l) => l.includes("=") && !l.startsWith("#"))
+      .map((l) => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, "")]; })
+  );
+} catch {
+  /* No .env.local (a CI or one-off run) — the environment must supply the URL. */
+}
+
+const conn =
+  process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL ||
+  fileEnv.DIRECT_DATABASE_URL || fileEnv.DATABASE_URL;
+
+if (!conn) {
+  console.error("No database URL. Set DIRECT_DATABASE_URL or DATABASE_URL, or provide .env.local.");
+  process.exit(1);
+}
+
+/* Say WHICH database is about to be changed, before changing it. The whole class
+   of mistake above is invisible unless the target is printed. */
+const target = (() => {
+  try { const u = new URL(conn); return `${u.hostname}/${u.pathname.replace(/^\//, "") || "postgres"}`; }
+  catch { return "an unparseable connection string"; }
+})();
+const source =
+  process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL ? "the environment" : ".env.local";
+console.log(`→ target: ${target}  (from ${source})`);
+
 const sql = postgres(conn, { max: 1 });
 
 await sql`
