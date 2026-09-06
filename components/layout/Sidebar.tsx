@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Inbox, ListChecks, PanelLeftClose, Settings, ShieldCheck, Sun, TrendingUp, Users , Compass} from "lucide-react";
+import { BarChart3, Bell, Inbox, ListChecks, PanelLeftClose, Settings, ShieldCheck, Sun, TrendingUp, Users , Compass} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
 import { Logo } from "@/components/brand/Logo";
@@ -30,7 +30,12 @@ const NAV: NavItem[] = [
   { href: "/use-cases", label: "Use Case Universe", icon: Compass },
 ];
 
+/* Notifications sits directly above Settings: it is a place you go to catch
+   up, not part of the working nav above. The bell in the account row is the
+   same data — it stays as the at-a-glance badge, and this is where it opens
+   out into history and filters. */
 const BOTTOM_NAV: NavItem[] = [
+  { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -112,6 +117,19 @@ export function Sidebar({
               >
                 <Icon size={18} strokeWidth={1.75} />
                 {item.label}
+                {/* Unread count rides the nav row too, so the number is visible
+                    without hunting for the bell — and it reads as a count, not
+                    as a dot whose meaning you have to already know. */}
+                {item.href === "/notifications" && unreadCount > 0 && (
+                  <span
+                    className={cn(
+                      "ml-auto grid min-w-[18px] place-items-center rounded-pill px-1.5 py-0.5 font-body text-[10px] font-bold tabular-nums",
+                      active ? "bg-white/20 text-white" : "bg-danger text-white",
+                    )}
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
               </Link>
             );
           })}

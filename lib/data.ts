@@ -788,6 +788,33 @@ export async function getMyNotifications(limit = 50): Promise<Notification[]> {
   }
 }
 
+/** How many notifications the centre loads at a time. */
+export const NOTIFICATIONS_PAGE_SIZE = 50;
+
+/**
+ * One page of the signed-in user's notification history (newest first).
+ *
+ * The bell reads getMyNotifications(20) — a fixed, unpaged peek. The
+ * notifications centre needs to reach past that, so it pages with a createdAt
+ * cursor instead. Scoped to the caller's own email inside this function; there
+ * is no caller-supplied recipient to spoof.
+ */
+export async function getMyNotificationsPage(
+  before?: string | null,
+  limit = NOTIFICATIONS_PAGE_SIZE,
+): Promise<{ items: Notification[]; hasMore: boolean }> {
+  if (!hasDatabase() || !dbHealthy()) return { items: [], hasMore: false };
+  const email = await getCurrentUserEmail();
+  if (!email) return { items: [], hasMore: false };
+  try {
+    const { getNotificationsPageDb } = await import("@/lib/repo/drizzle");
+    return await withDbTimeout(getNotificationsPageDb(email, limit, before));
+  } catch (err) {
+    console.warn("[data] getMyNotificationsPage failed:", err);
+    return { items: [], hasMore: false };
+  }
+}
+
 /** Unread count for the signed-in user — drives the sidebar bell badge. */
 export async function getMyUnreadCount(): Promise<number> {
   if (!hasDatabase() || !dbHealthy()) return 0;

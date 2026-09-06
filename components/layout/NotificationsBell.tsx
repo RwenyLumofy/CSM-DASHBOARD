@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Bell, CheckCheck, Inbox, AtSign, MessageSquare, ClipboardCheck,
-  UserPlus, ShieldAlert, ClipboardList, FileWarning, Info, type LucideIcon,
+  UserPlus, ShieldAlert, ClipboardList, FileWarning, Activity, Info, type LucideIcon,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import type { Notification } from "@/lib/types";
@@ -26,6 +26,10 @@ export const TYPE_META: Record<string, { icon: LucideIcon; tone: string; label: 
   task_update: { icon: MessageSquare, tone: "text-fg-muted", label: "Update on your task" },
   profile_incomplete_red: { icon: FileWarning, tone: "text-danger", label: "Account profile incomplete" },
   profile_incomplete_yellow: { icon: FileWarning, tone: "text-warning", label: "Account profile incomplete" },
+  /* One icon and one neutral tone for both directions. Colouring the drop red
+     and the recovery green would be the only thing distinguishing them, and
+     the title already says "dropped to" or "improved to" in words. */
+  health_changed: { icon: Activity, tone: "text-fg-muted", label: "Account health tier changed" },
   system: { icon: Info, tone: "text-fg-subtle", label: "System" },
 };
 const FALLBACK = { icon: Info, tone: "text-fg-subtle", label: "Notification" } as const;
@@ -209,12 +213,17 @@ export function NotificationsBell({
             )}
           </div>
 
+          {/* Goes to the notifications centre, NOT /inbox. This used to point at
+              the Action list, which shows AI-generated next steps and none of
+              these rows — so "view all" took you somewhere your notifications
+              demonstrably were not, and the ones past the twelve below had
+              nowhere to be seen at all. */}
           <Link
-            href="/inbox"
+            href="/notifications"
             onClick={() => setOpen(false)}
             className="flex items-center justify-center gap-1.5 border-t border-border-subtle px-3 py-2.5 font-body text-[12px] font-semibold text-sirius hover:bg-bg-muted"
           >
-            <Inbox size={13} /> View all in Action list
+            <Inbox size={13} /> View all notifications
           </Link>
         </div>
       )}
