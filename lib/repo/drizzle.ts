@@ -5,7 +5,7 @@
    `recomputeClient` re-materializes the client row's arr/previousArr/renewal/
    status from the FULL ledger so reads stay a single cheap table scan. */
 
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { getDb, getRawSql, schema, withCancellableDbTimeout, withDbTimeout } from "@/lib/db/client";
 import type {
   ArrEvent,
@@ -812,13 +812,34 @@ export async function countPrimaryContactsDb(clientId: string): Promise<number |
   }
 }
 
-export async function recomputeClientHealth(clientId: string): Promise<void> {
-  await withDbTimeout(recomputeClientHealthBody(clientId));
+/** The placeholder health a client is inserted with before it has ever been
+ *  scored (see upsertClient and lib/import/clients.ts). Moving OFF it is a
+ *  first scoring, not a change, and must not notify anyone. */
+const UNSCORED_TIER = "\u2014";
+
+/** A client crossing from one health tier to another during a recompute.
+ *  Carries the name and owner so the notification sync does not have to
+ *  re-read every client it was just handed. */
+export interface HealthTierTransition {
+  clientId: string;
+  clientName: string;
+  csmEmail: string | null;
+  fromTier: string;
+  toTier: string;
+  fromScore: number | null;
+  toScore: number;
 }
 
-async function recomputeClientHealthBody(clientId: string): Promise<void> {
+/** Recompute one client's health. Returns the tier transition when the band
+ *  changed, else null — callers that care about change (the daily cron) act on
+ *  it; callers that don't (a Settings formula save) ignore it. */
+export async function recomputeClientHealth(clientId: string): Promise<HealthTierTransition | null> {
+  return await withDbTimeout(recomputeClientHealthBody(clientId));
+}
+
+async function recomputeClientHealthBody(clientId: string): Promise<HealthTierTransition | null> {
   const client = await getClientByIdFromDb(clientId);
-  if (!client) return;
+  if (!client) return null;
 
   const overrides = dealOverridesMap(client.properties);
   const dealDates = (client.properties?.[DEAL_DATES_KEY] as DealDatesMap | undefined) ?? {};
@@ -919,28 +940,57 @@ async function recomputeClientHealthBody(clientId: string): Promise<void> {
       updatedAt: new Date(),
     })
     .where(eq(schema.clients.id, clientId));
+
+  /* `client` was read before the write, so client.health is the PREVIOUS band.
+     Reported on tier, not score: tiers are the thing the model, the dial and
+     every filter in the app actually act on, and a score that drifts 71 -> 69
+     inside the same band is not news. */
+  const from = client.health?.tier;
+  if (!from || from === UNSCORED_TIER || from === health.tier) return null;
+  return {
+    clientId,
+    clientName: client.name,
+    csmEmail: client.csm?.email ?? null,
+    fromTier: from,
+    toTier: health.tier,
+    fromScore: client.health?.score ?? null,
+    toScore: health.score,
+  };
 }
 
 /** Recompute health for every client — the daily cron, and right after a
  *  super-admin saves a new formula in Settings (so the effect is immediate,
  *  not "starting tomorrow"). Bounded concurrency, same pattern as
  *  generateAllClientActions (lib/actions/generate.ts). */
-export async function recomputeAllClientHealth(): Promise<{ clients: number; failed: number }> {
+export async function recomputeAllClientHealth(): Promise<{
+  clients: number;
+  failed: number;
+  /** Accounts whose tier moved in this sweep. Reported, never acted on here —
+   *  only the daily cron turns these into notifications. A Settings formula
+   *  save runs the same sweep and can move dozens of accounts at once, but
+   *  that is the MODEL changing, not the accounts; notifying on it would mail
+   *  every CSM a pile of alerts about work nobody did. */
+  transitions: HealthTierTransition[];
+}> {
   const clients = await getClientsFromDb();
   // Isolate each client's failure (a DB blip, a stuck query hitting
   // withDbTimeout) so it can't reject mapLimit's shared Promise.all and
   // abort the whole batch — every other client's worker keeps running
   // its own queue regardless of one bad row.
   let failed = 0;
+  const transitions: HealthTierTransition[] = [];
   await mapLimit(clients, 5, async (c) => {
     try {
-      await recomputeClientHealth(c.id);
+      const moved = await recomputeClientHealth(c.id);
+      // mapLimit runs 5 at a time, but each worker resumes on the JS event
+      // loop's single thread — there is no interleaved write to race here.
+      if (moved) transitions.push(moved);
     } catch (err) {
       failed += 1;
       console.error(`[client-health] recompute failed for ${c.id}:`, err);
     }
   });
-  return { clients: clients.length, failed };
+  return { clients: clients.length, failed, transitions };
 }
 
 /** Remove any column the CSM has manually pinned (client.properties.__field_overrides)
@@ -2405,6 +2455,39 @@ export async function getNotificationsForUserDb(email: string, limit = 50): Prom
     .orderBy(desc(schema.notifications.createdAt))
     .limit(limit);
   return rows.map(notificationRowTo);
+}
+
+/**
+ * One page of a recipient's notification history, newest first.
+ *
+ * Cursor-based (`before` = the createdAt of the last row you already have),
+ * NOT offset-based. The bell writes new rows while somebody is reading, and an
+ * OFFSET would silently re-show rows that had shifted down the window — you'd
+ * page "older" and see the same notification twice. A createdAt cursor is
+ * stable against inserts at the head.
+ *
+ * Asks for one row more than `limit` so the caller can tell "there is more"
+ * from "that was exactly the last page" without a second count query.
+ */
+export async function getNotificationsPageDb(
+  email: string,
+  limit: number,
+  before?: string | null,
+): Promise<{ items: import("@/lib/types").Notification[]; hasMore: boolean }> {
+  const db = getDb();
+  const cursor = before ? new Date(before) : null;
+  const where = cursor && !Number.isNaN(cursor.getTime())
+    ? and(eq(schema.notifications.recipientEmail, email.toLowerCase()), lt(schema.notifications.createdAt, cursor))
+    : eq(schema.notifications.recipientEmail, email.toLowerCase());
+
+  const rows = await db
+    .select()
+    .from(schema.notifications)
+    .where(where)
+    .orderBy(desc(schema.notifications.createdAt))
+    .limit(limit + 1);
+
+  return { items: rows.slice(0, limit).map(notificationRowTo), hasMore: rows.length > limit };
 }
 
 /** Count unread (readAt null) notifications — drives the bell badge. */

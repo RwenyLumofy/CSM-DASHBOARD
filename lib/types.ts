@@ -499,6 +499,9 @@ export type NotificationType =
   | "task_assigned" // assignee: someone gave you a task
   | "task_mentioned" // you were named in an update on a task
   | "task_update" // an update was posted on a task you own
+  // Fires on a TIER move only, never on a score wobble — see
+  // lib/notifications/health-change-sync.ts for why.
+  | "health_changed" // an account you own moved between health tiers
   | "system";
 
 export type NotificationStatus = "open" | "done";

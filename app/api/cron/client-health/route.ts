@@ -21,8 +21,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    const result = await recomputeAllClientHealth();
-    return NextResponse.json({ ok: true, ...result });
+    const { transitions, ...result } = await recomputeAllClientHealth();
+    /* Only THIS caller notifies. The Settings formula-save actions run the same
+       sweep and deliberately ignore their transitions — see the comment on
+       recomputeAllClientHealth and lib/notifications/health-change-sync.ts. */
+    const { syncHealthChangeNotifications } = await import("@/lib/notifications/health-change-sync");
+    // A failure to notify must not fail the recompute: the scores are already
+    // written and correct by this point, and reporting the whole run as failed
+    // would invite a re-trigger that has nothing left to do.
+    const health = await syncHealthChangeNotifications(transitions).catch((err) => {
+      console.error("[cron/client-health] notification sync failed:", err);
+      return null;
+    });
+    return NextResponse.json({ ok: true, ...result, notifications: health });
   } catch (err) {
     console.error("[cron/client-health] error:", err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
