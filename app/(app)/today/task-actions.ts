@@ -70,7 +70,7 @@ export interface TaskResult {
   error?: string;
   task?: {
     id: string; category: string; title: string; accountId: string | null; projectId: string | null; dueDate: string | null;
-    priority: Priority; notes: string | null; ownerEmail: string; sourceType: "signal" | "commitment" | null; sourceId: string | null;
+    priority: Priority; notes: string | null; ownerEmail: string; sourceType: "signal" | "commitment" | "note" | null; sourceId: string | null;
     status: "open" | "done"; createdAt: string;
   };
 }
@@ -78,7 +78,7 @@ export interface TaskResult {
 export async function createTaskAction(input: {
   category: string; title: string; accountId?: string | null; projectId?: string | null; dueDate?: string | null;
   priority?: string; notes?: string | null; assigneeEmail?: string | null;
-  sourceType?: "signal" | "commitment" | null; sourceId?: string | null;
+  sourceType?: "signal" | "commitment" | "note" | null; sourceId?: string | null;
 }): Promise<TaskResult> {
   const email = await getCurrentUserEmail();
   if (!email) return { ok: false, error: "Not signed in." };
@@ -105,7 +105,8 @@ export async function createTaskAction(input: {
     if (!editsAllClients(role)) return { ok: false, error: "Only an admin can reassign a task to someone else." };
     assignee = requested;
   }
-  const sourceType = input.sourceType === "signal" || input.sourceType === "commitment" ? input.sourceType : null;
+  const sourceType = input.sourceType === "signal" || input.sourceType === "commitment" || input.sourceType === "note"
+    ? input.sourceType : null;
   const sourceId = sourceType && input.sourceId ? input.sourceId : null;
   try {
     const { createTodayTaskDb, findOpenTodayTaskBySourceDb, insertNotificationsDb } = await import("@/lib/repo/drizzle");
@@ -114,7 +115,11 @@ export async function createTaskAction(input: {
        row, so one problem showed up in a lane as two pieces of work. When the
        task traces to a source, an OPEN task for that source in the same lane
        and owner is returned instead of a duplicate. */
-    if (sourceType && sourceId) {
+    /* Deliberately NOT applied to `note`. A signal or a commitment is one
+       problem, so a second open task for it is a duplicate; a note is a
+       write-up that routinely produces several distinct follow-ups, and
+       refusing the second one would look like the feature was broken. */
+    if (sourceType && sourceId && sourceType !== "note") {
       const existing = await findOpenTodayTaskBySourceDb(assignee, category, sourceType, sourceId);
       if (existing) return { ok: false, error: `Already on the board as "${existing.title}".` };
     }

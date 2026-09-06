@@ -2616,7 +2616,10 @@ export async function clearHubspotData(): Promise<{
   const db = getDb();
 
   // Sequential — single pooled connection must not be double-booked.
-  const r1 = await db.delete(schema.clientMeetings).returning({ id: schema.clientMeetings.id });
+  // Scoped to HubSpot's own rows, like every sibling below. Unfiltered, this
+  // destroyed Signal-authored meetings too — and orphaned the notes attached
+  // to them — the moment `source` could be anything but "hubspot".
+  const r1 = await db.delete(schema.clientMeetings).where(eq(schema.clientMeetings.source, "hubspot")).returning({ id: schema.clientMeetings.id });
   const r2 = await db.delete(schema.clientEmails).returning({ id: schema.clientEmails.id });
   const r3 = await db.delete(schema.clientAttachments).where(isNotNull(schema.clientAttachments.hubspotFileId)).returning({ id: schema.clientAttachments.id });
   const r4 = await db.delete(schema.clientContacts).where(isNotNull(schema.clientContacts.hubspotContactId)).returning({ id: schema.clientContacts.id });

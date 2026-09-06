@@ -90,7 +90,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
 
   const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy, expansion] =
     await Promise.all([
-      getNotesForClient(id),
+      getNotesForClient(id, 200),
       getAttachmentsForClient(id),
       getDealsForClient(id),
       getContactsForClient(id),

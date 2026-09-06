@@ -487,7 +487,9 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
   const tasks: TodayTask[] = taskRows.map((t) => ({
     id: t.id, category: t.category as LaneKey, title: t.title, accountId: t.accountId, projectId: t.projectId, dueDate: t.dueDate,
     priority: prio(t.priority), notes: t.notes, ownerEmail: t.ownerEmail,
-    sourceType: t.sourceType === "signal" || t.sourceType === "commitment" ? t.sourceType : null, sourceId: t.sourceId,
+    // `note` included: omitting it here made provenance work on the profile
+    // and vanish on Today, which is the failure mode contradictions.md records.
+    sourceType: t.sourceType === "signal" || t.sourceType === "commitment" || t.sourceType === "note" ? t.sourceType : null, sourceId: t.sourceId,
     status: t.status === "done" ? "done" : "open", createdAt: t.createdAt,
   }));
 
