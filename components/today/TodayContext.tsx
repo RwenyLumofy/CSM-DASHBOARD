@@ -22,7 +22,7 @@ export interface AddTaskPrefill {
   projectId?: string;
   newCategory?: boolean;
   title?: string;
-  sourceType?: "signal" | "commitment";
+  sourceType?: "signal" | "commitment" | "note";
   sourceId?: string;
 }
 

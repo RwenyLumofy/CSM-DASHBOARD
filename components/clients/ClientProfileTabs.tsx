@@ -302,7 +302,7 @@ export function ClientProfileTabs(props: Props) {
             dbEnabled={props.projectDbEnabled}
           />
         )}
-        {active === "notes" && <NotesTab clientId={client.id} deals={deals} notes={notes} />}
+        {active === "notes" && <NotesTab clientId={client.id} deals={deals} meetings={meetings} notes={notes} canEdit={canEditClient} />}
         {active === "actions" && <ActionsTab client={client} actions={clientActions} healthBreakdown={healthBreakdown} />}
       </div>
     </div>

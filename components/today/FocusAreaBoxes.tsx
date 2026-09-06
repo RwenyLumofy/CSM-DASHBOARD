@@ -11,7 +11,7 @@ import { Shield, Flag, KanbanSquare, TrendingUp, Users, Plus, ChevronDown, Check
 import { cn } from "@/lib/cn";
 import type { LaneItem, LaneKey } from "@/lib/today/types";
 import { getBoard, getTasks, getToday } from "@/lib/today/repo";
-import { DEFAULT_CATEGORIES, DEFAULT_CATEGORY_IDS, CATEGORY_ACCENT, FOCUS_COUNT_NOUN, formatDate } from "@/lib/today/format";
+import { DEFAULT_CATEGORIES, DEFAULT_CATEGORY_IDS, CATEGORY_ACCENT, FOCUS_COUNT_NOUN, categoryLabel, formatDate } from "@/lib/today/format";
 import { useToday } from "./TodayContext";
 import { toggleTaskAction } from "@/app/(app)/today/task-actions";
 
@@ -54,7 +54,9 @@ export function FocusAreaBoxes() {
   // board could never show.
   const customCats = useMemo(() => {
     const ids = [...new Set(tasks.map((t) => t.category))].filter((id) => id && !DEFAULT_CATEGORY_IDS.includes(id));
-    return ids.map((id) => ({ id, label: id, icon: "list", isDefault: false }));
+    // categoryLabel knows the lanes that are real but not defaults ("Reminder");
+    // a genuinely user-created area still falls back to its id, which is its name.
+    return ids.map((id) => ({ id, label: categoryLabel(id), icon: "list", isDefault: false }));
   }, [tasks]);
   const visibleCats = useMemo(
     // Projects live in the right rail (their own pane), not this grid.

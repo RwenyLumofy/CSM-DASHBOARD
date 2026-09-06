@@ -12,10 +12,10 @@ import { dbHealthy, markDbHealthy, markDbUnhealthy } from "@/lib/db/health";
 import type { Note, NoteInput } from "@/lib/notes/types";
 import * as repo from "@/lib/repo/notes";
 
-export async function getNotesForClient(clientId: string): Promise<Note[]> {
+export async function getNotesForClient(clientId: string, limit?: number): Promise<Note[]> {
   if (hasDatabase() && dbHealthy()) {
     try {
-      const notes = await repo.getNotesByClient(clientId);
+      const notes = await repo.getNotesByClient(clientId, limit);
       markDbHealthy();
       return notes;
     } catch (err) {
@@ -31,16 +31,23 @@ export async function createNote(input: {
   data: NoteInput;
   createdByEmail: string | null;
   createdByName: string | null;
+  mentions?: string[];
 }): Promise<Note> {
   if (!hasDatabase()) throw new Error("Database not configured");
   return repo.insertNote(input);
 }
 
-export async function editNote(noteId: string, patch: Partial<NoteInput>): Promise<void> {
+export async function editNote(
+  noteId: string,
+  patch: Partial<NoteInput>,
+  mentions?: string[],
+): Promise<void> {
   if (!hasDatabase()) throw new Error("Database not configured");
-  await repo.updateNote(noteId, patch);
+  await repo.updateNote(noteId, patch, mentions);
 }
 
+/** Soft delete — the row is retained so a task made from this note keeps a
+ *  resolvable provenance. Reads filter it out. */
 export async function removeNote(noteId: string): Promise<void> {
   if (!hasDatabase()) throw new Error("Database not configured");
   await repo.deleteNote(noteId);

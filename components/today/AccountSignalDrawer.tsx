@@ -223,6 +223,15 @@ function TimelineTab({ accountId }: { accountId: string }) {
 
 /* The account's real CSM notes (client_notes) — the same notes authored on the
    full account page. Read-only here; `body` is sanitized HTML at write time. */
+/* Draw `@[email]` tokens as something readable. The drawer has no mentionable
+   list to resolve names against — that is an account-scoped server call the
+   read-only drawer does not make — so it shows the address rather than the
+   raw token. The full name renders on the account page. */
+function renderMentionTokens(html: string): string {
+  return html.replace(/@\[([^\]\s]+@[^\]\s]+)\]/g, (_w, email: string) =>
+    `<span class="rounded bg-accent-soft px-1 font-medium text-sirius">@${email.trim()}</span>`);
+}
+
 function NotesTab({ accountId, route }: { accountId: string; route: string }) {
   const [state, setState] = useState<{ loading: boolean; notes: Note[]; error: string | null }>({ loading: true, notes: [], error: null });
   useEffect(() => {
@@ -245,7 +254,7 @@ function NotesTab({ accountId, route }: { accountId: string; route: string }) {
         <ul className="flex flex-col gap-2">
           {state.notes.map((n) => (
             <li key={n.id} className="rounded-lg border border-border bg-surface p-3">
-              <div className="note-body font-body text-[12.5px] leading-relaxed text-fg" dangerouslySetInnerHTML={{ __html: n.body }} />
+              <div className="note-body font-body text-[12.5px] leading-relaxed text-fg" dangerouslySetInnerHTML={{ __html: renderMentionTokens(n.body) }} />
               <div className="mt-2 flex items-center gap-1.5 border-t border-border-subtle pt-1.5 font-body text-[11px] text-fg-subtle">
                 <StickyNote size={11} /> {n.createdByName ?? "Someone"} · {formatDate(n.createdAt)}
               </div>

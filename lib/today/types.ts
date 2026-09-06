@@ -418,7 +418,7 @@ export interface TodayTask {
   /** Assignee — the owner whose board it appears on. */
   ownerEmail: string;
   /** Provenance: the signal/commitment that prompted it. */
-  sourceType: "signal" | "commitment" | null;
+  sourceType: "signal" | "commitment" | "note" | null;
   sourceId: string | null;
   status: "open" | "done";
   createdAt: string;

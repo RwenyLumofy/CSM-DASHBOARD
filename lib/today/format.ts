@@ -90,14 +90,31 @@ export const DEFAULT_CATEGORIES: Category[] = [
   { id: "stakeholders", label: "Stakeholder mapping", icon: "users", isDefault: true },
 ];
 export const DEFAULT_CATEGORY_IDS = DEFAULT_CATEGORIES.map((c) => c.id);
+
+/* "Reminder" is a real lane — AccountTasks.tsx prepends it to the five above
+   for account-scoped work, and it is the natural home for a follow-up created
+   from a note. It is deliberately NOT in DEFAULT_CATEGORIES, which carries
+   auto-seeding behaviour a reminder lane should not get; but without a label
+   here the board derived it as a custom area named by its raw id, so it drew
+   as a lowercase "reminder" tile with no accent. */
+export const EXTRA_CATEGORY_LABELS: Record<string, string> = { reminder: "Reminder" };
+
+/** Display name for a focus area id, including lanes that are real but not
+ *  defaults. Falls back to the raw id for a user-created area, which IS its
+ *  name. */
+export function categoryLabel(id: string): string {
+  return DEFAULT_CATEGORIES.find((c) => c.id === id)?.label ?? EXTRA_CATEGORY_LABELS[id] ?? id;
+}
 export const CATEGORY_ACCENT: Record<string, "danger" | "warning" | "info" | "success" | "eclipse" | "neutral"> = {
   derisking: "danger", projects: "info", escalations: "warning", expansion: "success", stakeholders: "warning",
+  reminder: "neutral",
 };
 export const CATEGORY_DESCRIPTION: Record<string, string> = {
   derisking: "Accounts at real risk to retention or renewal. Confirm the risk, stand up a mitigation plan, and work it until health or the renewal recovers.",
   projects: "Implementation and delivery projects that are slipping or at risk. Unblock the milestone and push to the delivery date — the project board owns the detail.",
   escalations: "Anything stuck or past its SLA that needs to go up or to another team. Escalate with context, then track it until it moves again.",
   expansion: "Accounts whose usage says they're ready to grow — seats near capacity, deep sticky adoption, or rising momentum. Qualify the opportunity and expand.",
+  reminder: "Account-specific nudges that need no bigger plan — a renewal conversation to start, a QBR to book, an exec follow-up. Where a note's follow-up lands unless you file it somewhere sharper.",
   stakeholders: "Relationship coverage gaps — single-threaded accounts, no mapped exec sponsor, or a champion who left. Map the key roles and engage them before it becomes risk.",
 };
 

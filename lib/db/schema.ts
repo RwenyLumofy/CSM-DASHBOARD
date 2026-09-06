@@ -204,6 +204,22 @@ export const clientNotes = pgTable("client_notes", {
   clientId: text("client_id").notNull(),
   dealId: text("deal_id"),
   body: text("body").notNull(),
+  /** How it happened: meeting | call | message | note. A CHANNEL, not a
+   *  category — it changes what the composer asks for (only `meeting` links a
+   *  synced client_meetings row; `note` has no event so it needs no date).
+   *  Every note written before 2026-09 defaults to `note`. */
+  type: text("type").notNull().default("note"),
+  /** When the thing happened, as distinct from when it was typed. Null means
+   *  "no event, or not stated" and readers fall back to createdAt — which is
+   *  every pre-existing note. Authors were working around its absence by
+   *  typing the date into the body (14 of 66 notes did). */
+  occurredAt: timestamp("occurred_at", { withTimezone: true }),
+  /** Optional link to the meeting this is about. Optional is the point: the
+   *  meeting is context, not the subject. */
+  meetingId: text("meeting_id"),
+  /** Soft delete — see task_updates for the same rule. Also a correctness
+   *  requirement once a task carries source_id = <note id>. */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdByEmail: text("created_by_email"),
   createdByName: text("created_by_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -211,6 +227,32 @@ export const clientNotes = pgTable("client_notes", {
 }, (t) => [
   index("client_notes_client_id_idx").on(t.clientId),
   index("client_notes_deal_id_idx").on(t.dealId),
+  index("client_notes_meeting_id_idx").on(t.meetingId),
+]);
+
+/**
+ * One row per person named in a note — the same shape as task_update_mentions
+ * and for the same reason: the `@[email]` token in the body only tells the
+ * renderer where to draw a chip, while THIS table is the authority for who
+ * was named.
+ *
+ * Nothing reads it yet. Naming somebody records them here and draws their
+ * chip; no notification is sent, because there is no `note_mentioned`
+ * NotificationType. The table exists now because the write path already
+ * fills it correctly.
+ *
+ * A mention grants NO access (decision 2026-08-02). The picker only offers
+ * people who can already see the account, and the server re-checks on write.
+ */
+export const clientNoteMentions = pgTable("client_note_mentions", {
+  id: text("id").primaryKey(), // "nmn-{uuid}"
+  noteId: text("note_id").notNull(),
+  clientId: text("client_id").notNull(), // denormalised, so "mentioned me" needs no join
+  mentionedEmail: text("mentioned_email").notNull(), // lower-cased
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("client_note_mentions_unique").on(t.noteId, t.mentionedEmail),
+  index("client_note_mentions_email_idx").on(t.mentionedEmail, t.createdAt),
 ]);
 
 /** Email engagements associated with the won deal (CRM emails). */
@@ -243,6 +285,10 @@ export const clientMeetings = pgTable("client_meetings", {
   outcome: text("outcome"), // SCHEDULED | COMPLETED | NO_SHOW | CANCELED
   notes: text("notes"),
   location: text("location"),
+  /** Who authored this row: hubspot (the sync) | signal (a CSM). Exists so the
+   *  HubSpot wipe can be scoped — clearHubspotData deletes this table without
+   *  a WHERE, unlike its siblings, which would destroy Signal-authored rows. */
+  source: text("source").notNull().default("hubspot"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("client_meetings_client_id_start_time_idx").on(t.clientId, t.startTime.desc())]);
 

@@ -61,12 +61,19 @@ export function RichTextEditor({
   placeholder = "Write a note…",
   disabled = false,
   autoFocus = false,
+  onMentionQuery,
+  registerInsert,
 }: {
   value: string;
   onChange: (html: string) => void;
   placeholder?: string;
   disabled?: boolean;
   autoFocus?: boolean;
+  /** The word being typed after an "@", or null when the caret isn't in one.
+   *  The parent owns the picker; this only reports what is being typed. */
+  onMentionQuery?: (query: string | null) => void;
+  /** Hands the parent a way to replace the half-typed "@foo" with a name. */
+  registerInsert?: (insert: (name: string) => void) => void;
 }) {
   const editor = useEditor({
     extensions: [
@@ -78,7 +85,16 @@ export function RichTextEditor({
     editable: !disabled,
     immediatelyRender: false,
     autofocus: autoFocus ? "end" : false,
-    onUpdate: ({ editor }) => onChange(editor.getHTML()),
+    onUpdate: ({ editor }) => {
+      onChange(editor.getHTML());
+      if (!onMentionQuery) return;
+      /* Read the mention word from the TEXT before the caret, not the markup:
+         the editor can split a token across tags. */
+      const { from } = editor.state.selection;
+      const before = editor.state.doc.textBetween(Math.max(0, from - 64), from, "\n", "\n");
+      const m = /@([\p{L}\p{N}._-]*)$/u.exec(before);
+      onMentionQuery(m ? m[1] : null);
+    },
     editorProps: {
       attributes: {
         class: "note-editor-content min-h-[140px] max-h-[360px] overflow-y-auto rounded-b-lg px-3 py-2.5 font-body text-[13px] text-fg outline-none",
@@ -89,6 +105,19 @@ export function RichTextEditor({
   useEffect(() => {
     if (editor) editor.setEditable(!disabled);
   }, [editor, disabled]);
+
+  /* Replace the "@half-typed" the caret sits in with "@Full Name ". The parent
+     converts the display name back to an `@[email]` token on submit. */
+  useEffect(() => {
+    if (!editor || !registerInsert) return;
+    registerInsert((name: string) => {
+      const { from } = editor.state.selection;
+      const before = editor.state.doc.textBetween(Math.max(0, from - 64), from, "\n", "\n");
+      const m = /@([\p{L}\p{N}._-]*)$/u.exec(before);
+      const start = m ? from - m[0].length : from;
+      editor.chain().focus().insertContentAt({ from: start, to: from }, `@${name} `).run();
+    });
+  }, [editor, registerInsert]);
 
   function toggleLink() {
     if (!editor) return;
