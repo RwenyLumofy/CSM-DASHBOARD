@@ -180,8 +180,11 @@ export function describeEvidence(
   }
 
   if (id === "breadth") {
-    const v = ev.find((e) => e.key === "live_use_cases")?.value;
-    return v == null ? null : `${n(v)} use case${v === 1 ? "" : "s"} live`;
+    // The denominator matters here in a way it doesn't for the other counts:
+    // it is what makes a narrow account read as concentration risk rather than
+    // as a small number.
+    const v = ev.find((e) => e.key === "capabilities_in_use")?.value;
+    return v == null ? null : `${n(v)} of 8 capabilities in use`;
   }
   if (id === "sentiment") {
     const v = ev.find((e) => e.key === "sentiment_nps")?.value;

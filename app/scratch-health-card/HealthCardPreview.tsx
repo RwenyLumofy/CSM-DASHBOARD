@@ -21,7 +21,7 @@ const HEALTH = {
     reach: [{ key: "meaningfully_active_users", value: 748 }, { key: "target_cohort", value: 757 }],
     progress: [{ key: "actual_progress", value: 9727 }, { key: "expected_progress", value: 12514 }],
     outcomes: [{ key: "completed_matured_workflows", value: 1531 }, { key: "total_matured_workflows", value: 2932 }],
-    breadth: [{ key: "live_use_cases", value: 1 }],
+    breadth: [{ key: "capabilities_in_use", value: 1 }],
     sla: [{ key: "tickets_resolved_within_target", value: 2 }, { key: "eligible_resolved_tickets", value: 3 }],
     incidents: [{ key: "resolved_high_severity_incidents", value: 1 }],
     aged: [{ key: "aged_or_reopened_tickets", value: 0 }],

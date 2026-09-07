@@ -78,8 +78,10 @@ export interface HealthFactsInput {
    *  CSM left blank on the Pulse — see lib/stakeholders/facts.ts for why the
    *  answered value always wins. */
   stakeholders?: StakeholderProfile[] | null;
-  /** Live use cases on the account (client.properties.use_cases_rollup). */
-  useCaseCount?: number | null;
+  /** Lumofy capabilities with real product activity — see
+   *  lib/metrics/capability-adoption.ts. `null` when the account has no usage
+   *  snapshot, which is NOT the same as zero and must not score as zero. */
+  capabilitiesInUseCount?: number | null;
   pulse?: CsPulseInput | null;
   previousScore?: number | null;
   previousCalculationDate?: string | null;
@@ -105,10 +107,14 @@ export function buildAccountFacts(input: HealthFactsInput, now = new Date()): Ac
   put("expected_progress", n(u.learning_enrollments), { source: "usage.learning_enrollments" });
   put("completed_matured_workflows", n(u.pathway_completions), { source: "usage.pathway_completions" });
   put("total_matured_workflows", n(u.pathway_enrollments), { source: "usage.pathway_enrollments" });
-  /* Use-case breadth — Signal's own data, not the product DB. Every live
-     account carries a rollup, so unlike the performance-cycle counts this
-     replaced, it is present for the whole book. */
-  put("live_use_cases", n(input.useCaseCount), { source: "client.use_cases_rollup" });
+  /* Adoption breadth — how many modules the product says are actually in use.
+     Was `client.use_cases_rollup.length`, i.e. what Sales typed onto the deal:
+     that scored an account 100 for buying seven use cases while using none.
+     Counted at capability grain, not module grain — two thirds of the book uses
+     exactly one module, so modules alone put 67 of 121 accounts in one bucket.
+     `put` skips nulls, so an account with no usage snapshot leaves this metric
+     absent and the dimension's redistribute_weight policy takes over. */
+  put("capabilities_in_use", n(input.capabilitiesInUseCount), { source: "usage.capability_activity" });
 
   /* CS Pulse (CSM ratings) — one categorical metric per configured dimension */
   const p = input.pulse;

@@ -23,8 +23,8 @@ export interface ScoreAccountInput {
   sentimentNps?: number | null; // survey NPS (-100..100)
   primaryContactCount?: number | null;
   stakeholders?: StakeholderProfile[] | null;
-  /** Live use cases on the account — Use Case Breadth. */
-  useCaseCount?: number | null;
+  /** Lumofy capabilities with real product activity — Adoption Breadth. */
+  capabilitiesInUseCount?: number | null;
   pulseRaw?: unknown; // client.properties.cs_pulse (raw JSON)
   previousScore?: number | null;
   previousCalculationDate?: string | null;
@@ -51,7 +51,7 @@ export function scoreAccount(
       sentimentNps: input.sentimentNps ?? null,
       primaryContactCount: input.primaryContactCount ?? null,
       stakeholders: input.stakeholders ?? null,
-      useCaseCount: input.useCaseCount ?? null,
+      capabilitiesInUseCount: input.capabilitiesInUseCount ?? null,
       pulse: pulseToEngineInput(pulse, dimensions, now.getTime()),
       previousScore: input.previousScore ?? null,
       previousCalculationDate: input.previousCalculationDate ?? null,

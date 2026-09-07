@@ -18,6 +18,7 @@ import { useState, useRef, useEffect, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  Lock,
   BarChart3,
   Building2,
   Calendar,
@@ -78,7 +79,7 @@ import { createAttachmentUploadUrlAction, recordAttachmentAction, deleteAttachme
 import { addContactAction, deleteContactAction } from "@/app/(app)/clients/[id]/contact-actions";
 import { UsageTab } from "@/components/clients/UsageTab";
 import { ProjectsTab } from "@/components/clients/projects/ProjectsTab";
-import { PopMenu, MenuItem, type Member } from "@/components/clients/projects/shared";
+import { PopMenu, MenuItem, useToast, type Member } from "@/components/clients/projects/shared";
 import type { ProjectConfig } from "@/lib/projects/config";
 import type { ProjectDetail } from "@/lib/projects/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
@@ -91,7 +92,7 @@ import {
   DEAL_FIELD_OPTION_KEYS,
   DEAL_FIELD_FALLBACK_OPTIONS,
   applyDealOverrides,
-  computeRenewal,
+  renewalDisplay,
   hasGlobalLibrary,
   type DealOverridesMap,
   type DealDatesMap,
@@ -155,9 +156,13 @@ interface Props {
   projectImplementers: Member[];
   projectCanManage: boolean;
   projectDbEnabled: boolean;
-  /** Write gate for the Stakeholders tab — canEditClient, resolved on the
-   *  server. The mutations enforce it again; this only decides what to render. */
+  /** Write gate — canEditClient, resolved on the server. The mutations enforce
+   *  it again; this only decides what to render. */
   canEditClient: boolean;
+  /** Why the viewer may not edit, when they may not — "view only" reads very
+   *  differently depending on whether it is the role or the account that is the
+   *  reason, and the CSM's next action differs too. null = may edit. */
+  editLockReason: string | null;
   /** Assignable Lumofy owners for a stakeholder relationship. */
   teamEmails: { email: string; name: string | null }[];
   /** Server-resolved date, so the coverage rules can't drift with the
@@ -176,7 +181,10 @@ interface Props {
 }
 
 export function ClientProfileTabs(props: Props) {
-  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthBreakdown, canEditClient, teamEmails, today, liveUseCaseEntries, allUseCaseEntries, useCaseGroups, useCaseImplementations } = props;
+  const { client, deals, emails, meetings, contacts, attachments, notes, propertyDefs, supabaseUrl, clientActions, healthBreakdown, canEditClient, editLockReason, teamEmails, today, liveUseCaseEntries, allUseCaseEntries, useCaseGroups, useCaseImplementations } = props;
+  // canEditClient and editLockReason are two views of one server decision; keep
+  // them consistent here rather than trusting two props to agree.
+  const dealLockReason = canEditClient ? null : (editLockReason ?? "View only — you can't edit this account.");
   const [active, setActive] = useState<TabKey>("general");
 
   const stakeholderProfiles = useMemo(
@@ -269,7 +277,7 @@ export function ClientProfileTabs(props: Props) {
               stakeholders={stakeholderOptions}
               implementations={useCaseImplementations}
             />
-            <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} />
+            <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} dealLockReason={dealLockReason} />
           </>
         )}
         {active === "stakeholders" && (
@@ -302,7 +310,7 @@ export function ClientProfileTabs(props: Props) {
             dbEnabled={props.projectDbEnabled}
           />
         )}
-        {active === "notes" && <NotesTab clientId={client.id} deals={deals} meetings={meetings} notes={notes} canEdit={canEditClient} />}
+        {active === "notes" && <NotesTab clientId={client.id} deals={deals} meetings={meetings} notes={notes} canEdit={canEditClient} lockReason={editLockReason} />}
         {active === "actions" && <ActionsTab client={client} actions={clientActions} healthBreakdown={healthBreakdown} />}
       </div>
     </div>
@@ -348,7 +356,9 @@ const DEAL_FIELDS: { key: keyof Deal; label: string; type: OverrideFieldType }[]
   { key: "contractDuration", label: "Contract length (Years)", type: "number" },
   // Product & content
   { key: "products", label: "Module", type: "multi_select" },
-  { key: "useCases", label: "Use case", type: "multi_select" },
+  /* `useCases` intentionally absent — the card no longer renders a Use case
+     cell (see the Product & content group). The field is still synced onto the
+     deal and still rolls up to the header; it is simply not edited here. */
   { key: "globalLibraryPackage", label: "Global library", type: "multi_select" },
   { key: "globalLibraryLicenses", label: "Global library licenses", type: "number" },
   { key: "aiCourseCredits", label: "AI course credits", type: "number" },
@@ -401,10 +411,15 @@ function GeneralTab({
   client,
   deals,
   propertyDefs,
+  dealLockReason,
 }: {
   client: Client;
   deals: Deal[];
   propertyDefs: PropertyDefinition[];
+  /** Non-null when the viewer may not edit this account — passed straight
+   *  through to the Contracts & deals card, which had no permission input at
+   *  all before and so offered every control to every reader. */
+  dealLockReason: string | null;
 }) {
   const id = client.id;
   const props = client.properties ?? {};
@@ -465,7 +480,7 @@ function GeneralTab({
 
       {/* Contracts & deals — each deal carries its economics, package, service
           levels and per-deal dates (CSM-editable milestones + synced contract dates). */}
-      {deals.length > 0 && <DealsTabs deals={deals} clientId={id} dealOverrides={dealOverrides} dealDates={dealDates} dealBriefs={dealBriefs} propertyDefs={propertyDefs} />}
+      {deals.length > 0 && <DealsTabs deals={deals} clientId={id} dealOverrides={dealOverrides} dealDates={dealDates} dealBriefs={dealBriefs} propertyDefs={propertyDefs} lockReason={dealLockReason} />}
 
       {groups.map((g) => (
         <Section key={g.key} icon={g.icon} title={g.label} subtitle={g.subtitle} defaultOpen={false}>
@@ -2222,6 +2237,8 @@ function EditableField({
           <span className={valueCls}>{display}</span>
         ) : editing ? (
           <EditInput type={type} options={options} value={localValue} saving={saving} onCommit={commit} onCancel={() => setEditing(false)} />
+        ) : readOnly ? (
+          <span className={cn(valueCls, "-ml-1 block px-1 py-0.5")}>{display}</span>
         ) : (
           <button onClick={() => setEditing(true)} className="group -ml-1 flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-bg-muted">
             <span className={valueCls}>{display}</span>
@@ -2584,7 +2601,15 @@ const PIPELINE_LABEL = (p: Deal["pipeline"]) =>
  *  draft spanning both tabs and only persist (recomputing ARR) on Save. The
  *  whole section collapses. Per-deal milestone dates are CSM-editable and persist
  *  under client.properties.__deal_dates; synced contract dates stay read-only. */
-function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, propertyDefs }: { deals: Deal[]; clientId: string; dealOverrides: DealOverridesMap; dealDates: DealDatesMap; dealBriefs: DealBriefsMap; propertyDefs: PropertyDefinition[] }) {
+function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, propertyDefs, lockReason }: { deals: Deal[]; clientId: string; dealOverrides: DealOverridesMap; dealDates: DealDatesMap; dealBriefs: DealBriefsMap; propertyDefs: PropertyDefinition[];
+  /** Non-null when the viewer may not edit this account — the reason why.
+   *  This component took NO permission prop at all until now: canEditClient was
+   *  resolved on the profile page, passed to the Stakeholders tab, and never
+   *  reached here, so every field rendered editable for anyone who could merely
+   *  SEE the account. The server refused the write correctly; the card simply
+   *  never said so. Not a permission — canEditClient on the server still is. */
+  lockReason: string | null }) {
+  const readOnly = lockReason !== null;
   const router = useRouter();
   // router.refresh() is fire-and-forget — it resolves the *scheduling* of a
   // background re-render, not the refreshed (server-confirmed) props actually
@@ -2596,21 +2621,27 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(true);
   const sales = deals.filter((d) => d.pipeline !== "cs");
-  const expansions = deals.filter((d) => d.pipeline === "cs" && d.category === "expansion");
-  const confirmedChurns = deals.filter((d) => d.pipeline === "cs" && d.category === "confirmed_churn");
-  const downgrades = deals.filter((d) => d.pipeline === "cs" && d.category === "downgraded");
-  // Catch-all: any CS deal not in one of the three explicit buckets above
-  // (i.e. category === "renewal", or an as-yet-unclassified CS stage).
-  const renewals = deals.filter(
-    (d) => d.pipeline === "cs" && d.category !== "expansion" && d.category !== "confirmed_churn" && d.category !== "downgraded",
-  );
-  type DealTab = "sales" | "renewals" | "expansion" | "confirmed_churn" | "downgrade";
+  const cs = deals.filter((d) => d.pipeline === "cs");
+  // Every CS deal lands in exactly one bucket, and "renewal" is no longer the
+  // catch-all it used to be. A stage this build doesn't recognise used to fall
+  // into Renewal silently — in the one bucket whose ARR treatment is under
+  // review — so it now gets its own tab and says so. Matching on the known set
+  // (rather than trusting `category` to be one of them) means an unexpected or
+  // missing value surfaces as Unmapped instead of vanishing from every tab.
+  const KNOWN_CS = new Set(["renewal", "expansion", "confirmed_churn", "downgraded"]);
+  const renewals = cs.filter((d) => d.category === "renewal");
+  const expansions = cs.filter((d) => d.category === "expansion");
+  const confirmedChurns = cs.filter((d) => d.category === "confirmed_churn");
+  const downgrades = cs.filter((d) => d.category === "downgraded");
+  const unmapped = cs.filter((d) => !d.category || !KNOWN_CS.has(d.category));
+  type DealTab = "sales" | "renewals" | "expansion" | "confirmed_churn" | "downgrade" | "unmapped";
   const TAB_ORDER: { key: DealTab; n: number }[] = [
     { key: "sales", n: sales.length },
     { key: "renewals", n: renewals.length },
     { key: "expansion", n: expansions.length },
     { key: "confirmed_churn", n: confirmedChurns.length },
     { key: "downgrade", n: downgrades.length },
+    { key: "unmapped", n: unmapped.length },
   ];
   const [tab, setTab] = useState<DealTab>(TAB_ORDER.find((t) => t.n > 0)?.key ?? "renewals");
 
@@ -2619,24 +2650,70 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
   const [localOverrides, setLocalOverrides] = useState<DealOverridesMap>(dealOverrides);
   const [localDates, setLocalDates] = useState<DealDatesMap>(dealDates);
   const [localBriefs, setLocalBriefs] = useState<DealBriefsMap>(dealBriefs);
+  // Every save on this card used to fail silently — the value snapped back with
+  // no message, so a permission denial and a network blip looked identical to a
+  // mis-click. Same toast the Projects tab on this profile already uses.
+  const toast = useToast();
 
   const baseline = () => Object.fromEntries(deals.map((d) => [d.id, d.tracked ?? true]));
   const [draft, setDraft] = useState<Record<string, boolean>>(baseline);
   const [saving, setSaving] = useState(false);
   const changed = deals.filter((d) => (draft[d.id] ?? true) !== (d.tracked ?? true));
 
+  /** The server's own reason for refusing, or a usable fallback.
+   *  Every save path here goes through this so the three causes a CSM can
+   *  actually hit — view-only role, an account that isn't theirs, a Clerk
+   *  lookup that timed out — arrive as three different sentences rather than
+   *  as one silent revert. */
+  async function failureReason(res: Response): Promise<string> {
+    try {
+      const body = await res.json();
+      if (body && typeof body.error === "string" && body.error.trim()) return body.error;
+    } catch { /* not JSON — fall through to the status-based wording */ }
+    if (res.status === 403) return "You don't have permission to edit this account.";
+    if (res.status === 404) return "Not found, or you don't have access to this account.";
+    return "Couldn't save — please try again.";
+  }
+
+  /** PATCH one deal, returning the reason it failed (or null on success).
+   *  Never throws: callers decide what to roll back. */
+  async function patchDeal(dealId: string, body: Record<string, unknown>): Promise<string | null> {
+    try {
+      const res = await fetch(`/api/deals/${encodeURIComponent(dealId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return await failureReason(res);
+      return null;
+    } catch {
+      return "Couldn't reach the server — check your connection and try again.";
+    }
+  }
+
+  /**
+   * Save the tracked ticks.
+   *
+   * This used to `await Promise.all(...fetch...)` and then refresh
+   * unconditionally. fetch only rejects on a network failure, so a 403 or a 500
+   * resolved like a success: the refresh pulled the server's unchanged values
+   * back and the tick silently reappeared, indistinguishable from a mis-click.
+   * That was the weakest error handling on the page sitting on `tracked` —
+   * the only control keeping portfolio ARR from stacking.
+   *
+   * Now every response is checked; on any failure the draft is KEPT (so the CSM
+   * can see what they tried to do) and the refresh is skipped (so it can't
+   * overwrite that draft with the server's version).
+   */
   async function save() {
     setSaving(true);
     try {
-      await Promise.all(
-        changed.map((d) =>
-          fetch(`/api/deals/${encodeURIComponent(d.id)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tracked: draft[d.id] }),
-          }),
-        ),
-      );
+      const reasons = await Promise.all(changed.map((d) => patchDeal(d.id, { tracked: draft[d.id] })));
+      const failed = reasons.filter((r): r is string => r !== null);
+      if (failed.length > 0) {
+        toast.show(failed[0]);
+        return;
+      }
       startTransition(() => router.refresh());
     } finally {
       setSaving(false);
@@ -2649,10 +2726,8 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
     if (value?.trim()) next[dealId] = value.trim();
     else delete next[dealId];
     setLocalBriefs(next);
-    try {
-      const res = await fetch(`/api/clients/${clientId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ properties: { [DEAL_BRIEFS_KEY]: next } }) });
-      if (!res.ok) throw new Error();
-    } catch { setLocalBriefs(prev); }
+    const reason = await patchDeal(dealId, { brief: value?.trim() ? value.trim() : null });
+    if (reason) { setLocalBriefs(prev); toast.show(reason); }
   }
 
   async function saveDealField(dealId: string, key: string, value: unknown) {
@@ -2665,15 +2740,13 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
     else next[dealId] = forDeal;
     const prev = localOverrides;
     setLocalOverrides(next);
-    try {
-      const res = await fetch(`/api/clients/${clientId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ properties: { [DEAL_OVERRIDES_KEY]: next } }) });
-      if (!res.ok) throw new Error();
-      // The deal card itself updates instantly from localOverrides above, but
-      // an amount/date override also changes the header's ARR/renewal/status
-      // and the profile-completeness badge (all server-computed) — refresh so
-      // those don't sit stale until a manual reload.
-      startTransition(() => router.refresh());
-    } catch { setLocalOverrides(prev); }
+    const reason = await patchDeal(dealId, { overrides: next[dealId] ?? null });
+    if (reason) { setLocalOverrides(prev); toast.show(reason); return; }
+    // The deal card itself updates instantly from localOverrides above, but
+    // an amount/date override also changes the header's ARR/renewal/status
+    // and the profile-completeness badge (all server-computed) — refresh so
+    // those don't sit stale until a manual reload.
+    startTransition(() => router.refresh());
   }
 
   async function saveDealFields(dealId: string, fields: Record<string, unknown>) {
@@ -2688,27 +2761,26 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
     else next[dealId] = forDeal;
     const prev = localOverrides;
     setLocalOverrides(next);
-    try {
-      const res = await fetch(`/api/clients/${clientId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ properties: { [DEAL_OVERRIDES_KEY]: next } }) });
-      if (!res.ok) throw new Error();
-      startTransition(() => router.refresh());
-    } catch { setLocalOverrides(prev); }
+    const reason = await patchDeal(dealId, { overrides: next[dealId] ?? null });
+    if (reason) { setLocalOverrides(prev); toast.show(reason); return; }
+    startTransition(() => router.refresh());
   }
 
   async function saveDealDate(dealId: string, key: string, value: string | null) {
     const forDeal: Record<string, string | null> = { ...(localDates[dealId] ?? {}) };
     if (value) forDeal[key] = value;
     else delete forDeal[key];
-    const next: DealDatesMap = { ...localDates, [dealId]: forDeal };
+    const hasAny = Object.keys(forDeal).length > 0;
+    const next: DealDatesMap = { ...localDates };
+    if (hasAny) next[dealId] = forDeal;
+    else delete next[dealId];
     const prev = localDates;
     setLocalDates(next);
-    try {
-      const res = await fetch(`/api/clients/${clientId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ properties: { [DEAL_DATES_KEY]: next } }) });
-      if (!res.ok) throw new Error();
-      // Milestone dates feed the profile-completeness badge (header + list) —
-      // refresh so filling one in clears the alert immediately, not after reload.
-      startTransition(() => router.refresh());
-    } catch { setLocalDates(prev); }
+    const reason = await patchDeal(dealId, { dates: hasAny ? forDeal : null });
+    if (reason) { setLocalDates(prev); toast.show(reason); return; }
+    // Milestone dates feed the profile-completeness badge (header + list) —
+    // refresh so filling one in clears the alert immediately, not after reload.
+    startTransition(() => router.refresh());
   }
 
   const shown =
@@ -2716,6 +2788,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
     : tab === "renewals" ? renewals
     : tab === "expansion" ? expansions
     : tab === "confirmed_churn" ? confirmedChurns
+    : tab === "unmapped" ? unmapped
     : downgrades;
   const TOGGLE: { key: DealTab; label: string; n: number }[] = [
     { key: "sales", label: "Sales", n: sales.length },
@@ -2723,6 +2796,9 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
     { key: "expansion", label: "Expansion", n: expansions.length },
     { key: "confirmed_churn", label: "Confirmed Churn", n: confirmedChurns.length },
     { key: "downgrade", label: "Downgrade", n: downgrades.length },
+    // Only offered when something is actually in it — an always-visible tab
+    // reading "Unmapped 0" is noise on the 99% of accounts that are fine.
+    ...(unmapped.length > 0 ? [{ key: "unmapped" as const, label: "Unmapped", n: unmapped.length }] : []),
   ];
 
   return (
@@ -2769,6 +2845,17 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
               </div>
             </div>
 
+            {tab === "unmapped" && unmapped.length > 0 && (
+              <div className="mb-3 flex items-start gap-2.5 rounded-[10px] border border-warning/30 bg-warning-bg px-3.5 py-2.5">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0 text-warning-fg" />
+                <p className="font-body text-[12.5px] leading-relaxed text-warning-fg">
+                  <span className="font-semibold">These deals are in a CS stage Signal doesn&apos;t recognise.</span>{" "}
+                  They are not counted as renewals, expansions, churn or downgrades. Open one in HubSpot to see its
+                  stage, then add that stage in Settings so it is classified deliberately rather than by fallback.
+                </p>
+              </div>
+            )}
+
             {shown.length === 0 ? (
               <EmptyHint
                 icon={Tag}
@@ -2777,6 +2864,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
                   : tab === "renewals" ? "No renewal deals"
                   : tab === "expansion" ? "No expansion deals"
                   : tab === "confirmed_churn" ? "No confirmed churn deals"
+                  : tab === "unmapped" ? "No unmapped deals"
                   : "No downgrade deals"
                 }
                 body={
@@ -2784,6 +2872,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
                   : tab === "renewals" ? "CS pipeline deals in the Renewed stage appear here."
                   : tab === "expansion" ? "Deals in the CS pipeline's Expansion stage appear here."
                   : tab === "confirmed_churn" ? "Deals in the CS pipeline's Confirmed Churned stage appear here."
+                  : tab === "unmapped" ? "CS pipeline deals in a stage Signal doesn't recognise appear here. Good — every stage is mapped."
                   : "Deals in the CS pipeline's Downgraded stage appear here."
                 }
               />
@@ -2804,12 +2893,13 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
                     onSaveBrief={(value) => saveDealBrief(d.id, value)}
                     propertyDefs={propertyDefs}
                     refreshPending={isPending}
+                    lockReason={lockReason}
                   />
                 ))}
               </ul>
             )}
 
-            {changed.length > 0 && (
+            {changed.length > 0 && !readOnly && (
               <div className="mt-3 flex items-center justify-end gap-2 border-t border-border-subtle pt-3">
                 <span className="caption mr-auto">{changed.length} unsaved change{changed.length > 1 ? "s" : ""} — ARR updates on save</span>
                 <button type="button" onClick={() => setDraft(baseline())} disabled={saving || isPending}
@@ -2825,13 +2915,15 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
           </div>
         </div>
       </div>
+      {toast.node}
     </div>
   );
 }
 
 /** A single deal — economics, product, service levels and dates, grouped for
  *  scannability. Synced contract dates are read-only; milestone dates are
- *  CSM-editable per deal; renewal is auto-calculated (contract start + 1yr). */
+ *  CSM-editable per deal; the renewal row states what is actually known about
+ *  the term rather than asserting a flat +1 year (see renewalDisplay). */
 function DealCard({
   deal,
   checked,
@@ -2845,6 +2937,7 @@ function DealCard({
   onSaveBrief,
   propertyDefs,
   refreshPending,
+  lockReason,
 }: {
   deal: Deal;
   checked: boolean;
@@ -2861,7 +2954,12 @@ function DealCard({
    *  fields showing "saving" instead of re-enabling and inviting a second,
    *  overlapping edit before the server-confirmed data has actually arrived. */
   refreshPending: boolean;
+  /** Non-null when the viewer may not edit this account: the text explaining
+   *  why. Every editor on the card renders read-only and the card says so once
+   *  at the foot, instead of inviting edits the server will refuse. */
+  lockReason: string | null;
 }) {
+  const readOnly = lockReason !== null;
   const [open, setOpen] = useState(false);
   const [editingBrief, setEditingBrief] = useState(false);
   const [savingBrief, setSavingBrief] = useState(false);
@@ -2876,6 +2974,7 @@ function DealCard({
   }
   function startEditBrief(e: React.MouseEvent) {
     e.stopPropagation();
+    if (readOnly) return;
     setBriefDraft(displayBrief ?? "");
     setEditingBrief(true);
   }
@@ -2891,7 +2990,12 @@ function DealCard({
   // saveDealField updates dealOverride optimistically before the server
   // round-trip even lands.
   const needsGlobalLibraryDates = hasGlobalLibrary(eff);
-  const renewal = computeRenewal(eff.contractStartDate);
+  // Was `computeRenewal(eff.contractStartDate)` under a flat "Auto · +1yr"
+  // badge, rendered unconditionally — so a deal with no contract start date
+  // showed an em-dash next to a badge claiming an automatic annual renewal.
+  // renewalDisplay decides which of three things is actually known; see its
+  // comment in lib/deal-overrides.ts for why contractDuration can't settle it.
+  const renewal = renewalDisplay(eff.contractStartDate, eff.contractDuration);
   // Onboarding period for THIS deal — days from its Kick-off meeting to its
   // Launch (or to today if not launched yet). Same pure calc used for the
   // account-level rollup (lib/metrics/onboarding.ts), fed just this deal.
@@ -2932,6 +3036,7 @@ function DealCard({
         onCommit={(v) => onSaveField(key as string, v)}
         alertSeverity={FIELD_SEVERITY[key as string]}
         pending={refreshPending}
+        readOnly={readOnly}
       />
     );
   };
@@ -2948,8 +3053,16 @@ function DealCard({
           checked={checked}
           onChange={onToggle}
           onClick={(e) => e.stopPropagation()}
-          title={checked ? "Tracked — counts toward ARR once you Save. Uncheck to mark it dead." : "Not tracked — excluded from ARR once you Save."}
-          className="mt-1 size-4 shrink-0 cursor-pointer accent-sirius"
+          disabled={readOnly}
+          title={
+            readOnly ? (lockReason ?? undefined)
+            : checked ? "Tracked — counts toward ARR once you Save. Uncheck to mark it dead."
+            : "Not tracked — excluded from ARR once you Save."
+          }
+          className={cn(
+            "mt-1 size-4 shrink-0 accent-sirius",
+            readOnly ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+          )}
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
@@ -3055,9 +3168,15 @@ function DealCard({
 
             {/* Product & content */}
             <DealGroup label="Product & content">
+              {/* No Use case cell. It duplicated the header's Handover use
+                  case(s) on 57 of the 60 accounts that have any, and nothing
+                  computes from it any more: health's adoption breadth now reads
+                  measured capability activity (lib/metrics/capability-adoption.ts), and
+                  what CS confirms lives in the Use Case Universe block above.
+                  The header keeps use_cases_rollup as the read-only record of
+                  what Sales sold. */}
               <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
                 {cell("products")}
-                {cell("useCases")}
                 {cell("globalLibraryPackage")}
                 {cell("globalLibraryLicenses")}
                 {cell("aiCourseCredits")}
@@ -3077,7 +3196,13 @@ function DealCard({
               <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
                 {cell("closeDate")}
                 {cell("contractStartDate")}
-                <SyncedDate label="Renewal" value={renewal} hint="Auto · +1yr" />
+                <SyncedDate
+                  label="Renewal"
+                  value={renewal.date}
+                  hint={renewal.note}
+                  hintTone={renewal.kind === "assumed" ? "muted" : "attention"}
+                  emptyLabel={renewal.kind === "term_unknown" ? "Needs confirmation" : undefined}
+                />
                 <SyncedValue label="Onboarding period" value={onboardingLabel} hint="Auto · kickoff→launch" />
               </dl>
               <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-border-subtle pt-3 sm:grid-cols-3">
@@ -3098,12 +3223,20 @@ function DealCard({
                       alertSeverity={dimmed ? undefined : FIELD_SEVERITY[f.key]}
                       pending={refreshPending}
                       dimmed={dimmed}
+                      readOnly={readOnly}
                     />
                   );
                 })}
               </dl>
-              {deal.hubspotUrl && (
-                <div className="mt-3 flex justify-end">
+              {(readOnly || deal.hubspotUrl) && (
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-3 border-t border-border-subtle pt-3">
+                  {readOnly && (
+                    <span className="mr-auto inline-flex items-center gap-1.5 font-body text-[12px] text-fg-subtle">
+                      <Lock size={12} className="shrink-0" />
+                      {lockReason}
+                    </span>
+                  )}
+                  {deal.hubspotUrl && (
                   <a
                     href={deal.hubspotUrl}
                     target="_blank"
@@ -3112,6 +3245,7 @@ function DealCard({
                   >
                     <ExternalLink size={12} /> View in HubSpot
                   </a>
+                  )}
                 </div>
               )}
             </DealGroup>
@@ -3133,14 +3267,42 @@ function DealGroup({ label, children }: { label: string; children: React.ReactNo
 }
 
 /** Read-only date cell — the value comes from the HubSpot sync or is auto-derived. */
-function SyncedDate({ label, value, hint }: { label: string; value: string | null; hint: string }) {
+/** A read-only synced date.
+ *
+ *  `hintTone="attention"` colours the hint when it is reporting something the
+ *  CSM has to act on (a term Signal can't confirm, a missing contract date)
+ *  rather than merely labelling how the value was derived. `emptyLabel`
+ *  replaces the em-dash for the same reason: "Needs confirmation" says the
+ *  system declined to guess, where a dash reads as "nothing here". */
+function SyncedDate({
+  label,
+  value,
+  hint,
+  hintTone = "muted",
+  emptyLabel,
+}: {
+  label: string;
+  value: string | null;
+  hint: string;
+  hintTone?: "muted" | "attention";
+  emptyLabel?: string;
+}) {
   const empty = !value;
   return (
     <div className="flex flex-col gap-1">
       <dt className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">{label}</dt>
-      <dd className="flex items-baseline gap-1.5">
-        <span className={cn("font-body text-[13px] leading-snug", empty ? "text-fg-subtle" : "font-semibold text-fg")}>{formatDate(value)}</span>
-        <span className="font-body text-[10px] uppercase tracking-[0.05em] text-fg-subtle">{hint}</span>
+      <dd className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        <span className={cn("font-body text-[13px] leading-snug", empty ? "text-fg-subtle" : "font-semibold text-fg")}>
+          {empty ? (emptyLabel ?? formatDate(value)) : formatDate(value)}
+        </span>
+        <span
+          className={cn(
+            "font-body text-[10px] uppercase tracking-[0.05em]",
+            hintTone === "attention" ? "font-semibold text-warning-fg" : "text-fg-subtle",
+          )}
+        >
+          {hint}
+        </span>
       </dd>
     </div>
   );
@@ -3161,7 +3323,7 @@ function SyncedValue({ label, value, hint }: { label: string; value: string; hin
 }
 
 /** CSM-editable milestone date cell — persists into client.properties.__deal_dates. */
-function DealDateField({ label, value, onCommit, alertSeverity, pending, dimmed }: { label: string; value: string | null; onCommit: (v: string | null) => void | Promise<void>; alertSeverity?: "red" | "yellow"; pending?: boolean; dimmed?: boolean }) {
+function DealDateField({ label, value, onCommit, alertSeverity, pending, dimmed, readOnly }: { label: string; value: string | null; onCommit: (v: string | null) => void | Promise<void>; alertSeverity?: "red" | "yellow"; pending?: boolean; dimmed?: boolean; readOnly?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const empty = !value;
@@ -3187,6 +3349,8 @@ function DealDateField({ label, value, onCommit, alertSeverity, pending, dimmed 
       <dd>
         {editing ? (
           <EditInput type="date" value={value} saving={saving || !!pending} onCommit={commit} onCancel={() => setEditing(false)} />
+        ) : readOnly ? (
+          <span className={cn(valueCls, "-ml-1 block px-1 py-0.5")}>{formatDate(value)}</span>
         ) : (
           <button onClick={() => setEditing(true)} className="group -ml-1 flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-bg-muted">
             <span className={valueCls}>{formatDate(value)}</span>
@@ -3211,6 +3375,7 @@ function OverrideField({
   onCommit,
   alertSeverity,
   pending,
+  readOnly,
 }: {
   label: string;
   type: OverrideFieldType;
@@ -3222,6 +3387,11 @@ function OverrideField({
   alertSeverity?: "red" | "yellow";
   /** True while a prior save's router.refresh() is still landing. */
   pending?: boolean;
+  /** The viewer may not edit this account. Renders the value as plain text with
+   *  no edit affordance — the server would refuse the write anyway, and
+   *  offering the control only produced a save that failed silently. NOT a
+   *  permission: canEditClient on the server is the real gate. */
+  readOnly?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);

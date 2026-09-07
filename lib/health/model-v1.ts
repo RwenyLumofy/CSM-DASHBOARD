@@ -65,15 +65,25 @@ export const MODEL_V1_1: HealthModelVersion = {
              "how many use cases SHOULD this account run", and inventing one
              (against the catalogue size, say) would score every account by how
              much of Lumofy they had not bought. */
-          id: "breadth", code: "use_case_breadth", name: "Use Case Breadth", displayOrder: 4, weight: 0.1,
+          id: "breadth", code: "adoption_breadth", name: "Adoption Breadth", displayOrder: 4, weight: 0.1,
           isEnabled: true, isMandatory: false, missingDataPolicy: "redistribute_weight",
+          /* Counts CAPABILITIES IN REAL USE, not use cases sold. The old input
+             was use_cases_rollup.length — a HubSpot deal field — which scored
+             Emaar Executive 100 on seven sold use cases and zero product
+             activity, and Al Dana 0 while it ran two modules daily. See
+             lib/metrics/capability-adoption.ts for the eight capabilities and
+             why courses/pathways/quizzes count once between them.
+
+             The step table is the original one, unchanged: at capability grain
+             its top step is reachable (13 of 121 accounts), where at module
+             grain it was not — there are only three modules. */
           formula: {
             type: "threshold_table",
             rules: [
-              { when: { live_use_cases: { gte: 4 } }, score: 100 },
-              { when: { live_use_cases: { gte: 3 } }, score: 80 },
-              { when: { live_use_cases: { gte: 2 } }, score: 60 },
-              { when: { live_use_cases: { gte: 1 } }, score: 35 },
+              { when: { capabilities_in_use: { gte: 4 } }, score: 100 },
+              { when: { capabilities_in_use: { gte: 3 } }, score: 80 },
+              { when: { capabilities_in_use: { gte: 2 } }, score: 60 },
+              { when: { capabilities_in_use: { gte: 1 } }, score: 35 },
             ],
             default_score: 0,
           },

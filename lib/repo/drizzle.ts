@@ -22,6 +22,7 @@ import type {
   UsageMetrics,
 } from "@/lib/types";
 import { dealOverridesMap, applyDealOverrides, computeUseCasesRollup, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
+import { capabilityAdoptionCount } from "@/lib/metrics/capability-adoption";
 import { FIELD_OVERRIDES_KEY, fieldOverridesSet } from "@/lib/client-overrides";
 import type { SyncBundle } from "@/lib/integrations/sync";
 import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
@@ -911,7 +912,10 @@ async function recomputeClientHealthBody(clientId: string): Promise<HealthTierTr
          score at all: an account could have a sponsor, a champion and a buyer
          mapped and still be capped for "no sponsor access". */
       stakeholders: normalizeStakeholderProfiles(client.properties?.[PROFILES_KEY]),
-      useCaseCount: useCasesRollup.length,
+      /* What the product says is in use, not what the deal says was sold —
+         see lib/metrics/capability-adoption.ts. null (no usage snapshot) leaves
+         the breadth dimension unscored rather than scoring it zero. */
+      capabilitiesInUseCount: capabilityAdoptionCount(usageMetrics),
       pulseRaw: client.properties?.cs_pulse ?? null,
       // Momentum compares against the last stored score. An account with no
       // history gets "Insufficient History" rather than a fabricated delta.
@@ -1583,6 +1587,48 @@ export async function mergeClientPropertiesDb(
                             || ${overridesJson}::jsonb
                           ) AS t(elem))
                 ),
+           updated_at = now()
+     WHERE id = ${clientId}
+  `);
+}
+
+/**
+ * Write ONE deal's entry inside one of the deal-scoped property bags
+ * (`__deal_overrides` / `__deal_dates` / `__deal_briefs`), leaving every other
+ * deal's entry in that bag untouched.
+ *
+ * Why this exists rather than reusing mergeClientPropertiesDb: that function
+ * merges with `||`, which is shallow. A patch of
+ * `{__deal_overrides: {...}}` therefore REPLACES the whole bag, and the deal
+ * card was building that bag from a snapshot taken at page load. Two CSMs on
+ * the same account editing DIFFERENT deals would each send a map missing the
+ * other's deal, and whoever saved second silently erased the other's work —
+ * confirmed against the database, see
+ * docs/contracts-review-01-confirmed-findings.md §9.
+ *
+ * The nested `||` here re-reads the bag inside the same UPDATE, so the write
+ * cannot be based on a stale read either. Concurrency is now safe at deal
+ * granularity; two writers on the SAME deal still last-writer-wins, which is
+ * the same contract every other field on the profile has.
+ *
+ * `value === null` removes that deal's entry (a field cleared down to nothing).
+ */
+export async function setDealScopedPropertyDb(
+  clientId: string,
+  bagKey: string,
+  dealId: string,
+  value: Record<string, unknown> | string | null,
+): Promise<void> {
+  const db = getDb();
+  const bag = sql`COALESCE(properties -> ${bagKey}, '{}'::jsonb)`;
+  const nextBag =
+    value === null
+      ? sql`${bag} - ${dealId}`
+      : sql`${bag} || jsonb_build_object(${dealId}::text, ${JSON.stringify(value)}::jsonb)`;
+  await db.execute(sql`
+    UPDATE clients
+       SET properties = COALESCE(properties, '{}'::jsonb)
+                        || jsonb_build_object(${bagKey}::text, ${nextBag}),
            updated_at = now()
      WHERE id = ${clientId}
   `);
@@ -2716,15 +2762,121 @@ export async function clearHubspotData(): Promise<{
   };
 }
 
+/** The workspace_config key holding the last cleared-overrides snapshot. */
+export const DEAL_OVERRIDES_BACKUP_KEY = "deal_overrides_backup";
+
+export interface DealOverridesResetPreview {
+  /** Client rows carrying any __deal_overrides at all. */
+  clients: number;
+  /** Individual field corrections across all of them. */
+  fields: number;
+  /** Deals whose `amount` override feeds ARR. */
+  amountOverrides: number;
+  /** Deals whose `contractStartDate` override feeds the renewal date. */
+  contractStartOverrides: number;
+  /** Accounts whose ARR would actually move, and by how much in total. */
+  accountsWithArrChange: number;
+  arrDelta: number;
+}
+
+/**
+ * What a Full re-sync would actually destroy, computed from live rows.
+ *
+ * The confirm dialog used to describe clearing "per-deal field overrides
+ * (amount, licenses, package, contract dates …)" and reverting them to
+ * HubSpot's values — true, but it never said that two of those fields are
+ * INPUTS TO ARR AND THE RENEWAL DATE (recomputeClient applies `ov.amount` and
+ * `ov.contractStartDate` before computing either). A super-admin believed they
+ * were reverting labels while also restating the revenue number.
+ *
+ * Computed rather than asserted so the dialog can never quote a stale figure.
+ */
+export async function previewDealOverridesReset(): Promise<DealOverridesResetPreview> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: schema.clients.id, properties: schema.clients.properties })
+    .from(schema.clients)
+    .where(sql`${schema.clients.properties} ? '__deal_overrides'`);
+
+  const out: DealOverridesResetPreview = {
+    clients: rows.length, fields: 0, amountOverrides: 0,
+    contractStartOverrides: 0, accountsWithArrChange: 0, arrDelta: 0,
+  };
+  if (rows.length === 0) return out;
+
+  const dealRows = await db
+    .select({
+      id: schema.clientDeals.id,
+      clientId: schema.clientDeals.clientId,
+      amount: schema.clientDeals.amount,
+      tracked: schema.clientDeals.tracked,
+    })
+    .from(schema.clientDeals);
+  const syncedAmount = new Map(dealRows.filter((d) => d.tracked !== false).map((d) => [d.id, d.amount]));
+
+  for (const row of rows) {
+    const bag = ((row.properties as Record<string, unknown>)?.["__deal_overrides"] ?? {}) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    let delta = 0;
+    for (const [dealId, ov] of Object.entries(bag)) {
+      out.fields += Object.keys(ov).length;
+      if (typeof ov.amount === "number") {
+        out.amountOverrides += 1;
+        // Only TRACKED deals contribute to ARR, so an override on an untracked
+        // deal changes nothing when it goes.
+        const synced = syncedAmount.get(dealId);
+        if (synced != null) delta += synced - ov.amount;
+      }
+      if (typeof ov.contractStartDate === "string") out.contractStartOverrides += 1;
+    }
+    if (Math.abs(delta) > 0.005) {
+      out.accountsWithArrChange += 1;
+      out.arrDelta += delta;
+    }
+  }
+  out.arrDelta = Math.round(out.arrDelta * 100) / 100;
+  return out;
+}
+
 /**
  * Strip the per-deal CSM override bag (__deal_overrides) from every client's
  * properties — the "factory reset" half of a Full re-sync, so HubSpot's current
  * values show through again. Milestone dates (__deal_dates) and brief overrides
  * (__deal_briefs) are intentionally preserved (no HubSpot source to restore).
+ *
+ * Snapshots everything it is about to delete into workspace_config first. This
+ * used to return a bare count, so hundreds of human corrections vanished with
+ * no record of what they had been — an irreversible action with nothing to
+ * reverse it FROM. The snapshot is not an undo button (nothing calls it back
+ * yet) but it means the values still exist to be restored by hand.
+ *
+ * Deliberately in workspace_config rather than a file: this runs on Vercel,
+ * where the filesystem is ephemeral, so a written file would be gone with the
+ * lambda. Deliberately not a new table: this pile promised no migrations.
+ *
  * Returns the number of client rows that actually carried overrides.
  */
-export async function clearDealOverrides(): Promise<number> {
+export async function clearDealOverrides(clearedBy?: string | null): Promise<number> {
   const db = getDb();
+  const doomed = await db
+    .select({ id: schema.clients.id, name: schema.clients.name, properties: schema.clients.properties })
+    .from(schema.clients)
+    .where(sql`${schema.clients.properties} ? '__deal_overrides'`);
+
+  if (doomed.length > 0) {
+    await setWorkspaceConfigDb(DEAL_OVERRIDES_BACKUP_KEY, {
+      clearedAt: new Date().toISOString(),
+      clearedBy: clearedBy ?? null,
+      clients: doomed.map((c) => ({
+        id: c.id,
+        name: c.name,
+        overrides: (c.properties as Record<string, unknown>)?.["__deal_overrides"] ?? {},
+      })),
+    });
+  }
+
   const rows = await db
     .update(schema.clients)
     .set({ properties: sql`${schema.clients.properties} - '__deal_overrides'`, updatedAt: new Date() })
