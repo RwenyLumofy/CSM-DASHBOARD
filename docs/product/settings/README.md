@@ -10,7 +10,8 @@ the data model, project options, routing and health automation, and integrations
 ## Purpose
 
 Signal is configuration-driven in several places — the health formula, project statuses,
-the churn taxonomy, client fields, assignment routing. Settings is where those are set,
+the churn taxonomy, client fields, the health model's gates and rules. Settings is where
+those are set,
 which means changing something here changes what other pages report.
 
 ## Intended users
@@ -34,7 +35,6 @@ tab's data is fetched.
 | Members | `members` | Admin, Super Admin | Users, roles, role labels, Lumofy staff directory |
 | Properties | `properties` | Everyone | Client fields, stakeholder types, attachment categories |
 | Projects | `projects` | Everyone | Project options, project templates |
-| Automations | `automations` | Admin, Super Admin | Assignment routing (was "Workflows") |
 | Client health | `health` | Admin, Super Admin | The health formula: metrics, weights, tiers |
 | Churn taxonomy | `churn` | Admin, Super Admin | Categories → reasons |
 | Integrations | `integrations` | Everyone | HubSpot data sync; **secrets and full re-sync are Super Admin** |
@@ -66,15 +66,16 @@ See [users-and-permissions](../users-and-permissions/README.md). The escalation 
 admins cannot touch `super_admin` in either direction — is enforced in
 `app/(app)/settings/user-actions.ts:30-56`.
 
-### Configure assignment routing
-1. **Trigger** — Settings → Automations.
-2. **System behaviour** — `WorkflowManager` writes CSM and Implementation assignment
-   config (capacity bands, seniority tiers, implementation levels) to `workspace_config`.
-3. **"Run assignment now"** calls `runAssignment()` over every active client missing an
-   owner.
-4. **Result** — empty owner slots are filled; notifications and action items are emitted.
-5. **Idempotency** — only a `null` owner is filled, and notification ids are deterministic,
-   so a re-run never duplicates an action item.
+### ~~Configure assignment routing~~ — removed
+
+The **Automations** tab and the auto-assignment engine behind it were deleted on 2026-08-03
+(`07db772`). New accounts arrive unowned; owners are set by hand, Super Admin only. See
+[assignment](../../business-rules/assignment.md).
+
+The removal was not a straight delete: `getClientHealthConfig` and
+`saveClientHealthConfigAction` lived inside the assignment feature and had to be relocated to
+`lib/metrics/health-config-store.ts` and `app/(app)/settings/client-health-actions.ts` first,
+or every health score would have gone with the folder.
 
 ### Define client fields
 `PropertiesManager` edits `property_definitions` — the fields that render on the Client
@@ -97,7 +98,6 @@ Almost everything Settings writes lands in `workspace_config` as a keyed JSON bl
 | `client_health_formula` | Metrics, weights, tunables, tiers |
 | `churn_taxonomy` | Categories → reasons |
 | `use_case_taxonomy` | The admin-curated use-case overlay |
-| assignment config keys | CSM and Implementation routing |
 | role label overrides | Workspace names for roles |
 | `today_triage:{email}` | Per-person Today triage (written by Today, not Settings) |
 
@@ -119,7 +119,6 @@ Project statuses and types are themselves configuration (`lib/projects/config.ts
 ## Automations and side effects
 
 - Health formula save → immediate portfolio-wide recompute.
-- "Run assignment now" → owner writes + notifications.
 - Churn taxonomy edit → changes Churn page grouping and profile banners.
 - Property definition changes → change the Client Profile's General tab for everyone.
 
@@ -139,8 +138,9 @@ Each tab renders its own manager component's empty state. No route-level `loadin
 | Page | [`app/(app)/settings/page.tsx`](../../../app/%28app%29/settings/page.tsx) (414 lines) |
 | Actions | `app/(app)/settings/{actions,user-actions,workflow-actions,role-label-actions,project-config-actions,pulse-config-actions,churn-taxonomy-actions}.ts` |
 | Managers | `components/settings/*.tsx` (15 files) |
-| Health config accessors | `lib/assignment/config.ts` (server-only) |
-| Assignment engine | `lib/assignment/engine.ts` (pure) + `run.ts` (orchestrator) |
+| Health config accessors | `lib/metrics/health-config-store.ts` (server-only) |
+| Health model actions | `app/(app)/settings/client-health-actions.ts` |
+| ~~Assignment engine~~ | Removed `07db772`. Was lib/assignment/engine.ts + run.ts |
 
 ## Analytics and observability
 

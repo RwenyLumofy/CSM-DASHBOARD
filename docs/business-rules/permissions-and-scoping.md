@@ -1,7 +1,9 @@
 # Business rule — Roles, permissions, ownership and scoping
 
-**Status:** Verified against implementation · **No tests exist**
-**Last verified:** 2026-07-31 · **Commit:** `15329e3`
+**Status:** Verified against implementation · **No permission test exists**
+**Last verified:** 2026-08-03 · **Commit:** `6660fe8`
+(R1–R11 last read end to end at `15329e3`; R12–R13 added and read at `6660fe8`. **R14 was
+re-verified at `9d83a22` and is now enforced as stated.**)
 
 Full narrative: [users-and-permissions](../product/users-and-permissions/README.md). This
 document states the rules as rules.
@@ -238,6 +240,106 @@ revisited, `applyImportAction` and `resetTaxonomyAction` are the two call sites.
 
 ---
 
+## R12 — A mention grants nothing
+
+**Definition.** Naming a person in a task update adds **no** read or write access to that task
+or to the account. Decision
+[0012](../decisions/0012-a-mention-is-a-reference-not-a-grant.md).
+
+**How it is held.** By removing the situation rather than checking for it: the mention picker
+offers only people who **already** satisfy `canSeeClient` for the task's account, so a mention
+that would need to grant access cannot be created.
+
+**Inputs.** `getUsersWhoCanSeeClientDb(clientId)`
+([`lib/repo/drizzle.ts`](../../lib/repo/drizzle.ts):1774) unions:
+
+| Scope | Admitted |
+|---|---|
+| `all` | every account |
+| `assigned` | the account's CSM or implementation owner |
+| `selected` | an explicit `user_account_grants` row for that account |
+| `none` | nothing |
+
+A null `app_users.scope` falls back to the role default, exactly as `getCurrentUserScope`
+does. It mirrors `scopeAdmits` in `lib/auth.ts` rather than reinventing it.
+
+**Two hardening rules that are part of the rule, not incidental:**
+
+1. **On error it returns nobody, not everybody.** The failure mode of an audience query must
+   be an empty picker.
+2. **It must never call `getAppUsers()`.** That read is unscoped and is already recorded as
+   leaking the staff directory ([contradictions](../known-limitations/contradictions.md)).
+
+**Enforcement.** `listMentionableForTaskAction`, and — critically — `postTaskUpdateAction`
+**re-parses the mention tokens out of the submitted body** and intersects them with the same
+audience rather than trusting a client-supplied list
+([`app/(app)/today/task-update-actions.ts`](../../app/%28app%29/today/task-update-actions.ts)).
+Without the re-parse, a hand-crafted request would notify anyone in the company.
+
+**Exception.** A task with **no** account offers nobody at all — there is no account-scoped
+audience to draw from.
+
+**Tests.** The parser is tested ([`lib/task-updates.test.ts`](../../lib/task-updates.test.ts),
+six tests); the audience query and the gate are not.
+
+---
+
+## R13 — Reading a task thread requires *write* access to the task
+
+**Definition.** Posting, reading and removing a task update all pass through **one** gate,
+`loadWritableTask()`
+([`app/(app)/today/task-update-actions.ts`](../../app/%28app%29/today/task-update-actions.ts):34),
+so read and write can never disagree about who may touch a thread.
+
+**Condition**, in order:
+
+1. A signed-in role must exist, and it must not be `guest`.
+2. **Task linked to an account** — `denyClientWrite(task.accountId)`, the standard client write
+   gate in `lib/auth.ts`.
+3. **Task with no account** — the caller owns it, **or**
+   `editsAllClients(role) && scope.mode === "all"`.
+
+**Consequence, and it is a divergence from the specification.** A **Guest can read no task
+thread at all**. The specification called for read-only visibility for Guests; the code gates
+read on write deliberately and by an explicit comment, which excludes them. Whether that was
+the intent is an open product question — [task updates](../product/task-updates/README.md).
+
+**Failure mode.** `getTaskUpdatesAction` returns `[]` rather than throwing when the gate
+refuses, so "you may not read this" and "there are no updates yet" are indistinguishable to
+the reader.
+
+**Tests.** None.
+
+---
+
+## R14 — Removing an update: your own, or an admin with unrestricted scope
+
+**Definition.** An update may be removed by its author, or by an admin for whom
+`editsAllClients(role) && scope.mode === "all"` — mirroring `mayEditAnyTask`, so an admin
+narrowed by `app_users.scope` cannot reach an account they could not otherwise touch.
+Deletion is **soft**: `deleted_at` is stamped and the row renders "Update removed".
+
+**✅ Enforced as stated since `4ed593d` (2026-08-03).** The author predicate is passed **down**
+into `deleteTaskUpdateDb` and evaluated **before** the write, returning
+`"deleted" | "forbidden" | "missing"` — where `"missing"` covers both absent and
+already-deleted, so a retried delete stays a no-op
+([`app/(app)/today/task-update-actions.ts`](../../app/%28app%29/today/task-update-actions.ts)
+lines 186–196).
+
+*Previously, and worth keeping as an example of the failure mode:* the soft delete ran first
+and the authorship comparison second, so a caller who passed R13 but was neither the author
+nor an unrestricted admin **removed the update and was then told they may not**. The UI
+offered the control only on the viewer's own updates — but **a UI affordance is not a
+permission**, and *a permission check has to gate the write, not follow it*. Found by the
+product documenter while writing up the feature.
+
+**Status:** `Partially verified` — the ordering is read directly; no test pins it.
+
+**Tests.** None. **This is the one worth adding**: the rule is now correct by an ordering that
+a future refactor could silently reverse.
+
+---
+
 ## Known inconsistencies across this family
 
 1. **No permission tests**, for the most security-sensitive code in the product.
@@ -248,3 +350,7 @@ revisited, `applyImportAction` and `resetTaxonomyAction` are the two call sites.
    does not set it grants a permanent super-admin.
 5. **The role picker offers four tiers; the type union has nine values.** Legacy rows still
    resolve, but a reader of `lib/types.ts` alone would draw the wrong conclusion.
+6. **R14's delete gate runs after the write.** The stated rule and the executed behaviour
+   differ; see R14.
+7. **R13 excludes Guests from reading task threads**, which the specification for the feature
+   did not intend. Unresolved product question, not a code defect.

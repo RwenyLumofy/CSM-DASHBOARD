@@ -7,12 +7,452 @@ roles affected · behaviour before · behaviour after · migration or data impac
 limitations · commit.
 
 > **Baseline note.** This changelog begins on 2026-07-31, when product documentation was
-> established. Entries below cover the last three days of the `exec-dashboard` branch,
-> reconstructed from commits — the period where changes are still verifiable in detail.
+> established. The 2026-07-26 → 07-31 entries were reconstructed from commits at that point.
+> Everything from 2026-08-03 onward was written in Change mode as the work landed.
 > **Earlier history is not reconstructed**; 189 commits precede this and are summarised in
 > [Before this changelog](#before-this-changelog) rather than invented.
 >
 > There are **no version tags** in this repository, so entries are grouped by date.
+
+---
+
+## 2026-08-16
+
+### Expansion — a simple expansion CRM for existing clients
+
+**Area:** Expansion (new) · Clients · Client Profile · Today · Action list
+**Roles affected:** everyone except **guests, who have no access to this feature at all** —
+no board, no nav entry, no profile card, no Action list rows, no Today lane. This supersedes
+the build brief's read-only-guest rule (owner's instruction, 2026-08-16): an expansion
+pipeline is unannounced commercial intent about live customers, which does its damage by
+being seen rather than changed.
+
+**Before.** Expansion motions lived in a spreadsheet. Nothing in Signal recorded that an
+account was being expanded, who owned it, what it was worth, or what happened next. A
+prototype existed at `/scratch-expansion` reading invented sample data and writing nothing.
+
+**After.** A new page at **`/expansion`** — a sidebar entry between Clients and the Action
+list. Account → Opportunity, three active stages plus Closed, three closed outcomes. Kanban
+by default with a list view, drag to move (instant, with Undo), and a record overlay for
+next steps, notes, owner, confidence and the close flow.
+
+The promise it is built to keep: **no credible expansion motion should be invisible,
+ownerless, or without a next step.**
+
+- **One attention rule.** `attention()` in `lib/expansion/attention.ts` decides whether an
+  opportunity needs attention, and every count, filter, flag and integration reads it. Pure,
+  no React, no DB, unit tested (25 tests).
+- **Commercial rules enforced.** An invoice alone never marks an opportunity Won — only
+  client acceptance does. Lost (they declined) and Dropped (we stopped) are distinct, and
+  both label the amount as *potential*.
+- **Closing writes nothing to the ARR ledger.** `arr_events` stays the source of truth;
+  `arr_recorded` records only that a human has reconciled the two, and carries an amber
+  marker until they have.
+- **Permissions are server-side.** Reads are scoped by `scopeClientsToUser`; every mutation
+  gates on `denyClientWrite` for the opportunity's own account, resolved from the database
+  rather than from the request. `guest` is refused, not merely hidden.
+- **Integrations.** The client profile gains an Expansion card; the Action list and Today's
+  Expansion focus area surface opportunities that need attention, derived live so an
+  unchanged fact never produces a fresh alert the next day.
+
+**Migration and data impact.** Four new additive tables — `expansion_opportunities`,
+`expansion_next_steps`, `expansion_notes`, `expansion_activity`
+(`node scripts/add-expansion-tables.mjs`). Nothing existing was altered, and **no ARR ledger
+row is written or changed by this feature**. The seven real opportunities supplied on
+13 Aug 2026 are seeded by `node scripts/seed-expansion-pipeline.mjs`.
+
+**Known limitations.**
+- The seven imported rows carry no owner, no next step and no close date — the source
+  spreadsheet has none — so the board reads **7 of 7 needing attention** on day one. That is
+  the finding, not a defect.
+- **USD-only.** All 132 accounts are USD and `arr_events` has no currency column; the
+  `currency` column exists so a future non-USD account is representable, not because
+  mixed-currency reporting works (decision D-4).
+- The **stage control inside the record** is still an open design decision (spec §7). The
+  prototype's progress segments ship, isolated as `StageStepper`.
+- The `/scratch-expansion`, `/scratch-card-review` and `/scratch-stage-options` prototype
+  routes remain, deliberately, as the reference to check this build against. They are
+  guarded out of production and should be deleted once the page is signed off.
+
+Documentation: [product/expansion](../product/expansion/README.md).
+
+---
+
+## 2026-08-05
+
+### Health scoring moved to the published model — every account was re-scored
+
+**Area:** Health · Clients · Client Profile · Today · Action list · Insights · Settings
+**Roles affected:** everyone. This changes what "healthy" and "at risk" mean.
+
+**Before.** Health was a flat weighted average over ten metrics, with no qualification gates,
+no status rules and no lifecycle states. The published model that had all of those had never
+been wired to anything.
+
+**After.** The engine scores every account against four weighted components — Product
+Adoption 50%, CS Pulse 25%, Support and Reliability 15%, Client Sentiment 10% — then applies
+five qualification gates and sixteen priority-ordered status rules. An account now carries a
+**score**, a **band** and an **applied status**, and the applied status is what every surface
+shows.
+
+**The book was re-sorted, not re-tuned.** Measured on 133 production accounts:
+
+| Tier | Was | Now |
+|---|---|---|
+| Healthy | 43 | 3 |
+| Watch | 15 | 22 |
+| At risk | 75 | 23 |
+| Churned | 0 | **79** |
+| Critical / Implementation / Not Assessed | 0 | 6 |
+
+The 43 "Healthy" included churned accounts, and the 75 "At risk" was mostly the churned
+back-catalogue being scored as though it were live. **Anyone comparing a health dashboard
+across 2–3 August is comparing two different questions.**
+
+**Migration impact.** `clients.health` is JSONB, so the engine's extra fields (coverage,
+confidence, momentum, primary risk, next action, triggered reasons) are additive. Rollback is
+a snapshot/restore of `clients.health` (`022e342`), not a version switch.
+
+**Known limitations.** The engine's 19 tables are still unwritten, so there is no health
+history. `lib/metrics/health.ts` remains in the tree as dead code with 21 passing tests.
+Insights' portfolio donut, `movement.ts` and Today still band the raw score on the retired
+75/55 cutoffs.
+
+**Commits:** `9a8ea59` `1aec1a1` `31777c2` `022e342` `0764bcc` `3f6934f` `32923a3`
+**Decision:** [0015](../decisions/0015-the-engine-scores-health-and-every-surface-reads-the-applied-status.md)
+
+### Three surfaces were reading a formula that no longer existed
+
+**Roles affected:** everyone
+**Before.** The engine stores a completely different set of component keys from the retired
+formula — **zero names in common**. Three places still held the old key set, each compiling
+cleanly and matching nothing:
+- The Insights health-drag panel reported all ten signals as maximally dragging, on no data.
+- The evidence rule showed **"Not assessed" on all 133 accounts**, on top of good scores.
+- Settings → Client health still edited the retired formula.
+
+**After.** The drag panel was rewritten as `lib/health/drag.ts`, decomposing the engine's own
+component tree from the same assembled model the recompute scored with. The evidence rule's
+keys were corrected — "Not assessed" pills went 133/133 → 2/133, the remaining two genuinely
+being Implementation accounts. The Settings page was restructured to follow the order the
+engine applies: components → bands → CS Pulse dimensions → rating scale.
+
+**Commits:** `abd355e` `afc55a5` `e6dc235` `6f8d795`
+
+### Client Profile: "Health signals", with recommendations beneath
+
+**Roles affected:** CSM, Implementation, Support
+**Before.** The profile's tenth tab was "Action list" and showed generated actions. Nothing
+explained why an account's health number was what it was.
+**After.** The tab is **Health signals**. It states the verdict and explains it — which gates
+failed, which status rules fired, and **how far** the account is from each threshold — then
+draws the model, generated from the model itself so it cannot go stale, with recommendations
+anchored on the status they sit beneath.
+**The tab key stays `actions`**, so every saved link still resolves.
+
+**A real defect fixed here:** the Recommendations panel claimed to say "what to do about the
+readings above" and did not read them. An account scoring 73, held on Watch by a failed CS
+Pulse gate and a single-threaded flag, got one recommendation reading "breadth is dragging it
+down" — a raw engine id naming the cheapest signal on the account. Now covered by tests.
+
+**Commits:** `009d404` `833b50a` `b752517` `8f516a0` `2b85fe6` `e81293d` `131b31c`
+
+### Stakeholders: the mapping matrix is retired; profiles feed health
+
+**Area:** Stakeholders · Communication tab · Health
+**Roles affected:** CSM, Implementation
+
+**Before.** Two models described the same relationships. The Communication tab's Stakeholder
+Mapping was a role-keyed matrix that said *"Ahmed is the Champion"* and held nothing about
+Ahmed — **and it never fed the health score at all.** An account could have a sponsor, a
+champion and a buyer mapped and still be capped for "no credible sponsor access", because
+nobody had answered a Pulse question.
+
+**After.** Stakeholder **profiles** are the only model. The Stakeholder Mapping sub-tab is
+gone; Communication keeps Emails, Meetings and Contacts. Profiles now answer four of the
+engine's relationship facts, with precedence **Pulse first, roster second** — a deliberate
+judgement is never overwritten by a headcount; the roster fills blanks.
+
+**Two new first-class roles:** Power User and Gatekeeper. The retired matrix used them for
+**43 of 107 associations — 40% of everything mapped** — and neither has an honest
+near-neighbour.
+
+**Migration.** 31 clients, 82 legacy rows, 107 associations → **79 profiles**, 0 exceptions,
+0 failures, idempotent on a second run. 79 from 107 is correct, not lossy: the matrix is
+role-keyed, so 24 people appearing in several rows became one person holding several roles.
+Every graded field stays `unknown` — a migrated Champion showing *Neutral* sentiment would be
+a judgement nobody made.
+
+**The write path is deleted, not hidden**, and `stakeholder_mappings` was removed from the
+PATCH API's collaborative keys — either would have left one request between the workspace and
+the two-sources state this cutover exists to end.
+
+**Data impact.** `clients.properties.stakeholder_mappings` is **untouched on all 31 accounts**
+as rollback evidence. Dropping it is a separate reviewed change.
+
+**Known limitation.** The health impact is **unmeasured**: the local before/after comparison
+reports 0 accounts changed, but it scores with usage and support null, so most accounts land
+`Not Assessed` in both arms and never reach the rules the stakeholder facts feed.
+
+**Commits:** `b582d96` `2d55584` `9d83a22`
+**Decision:** [0017](../decisions/0017-stakeholder-profiles-are-the-only-relationship-model.md)
+
+### Support was scoring 100 for every account on no data at all
+
+**Roles affected:** everyone reading a health number
+Seven support metrics were unfed and defaulted to a perfect score. They are now wired to the
+ticket list, so Support and Reliability measures something. **Commits:** `0764bcc` `3f6934f`
+
+### Use Case Breadth replaced Manager Participation
+
+**Roles affected:** CSM, Product
+A component of Product Adoption changed what it measures. **Commit:** `32923a3`
+
+---
+
+## 2026-08-03 (earlier the same day)
+
+### Auto-assignment removed — new accounts arrive unowned
+
+**Area:** Clients · Settings · Sync
+**Roles affected:** Super Admin (who now assigns by hand), and every CSM waiting for an
+account to be handed over.
+
+**Before.** New accounts were routed by ARR band to the least-loaded owner in the matching
+role tier, silently, on every new logo — from the HubSpot sync and `/api/add-account`, not
+just from the Settings UI. **Its output was overridden by hand every time.**
+
+**After.** The engine, the Settings → **Automations** tab and the routing config are deleted.
+New accounts arrive **unowned**; the sync reports how many need an owner rather than guessing,
+and `/api/add-account` no longer returns an `assignment` block. Owners are set by hand, Super
+Admin only.
+
+**Migration impact.** Nothing writes `csmSource: 'auto'` any more; historical rows survive.
+Two notification types — `assignment_review` and `assignment_needs_admin` — lost their writer;
+existing rows still render.
+
+**Known limitation.** Nothing surfaces the unowned count to a person. It is a number in a job
+response.
+
+**Worth recording:** this was not a straight delete. `getClientHealthConfig` and
+`saveClientHealthConfigAction` lived inside the assignment feature by accident of where they
+were first written — **deleting the folder would have taken every health score with it.**
+Both were relocated to health-owned modules first.
+
+**Commit:** `07db772`
+**Decision:** [0016](../decisions/0016-remove-auto-assignment-accounts-arrive-unowned.md)
+
+### A task update was deleted before the permission check ran
+
+**Roles affected:** anyone with write access to an account
+**Before.** `deleteTaskUpdateDb` stamped `deleted_at` and *then* compared the author, so
+anyone who could write to the account could delete anybody's update — and be told *"You can
+only remove your own updates"* with the update already gone.
+**After.** The author predicate is passed down and gates the write, returning
+`"deleted" | "forbidden" | "missing"`. A retried delete stays a no-op.
+**Found by the product documenter while writing up the feature.** **Commit:** `4ed593d`
+
+### Health engine: silence is not a Yes, and a churned account is gone
+
+An **unanswered** CS Pulse question no longer caps the account, and a zero primary-contact
+count is treated as *unknown* rather than "single-threaded" — Signal must not penalise an
+account for its own missing data. A churned account resolves to `Churned`, not `Not Assessed`:
+gone is not un-reviewed. **Commits:** `9625e0e` `810de4e` `b47fe07`
+
+---
+
+## 2026-08-03 (health evidence and Pulse-as-metric)
+
+### Health: an account with no customer evidence no longer shows a score
+
+**Area:** Health · Clients directory · **Roles affected:** everyone who reads a health number
+
+**Before.** The score renormalises over whichever metrics have data, so an account with no
+usage, survey, support or CS Pulse data was scored *entirely on how completely its Signal
+record was filled in* — profile fields, use cases, stakeholder mapping, the onboarding window.
+Two live examples on the day: one account reading "Healthy 76" on profile and onboarding data
+alone, another reading "At risk 0" on profile fields alone. Nothing on screen distinguished
+either from a score built on real evidence.
+
+**After.** Those accounts show **"Not assessed"** instead of a number and a tier, everywhere a
+health readout appears, and the `/clients` **At-risk headline count skips them** — they need a
+CSM to go and look, not to be triaged as failing. Evidence means at least one of usage, ticket
+CSAT, platform CSAT, NPS, SLA breaches or CS Pulse contributed.
+
+**A usage reading of zero still counts as evidence** — a dormant account is the loudest churn
+signal in the product, not a gap. Only an *absent* metric is missing evidence.
+
+**Data impact.** None. The rule is derived at read time from the components already stored, so
+every existing health row got the correct treatment with no migration and no recompute. The
+underlying score is unchanged in the database — an export or a Metabase question still sees it.
+
+**Known limitations.** Applied on three surfaces only: the shared health pill, the CS Pulse
+panel and the `/clients` at-risk count. The Action list, health drag and the Insights at-risk
+panel still band on the raw score.
+
+**Commit:** `2dbffe0` · **Rule:** [health-scoring R11](../business-rules/health-scoring.md#r11--no-customer-evidence-no-score-not-assessed)
+· **Decision:** [0013](../decisions/0013-record-keeping-alone-is-not-a-health-score.md)
+
+### Health: a Critical CS Pulse on renewal or engagement caps the tier
+
+**Area:** Health · **Roles affected:** everyone; CSMs most directly
+
+**Before.** Nine accounts carried a Critical rating on renewal or engagement and **eight of
+them read Healthy or Watch**. One was rated Critical on all three Pulse dimensions — no
+sponsor, gone dark, active churn risk, a Pulse of 0 — and showed "Healthy, 61", because five
+record-keeping metrics sat at 100 and outweighed it.
+
+**After.** A Critical on **renewal** or **engagement** forces the tier to the lowest configured
+tier, whatever the weighted score says. A CSM recording the most alarming assessment the tool
+allows is no longer overruled by tidy paperwork.
+
+Three deliberate boundaries:
+
+- **Stakeholder coverage does not cap.** It describes Lumofy's coverage, not the customer's
+  intent, and is recoverable without the customer doing anything.
+- **The score is not rewritten.** Only the tier moves. Overwriting the number would hide what
+  the metrics said and break trend comparisons — so a score and its tier can now legitimately
+  disagree, and the CS Pulse drawer explains the pair in words rather than leaving "61 · At
+  risk" looking broken.
+- **A lapsed Pulse stops capping** at the same moment it stops contributing. A judgement made
+  90 days ago does not pin an account to the bottom tier forever.
+
+**Data impact.** Applied at recompute and persisted, so **an account keeps its old tier until
+the nightly `/api/cron/client-health` run at 09:00** or until an admin re-saves the formula.
+Measured against production: 8 accounts expected to move, taking the At-risk population from 75
+to 83.
+
+**Known limitations.** Any consumer that re-bands `health.score` rather than reading
+`health.tier` will disagree with what the product shows.
+
+**Commit:** `6660fe8` · **Rule:** [health-scoring R12](../business-rules/health-scoring.md#r12--a-critical-on-renewal-or-engagement-caps-the-tier)
+· **Decision:** [0014](../decisions/0014-a-critical-pulse-caps-the-tier-and-leaves-the-score-alone.md)
+
+### CS Pulse became an input to the health score, and the drawer now explains it
+
+**Area:** Health · CS Pulse · **Roles affected:** CSMs, Admins configuring the formula
+
+**Before.** The profile showed two numbers from two calculations — the header ring's live score
+and, in the Pulse drawer, the unwired engine's own score, band and momentum.
+
+**After.** CS Pulse is a **weighted metric inside the one score**, deliberately heavier than the
+measured ones (a 25% share by default), and the drawer **explains that score** instead of
+competing with it: every metric that contributed, biggest first, with CS Pulse emphasised. A
+missing or lapsed Pulse is **skipped and the remaining weights renormalise — never scored
+zero**, so an account is not punished for being unassessed. The drawer distinguishes the three
+reasons a Pulse might not be counting, including "the stored score predates the metric", which
+only a recompute fixes.
+
+The whole health card now collapses to one line — score, tier, trend, Pulse freshness — so the
+ratings a CSM opened the drawer to set are on screen without scrolling.
+
+**Data impact.** ⚠️ **A workspace that has ever saved a health formula receives `cs_pulse`
+disabled at weight 0**, because an unknown metric key must never silently re-weight an admin's
+tuned formula. It needs the one-time
+[`scripts/enable-cs-pulse-health-metric.mjs`](../../scripts/enable-cs-pulse-health-metric.mjs),
+which preserves the 25% *ratio* against whatever the admin's weights sum to. A workspace that
+has never saved one already includes it.
+
+**Known limitations.** The engine's momentum, data-coverage and driver narrative have no
+equivalent in `HealthScore` and were **not** reproduced — a deliberate loss.
+
+**Commits:** `8493a94`, `7b0fa94`, `e65573f`, `a395ff9`
+· **Rule:** [health-scoring R10](../business-rules/health-scoring.md#r10--cs-pulse-is-a-weighted-metric-inside-the-one-score)
+
+### A task can be discussed, and being named on one reaches you
+
+**Area:** Client Profile → Tasks sidebar · Today board · Notifications
+**Roles affected:** CSM, CS Manager, Admin, Super Admin. **Guests get nothing** — see below.
+
+**Before.** The account Tasks sidebar lists tasks across owners, so two people routinely saw a
+task only one of them could act on, with nowhere to say anything about it and no way to reach
+the other. That conversation happened in Slack and the account record never learned from it.
+The `@` mention component that existed collected mention chips and **discarded them at
+submit** — only the literal `@Name` characters were ever stored.
+
+**After.** Every task carries an **update thread**: append-only, attributed, oldest first, with
+an `@` picker. It appears in two places — expanded in place inside the account Tasks sidebar,
+and in the Today board's task drawer — and both show the same conversation, because a task has
+one thread rather than one per surface.
+
+**A mention grants no access.** The picker offers **only people who can already see the
+account**, and the server re-parses the mention tokens out of the submitted body and intersects
+them with that same audience rather than trusting the client — so a hand-crafted request cannot
+notify anyone the author could not already name. The stated cost: a colleague with no grant on
+the account cannot be reached from a task on it at all.
+
+Also in this change:
+
+- The Tasks sidebar gained a **"N completed" disclosure**. It previously listed open tasks
+  only, which was fine when a task was a checkbox — completing one now takes a whole
+  conversation out of reach.
+- The task row was refitted to the 540px sidebar: the title takes the full row and its
+  metadata sits underneath, so a realistic title no longer wraps to two lines.
+- `today_tasks.notes`'s schema comment, which claimed to support mentions and did not, was
+  corrected.
+
+**Data impact.** Two new tables (`task_updates`, `task_update_mentions`) and two nullable
+columns on `notifications`, via `drizzle/0005_add_task_updates.sql` — **applied to production
+2026-08-03**. Additive and idempotent; no backfill, no existing row touched. Every existing task
+acquires an empty thread, which is the correct rendering rather than a gap to fill.
+
+**Known limitations.** A **Guest can read no thread at all** (read is gated on the write
+predicate, which excludes them — the specification intended read-only visibility, so this needs
+a product decision). There is **no edit path**. Deleting a task does not remove its updates,
+mentions or notifications. A task row shows no update count. **The delete gate runs after the
+write** — see [known-limitations](../known-limitations/README.md).
+
+**Commits:** `a9b0382` (server), `62f673b` (UI), `6d76724` (sidebar fit)
+· **Feature:** [task updates and mentions](../product/task-updates/README.md)
+· **Decision:** [0012](../decisions/0012-a-mention-is-a-reference-not-a-grant.md)
+
+### Notifications land on the thing, not near it
+
+**Area:** Notifications · **Roles affected:** everyone
+
+**Before.** The bell routed on the account alone. Every notification about an account landed on
+the account page — so "you were mentioned in an update" dropped the reader on a page of ten
+tabs with no indication which task was meant — and every notification **without** an account
+did nothing at all. A personal task assignment was a literal dead click. Four notification
+types, including all the task ones, shared the same grey dot as "system", so being named in an
+update looked identical to a housekeeping notice. The bell was rendered once per navigation, so
+somebody sitting on an account page for an hour never learned they had been mentioned.
+
+**After.**
+
+- A notification can name **what it is about**. A task notification opens
+  `/clients/{id}?task={id}`, or `/today?task={id}` when the task has no account, and **both
+  surfaces open that task's thread on arrival** — only when the id is in the list they already
+  rendered, so a stale or foreign id leaves the page alone.
+- One function decides every destination, so no two surfaces can disagree. It returns
+  **nothing** when there is genuinely nowhere to go, and the bell renders a non-navigating row
+  rather than a route that pretends.
+- **Per-type icons and labels**, plus an unread mark of its own rather than only a row tint.
+- The bell **catches up every 60 seconds, on tab focus, and when opened**. A failed poll keeps
+  what is on screen — blanking it would say "you're all caught up", which is a lie the reader
+  would act on.
+- `task_assigned` was being written while absent from the type union, the schema comment and
+  the icon map. All three now declare it.
+
+**Data impact.** None beyond the two nullable columns above. Existing notifications keep
+routing on the account exactly as before.
+
+**Known limitations.** There is still **no notification list** — the bell shows 12 and "View
+all" goes to the Action list, a different object. No preferences, no email, no push.
+Reassigning a task still notifies nobody.
+
+**Commit:** `4fe7f17` · **Feature:** [notifications](../product/notifications/README.md)
+
+### Development previews for both
+
+`/scratch-tasks` and `/scratch-health-evidence` render the shipping components against sample
+data, because reading or posting a task thread needs a Clerk session and a local environment has
+none. **Not product** — no navigation, no data, no permission gate, and `scratch-tasks` 404s
+outside development. Tracked rather than gitignored deliberately: Tailwind v4 skips gitignored
+paths when detecting sources, so an ignored preview route renders with a partial stylesheet and
+misrepresents how the real thing looks.
+
+**Commits:** `52cdef2`, `2dbffe0`
 
 ---
 

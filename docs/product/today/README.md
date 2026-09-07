@@ -75,6 +75,25 @@ Lane keys are fixed in [`lib/today/types.ts`](../../../lib/today/types.ts) and l
 4. **Note** — these are **personal** tasks. They are unrelated to `project_tasks` and to
    the unwritten `playbook_tasks` table.
 
+### Discuss a task
+1. **Trigger** — open a task; the drawer's **Updates** section is below Details.
+2. **System behaviour** — the same thread the account Tasks sidebar shows. Only the task id
+   crosses over; the server re-derives who may read and post from the task's own account, so
+   opening it here grants nothing that opening it there would not.
+3. **Result** — one task, one conversation, two views.
+4. **Note** — a task with **no** linked account offers **no mention picker**: there is no
+   account-scoped audience to draw from. Full behaviour:
+   [task updates and mentions](../task-updates/README.md).
+
+### Arrive from a notification
+1. **Trigger** — clicking a notification about a personal task (one with no account).
+2. **System behaviour** — `/today?task={id}` opens that task's drawer, **only** when the id is
+   present in the permission-scoped snapshot the page already rendered. An id that is not
+   leaves the page alone rather than opening an empty drawer that implies the task exists.
+   Handled once per id.
+3. **Note** — before this, such a notification was a literal dead click. See
+   [notifications](../notifications/README.md).
+
 ## Fields and data
 
 | Concept | Meaning | Persisted? | Where |
@@ -182,9 +201,12 @@ Health · CS Pulse · usage · projects · notifications · client actions · pe
 
 `app/(app)/today/page.tsx` · `lib/today/build.ts` · `lib/today/triage.ts` ·
 `lib/today/repo.ts` · `lib/today/types.ts` · `lib/health/pulse-queue.ts` ·
-`middleware.ts` · `components/today/*`
+`middleware.ts` · `components/today/TodayWorkspace.tsx` ·
+`components/today/TaskDrawer.tsx` · `lib/notifications/link.ts`
 
 ---
 
-**Documentation status:** Partially verified — no tests cover Today
-**Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+**Documentation status:** Partially verified — no test covers Today
+**Last verified:** 2026-08-03 · **Commit:** `6660fe8` · **Owner:** Unassigned
+(Only the two new task workflows were read at this commit; the ranking, triage, fields and
+permissions sections were last read at `4214349`.)

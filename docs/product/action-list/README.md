@@ -73,14 +73,22 @@ list of what Signal will ever put in the Action list today.
 | 1 | `incomplete_profile` | One action per missing **red** (must-have) field | high |
 | 1 | `incomplete_profile` | One action per missing **yellow** field — **only once every red field is filled** | low |
 | 2 | usage | `mau === 0` (dormant this month), or no logins this week | — |
-| 5 | health | Health score at-risk (`< 55`) or watch (`55–74`) | — |
-| 6a | stakeholders | No stakeholders identified in the mapping | — |
+| 5 | health | **Rewritten 2026-08-05.** Reads the engine's **applied status** via `accountStatus()` — no longer a `< 55` / `55–74` band on the raw score. One signal per *fired status rule* and per *failed gate*, in the model's own words, plus the worst-dragging component from `accountDrag()` | — |
+| 6a | stakeholders | No **active stakeholder profiles** on the account. Reads `lib/stakeholders/profile.ts` + `facts.ts` — the retired mapping matrix is gone | — |
 | 4 | sentiment | Low/high NPS or CSAT — **dormant scaffolding**; `csat`/`nps` are null for every client until a sentiment source is wired | — |
 | 3 | projects | **Not implemented** — arrives with the feature | — |
 | 6b | stakeholder engagement | **Not implemented** | — |
 
 Sentiment thresholds are the feature's own defaults, not a codebase convention:
 `CSAT_LOW 60` · `CSAT_HIGH 90` · `NPS_LOW 0` · `NPS_HIGH 50`.
+
+**The health signals are the only part of this engine with tests** —
+[`lib/actions/signals-health.test.ts`](../../../lib/actions/signals-health.test.ts), written
+after the Recommendations panel was found claiming to explain readings it never read: Bank of
+Bahrain, scoring 73 and held on Watch by a failed CS Pulse gate and a single-threaded flag,
+got one recommendation reading "breadth is dragging it down" — a raw engine id, naming the
+cheapest signal on the account and mentioning neither of the two things actually holding it
+back.
 
 Usage signals fire **only** when `usage.status === "ok"` — an unavailable or unlinked
 account is skipped rather than flagged as "no usage". That distinction matters: absence of
@@ -191,4 +199,6 @@ deadlines · Gemini (optional).
 ---
 
 **Documentation status:** Partially verified — signal rules read end to end, no tests exist
-**Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+**Last verified:** 2026-08-05 · **Commit:** `9d83a22` · **Owner:** Unassigned
+(The health and stakeholder signal rules were re-read at this commit; the generation pipeline
+and reconciliation behaviour were last read at `4214349`.)

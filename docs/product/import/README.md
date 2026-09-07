@@ -64,8 +64,9 @@ id, owner email, ARR, and arbitrary client properties. See `COLUMN_ALIASES` in
 
 ## Automations and side effects
 
-Newly created accounts are subject to the assignment workflow if their owner slots are
-empty.
+**None.** Until 2026-08-03 newly created accounts were routed to an owner automatically; that
+engine was removed (`07db772`), so imported accounts arrive **unowned** unless the file names
+an owner.
 
 ## Empty, loading and error states
 

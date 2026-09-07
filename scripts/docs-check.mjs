@@ -27,7 +27,7 @@
    ========================================================================= */
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
-import { join, dirname, resolve, relative, extname } from "node:path";
+import { join, dirname, resolve, relative, extname, sep } from "node:path";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -87,6 +87,15 @@ function resolveCitation(cited, docDir) {
   return resolve(ROOT, cited);
 }
 
+/* `specs/` and `product-notes/` are DATED PROPOSALS, not descriptions of current
+   behaviour. Their citations were correct when written, and a file the proposal
+   named may since have been renamed or deleted — which is history, not an error.
+   Their internal LINKS are still checked; only path-existence is skipped, and the
+   count is reported so the exemption is visible rather than silent. */
+const PROPOSAL_DIRS = [join(DOCS, "specs") + sep, join(DOCS, "product-notes") + sep];
+const isProposal = (doc) => PROPOSAL_DIRS.some((d) => doc.startsWith(d));
+let skippedProposalCitations = 0;
+
 for (const doc of docs) {
   const text = readFileSync(doc, "utf8");
   const here = dirname(doc);
@@ -106,14 +115,18 @@ for (const doc of docs) {
   for (const [, cited] of text.matchAll(CODE_PATH)) {
     const resolved = resolveCitation(cited, here);
     if (resolved && !existsSync(resolved)) {
-      err(rel(doc), `cited path does not exist → ${cited}`);
+      if (isProposal(doc)) skippedProposalCitations += 1;
+      else err(rel(doc), `cited path does not exist → ${cited}`);
     }
   }
 }
 
 /* ------------------------------------------- 3. verification metadata */
 
-const NEEDS_METADATA = [join(DOCS, "product"), join(DOCS, "business-rules")];
+// Trailing separator matters: without it, `docs/product` also matches
+// `docs/product-notes`, which is a different kind of document with its own
+// template and no verification metadata by design.
+const NEEDS_METADATA = [join(DOCS, "product") + sep, join(DOCS, "business-rules") + sep];
 
 for (const doc of docs) {
   if (!NEEDS_METADATA.some((d) => doc.startsWith(d))) continue;
@@ -217,7 +230,14 @@ if (changedArg) {
 
 /* ------------------------------------------------------------- report */
 
-console.log(`docs-check — ${docs.length} documents\n`);
+console.log(`docs-check — ${docs.length} documents`);
+if (skippedProposalCitations > 0) {
+  console.log(
+    `  (${skippedProposalCitations} stale citation(s) in specs/ and product-notes/ not counted — ` +
+      `those are dated proposals, see the note in this script)`,
+  );
+}
+console.log("");
 
 if (warnings.length) {
   console.log(`WARNINGS (${warnings.length}):`);

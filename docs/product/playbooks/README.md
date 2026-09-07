@@ -58,9 +58,11 @@ to a record — but the strings ship.
 
 - A sidebar item leads to a dead end for every user.
 - Anyone reading the navigation reasonably concludes Signal has playbook automation.
-- The closest thing that *does* exist is the **assignment workflow**
-  (Settings → Automations), which routes owners — not playbooks. See
-  [settings](../settings/README.md).
+- The closest thing that *used to* exist was the assignment workflow in Settings →
+  Automations, which routed owners rather than playbooks. **It was removed on 2026-08-03**
+  (`07db772`) — and its commit message states the slot *"is meant to come back as a
+  configuration engine for playbooks"*. That is the only evidence anywhere that Playbooks is
+  still intended to ship. See [assignment](../../business-rules/assignment.md).
 - Task-like work is served by `today_tasks` (Today) and `project_tasks` (Project
   Management). Neither is a playbook task.
 

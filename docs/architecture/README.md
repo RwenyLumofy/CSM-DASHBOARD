@@ -1,6 +1,8 @@
 # Architecture
 
-**Status:** Partially verified · **Last verified:** 2026-07-31 · **Commit:** `4214349`
+**Status:** Partially verified · **Last verified:** 2026-08-05 · **Commit:** `9d83a22`
+(Stack, testing, boundaries and the assignment removal re-verified at this commit; deployment
+and observability last read at `4214349`.)
 
 Enough architecture to understand how product behaviour is implemented and maintained. Not
 a line-by-line reference.
@@ -28,7 +30,7 @@ lib/
   integrations/                     HubSpot, Intercom, Metabase, Gemini, Storage
   metrics/                          ARR, retention, churn, health, portfolio, exec
   health/                           The config-driven engine (unwired) + CS Pulse (live)
-  today/ actions/ projects/ stakeholders/ usage/ notes/ assignment/ import/
+  today/ actions/ projects/ stakeholders/ usage/ notes/ import/ task-updates
 drizzle/          Migrations + hand-maintained SQL
 scripts/          ~40 one-off maintenance scripts
 ```
@@ -47,7 +49,7 @@ scripts/          ~40 one-off maintenance scripts
 | Icons | `lucide-react` |
 | Dates | `date-fns` |
 | Deploy | Vercel, region `bom1` |
-| Tests | Node's built-in test runner via `tsx` — **6 files** |
+| Tests | Node's built-in test runner via `tsx` — **20 files, 233 tests** (`lib/**/*.test.ts`) |
 
 **Note:** the README lists `recharts` for reporting; it is **not** in `package.json`. Charts
 are hand-built.
@@ -159,9 +161,9 @@ overrides applied on read. See [integrations](../product/integrations/README.md)
 | Boundary | Rule |
 |---|---|
 | `lib/roles.ts` vs `lib/auth.ts` | Roles is pure data, import-safe from the client. Auth is server-only. Do not merge them. |
-| `lib/metrics/health-config.ts` vs `lib/assignment/config.ts` | Types are client-safe; DB-backed accessors are server-only. |
+| `lib/metrics/health-config.ts` vs `lib/metrics/health-config-store.ts` | Types are client-safe; DB-backed accessors are server-only. The store used to live inside the deleted `lib/assignment/` folder — removing it would have taken every health score with it (`07db772`). |
 | `lib/actions/signals.ts` (pure) vs `generate.ts` (I/O) | Detection is testable in isolation; orchestration does the writes. |
-| `lib/assignment/engine.ts` (pure) vs `run.ts` (I/O) | Same pattern. |
+| `lib/health/engine.ts` (pure, config-interpreting) vs `service.ts` / `to-stored.ts` (I/O and adaptation) | Same pattern. No `eval`; 15 formula types interpreted from config. |
 | `lib/use-case-transfer.ts` `planImport()` | Pure — preview and write are the same function on the same inputs. |
 | `lib/health/` engine | No `eval`/`Function`; 15 formula types interpreted from config. |
 | `lib/use-cases.ts` vs `lib/use-case-overlay.ts` | **Deliberately uncoupled.** The overlay imports nothing from the taxonomy. Re-coupling them would repeat a known mistake. |
@@ -187,10 +189,16 @@ shows up as stale numbers, not as an error.
 
 `npm test` → `node --import tsx --test lib/health/*.test.ts lib/stakeholders/*.test.ts lib/*.test.ts`
 
-Six files: four use-case modules, the health engine (25 tests), and stakeholder coverage.
+**Twenty files, 233 tests.** Concentrated in health (engine, status, model overrides, rule
+and signal language, support facts, evidence, recommendations), use cases (five modules),
+stakeholders (coverage, facts, migration), task updates and notification links.
+
+**21 of them test dead code** — `lib/metrics/health.test.ts` and `health-cap.test.ts` cover
+`lib/metrics/health.ts`, which has had no importers since the engine switch.
 
 **Untested:** every permission gate, every ARR and retention formula, the live health
-formula, the signal engine, the assignment engine, the import parser, and every page.
+formula, the import parser, and every page. The health engine, its status resolution, its
+rule language, the stakeholder facts and migration, and the task-update rules **are** tested.
 
 The pure modules were deliberately written to be testable. Most of them simply have no
 tests.
@@ -216,7 +224,10 @@ never updated.
 5. **`app/scratch-*` prototypes ship** in the production build.
 6. **Auth-disabled mode grants everyone Super Admin.**
 7. **The README is stale** on sample mode, crons, and `recharts`.
-8. **Two health systems** (§ [health](../product/health/README.md)).
+8. **The retired health formula is still in the tree** — `lib/metrics/health.ts`, no
+   importers, 21 passing tests (§ [health](../product/health/README.md)).
+9. **The health engine's 19 tables are unwritten**, so there is no health history.
+10. **Auto-assignment was removed** (`07db772`); nothing surfaces the unowned-account count.
 
 ## Open questions
 

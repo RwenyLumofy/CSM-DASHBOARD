@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>*{margin:0;padding:0}</style>
+<title>Contract Term Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+
+<style>
+  :root {
+    --paper:#FBFBFC; --surface:#FFFFFF; --sunk:#F3F4F7; --ink:#171A21;
+    --hair:#59607040; --muted:#596070; --faint:#848B99;
+    --rule:#E3E5EB; --rule-soft:#EDEEF2;
+    --accent:#0F6E68; --accent-dim:#0F6E6812;
+    --blocker:#B3261E; --blocker-bg:#B3261E12;
+    --high:#8A5300; --high-bg:#8A530012;
+    --polish:#3D5A80; --polish-bg:#3D5A8012;
+    --shadow:0 1px 2px rgba(23,26,33,.05), 0 1px 12px rgba(23,26,33,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:#0F1115; --surface:#171A20; --sunk:#1D2027; --ink:#E7E9EE;
+      --hair:#9AA2B155; --muted:#9AA2B1; --faint:#737B8A;
+      --rule:#262A33; --rule-soft:#21252C;
+      --accent:#5FC9BE; --accent-dim:#5FC9BE14;
+      --blocker:#F08C84; --blocker-bg:#F08C841A;
+      --high:#E0AC5B; --high-bg:#E0AC5B1A;
+      --polish:#9BB4D6; --polish-bg:#9BB4D61A;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 1px 12px rgba(0,0,0,.2);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#0F1115; --surface:#171A20; --sunk:#1D2027; --ink:#E7E9EE;
+    --hair:#9AA2B155; --muted:#9AA2B1; --faint:#737B8A;
+    --rule:#262A33; --rule-soft:#21252C;
+    --accent:#5FC9BE; --accent-dim:#5FC9BE14;
+    --blocker:#F08C84; --blocker-bg:#F08C841A;
+    --high:#E0AC5B; --high-bg:#E0AC5B1A;
+    --polish:#9BB4D6; --polish-bg:#9BB4D61A;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 1px 12px rgba(0,0,0,.2);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+    font-size: 16.5px; line-height: 1.62; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 51rem; margin: 0 auto; padding: 4.5rem 1.5rem 7rem; display: flex; flex-direction: column; gap: 3.5rem; }
+
+  code, .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-size: .855em; font-variant-ligatures: none; }
+  code { background: var(--sunk); border: 1px solid var(--rule-soft); border-radius: 4px; padding: .08em .34em; word-break: break-word; }
+
+  .eyebrow { font-family: "JetBrains Mono", monospace; font-size: 11.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  h1 { font-family: "Archivo", sans-serif; font-weight: 700; font-size: clamp(2.1rem, 5.4vw, 2.95rem); line-height: 1.06; letter-spacing: -.028em; text-wrap: balance; margin: 0; }
+  .masthead { display: flex; flex-direction: column; gap: 1.15rem; }
+  .standfirst { font-size: 1.115rem; line-height: 1.55; color: var(--muted); max-width: 43ch; margin: 0; }
+  .filedunder { display: flex; flex-wrap: wrap; gap: .4rem 1.35rem; padding-top: 1.15rem; border-top: 1px solid var(--rule); font-family: "JetBrains Mono", monospace; font-size: 11.5px; color: var(--faint); }
+  .filedunder b { color: var(--muted); font-weight: 600; }
+
+  section { display: flex; flex-direction: column; gap: 1.2rem; }
+  h2 { font-family: "Archivo", sans-serif; font-weight: 600; font-size: 1.36rem; letter-spacing: -.017em; margin: 0; text-wrap: balance; }
+  p { margin: 0; max-width: 68ch; }
+  .lede { color: var(--muted); }
+  strong { font-weight: 600; }
+  .rule-k { font-family: "JetBrains Mono", monospace; font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+
+  /* hierarchy figure */
+  .tree { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+  .lvl { display: grid; grid-template-columns: 8.5rem 1fr; gap: 0 1.2rem; padding: 1rem 1.35rem; border-bottom: 1px solid var(--rule-soft); }
+  .lvl:last-child { border-bottom: 0; }
+  .lvl-n { font-family: "Archivo", sans-serif; font-weight: 700; font-size: .96rem; letter-spacing: -.01em; }
+  .lvl-n span { display: block; font-family: "JetBrains Mono", monospace; font-size: 10px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); margin-top: .15rem; }
+  .lvl-d { font-size: .95rem; line-height: 1.5; color: var(--muted); }
+  .lvl:nth-child(2) { padding-left: 2.5rem; }
+  .lvl:nth-child(3) { padding-left: 3.9rem; }
+
+  /* decisions */
+  .decisions { display: flex; flex-direction: column; gap: 1.15rem; list-style: none; padding: 0; margin: 0; }
+  .dec { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); }
+  .dec-in { display: grid; grid-template-columns: 2.6rem 1fr; gap: 0 1rem; padding: 1.15rem 1.35rem 1.3rem; }
+  .dec-n { font-family: "JetBrains Mono", monospace; font-size: 12px; font-weight: 600; color: var(--faint); padding-top: .28rem; }
+  .dec-b { display: flex; flex-direction: column; gap: .7rem; }
+  .dec-t { font-family: "Archivo", sans-serif; font-weight: 600; font-size: 1.06rem; letter-spacing: -.012em; line-height: 1.3; margin: 0; text-wrap: balance; }
+  .dec-b p { font-size: .96rem; line-height: 1.55; }
+  .row-k { font-family: "JetBrains Mono", monospace; font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); display: block; margin-bottom: .1rem; }
+  .cost { border-left: 2px solid var(--high); padding-left: .85rem; }
+  .cost .row-k { color: var(--high); }
+
+  /* dissolved list */
+  .gone { display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+  .gone-r { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.3rem; padding: .9rem 1.2rem; border-bottom: 1px solid var(--rule-soft); font-size: .93rem; line-height: 1.48; }
+  .gone-r:last-child { border-bottom: 0; }
+  .gone-was { color: var(--muted); }
+  .gone-was b { color: var(--ink); font-weight: 600; }
+  .gone-now { color: var(--accent); }
+
+  .callout { background: var(--accent-dim); border: 1px solid var(--rule); border-left: 2px solid var(--accent); border-radius: 0 10px 10px 0; padding: 1.05rem 1.3rem; display: flex; flex-direction: column; gap: .5rem; }
+  .callout .rule-k { color: var(--accent); }
+  .callout p { font-size: .96rem; line-height: 1.55; }
+  .callout.warn { background: var(--high-bg); border-left-color: var(--high); }
+  .callout.warn .rule-k { color: var(--high); }
+
+  ul.tight { margin: .1rem 0 0; padding-left: 1.05rem; display: flex; flex-direction: column; gap: .32rem; max-width: 68ch; }
+  ul.tight li { font-size: .96rem; line-height: 1.5; }
+
+  .open { display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+  .open-r { display: flex; gap: .85rem; padding: .88rem 1.2rem; border-bottom: 1px solid var(--rule-soft); font-size: .95rem; line-height: 1.5; }
+  .open-r:last-child { border-bottom: 0; }
+  .open-r .box { flex: 0 0 auto; width: 13px; height: 13px; margin-top: .32rem; border: 1.5px solid var(--hair); border-radius: 3px; }
+
+  footer { border-top: 1px solid var(--rule); padding-top: 1.35rem; font-size: .9rem; color: var(--faint); max-width: 68ch; }
+
+  @media (max-width: 40rem) {
+    .wrap { padding: 3rem 1.15rem 4.5rem; gap: 2.5rem; }
+    .dec-in, .lvl, .gone-r { grid-template-columns: 1fr; gap: .4rem; }
+    .dec-n { padding-top: 0; }
+    .lvl:nth-child(2), .lvl:nth-child(3) { padding-left: 1.35rem; }
+  }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">Decision record</div>
+    <h1>Contract Term Model</h1>
+    <p class="standfirst">Seven decisions that replace what the deal card is a card <em>of</em>. Settled before any more of it gets drawn.</p>
+    <div class="filedunder">
+      <span><b>Supersedes</b> the Contracts &amp; deals UI uplift</span>
+      <span><b>Status</b> decided, not specified</span>
+      <span><b>Scope</b> data model · sync · surface</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Why this replaced a redesign</h2>
+    <p>Three visual passes over the deal card all came back crowded. They were going to: each one rearranged a form whose contents were fixed by a structure nobody had questioned. The card was crowded because <strong>a HubSpot deal record is not the thing a CSM is looking at</strong>, and no amount of hierarchy, grouping or detection fixes a card that is a card of the wrong object.</p>
+    <p class="lede">What follows are decisions, not a specification. They fix what exists and how it relates; they do not yet say what any screen looks like.</p>
+  </section>
+
+  <section>
+    <h2>The object</h2>
+    <p>Three levels, in combination — each owning facts the others cannot hold. That mutual exclusivity is what makes this a hierarchy rather than three views of one row.</p>
+
+    <div class="tree">
+      <div class="lvl">
+        <div class="lvl-n">Relationship<span>per account</span></div>
+        <div class="lvl-d">The commercial position: what they pay now, what changed, what's coming. Where a CSM answers “how is this account doing, commercially?”</div>
+      </div>
+      <div class="lvl">
+        <div class="lvl-n">Term<span>Signal owns</span></div>
+        <div class="lvl-d">A contract period — start, end, notice deadline, what was bought, <strong>what we owe them</strong>. A renewal creates the <em>next</em> term rather than a sibling row.</div>
+      </div>
+      <div class="lvl">
+        <div class="lvl-n">Deal<span>HubSpot owns</span></div>
+        <div class="lvl-d">The CRM record. Evidence that a term was signed or changed — not the unit of work. Read-only in Signal.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The seven decisions</h2>
+    <ol class="decisions">
+
+      <li class="dec"><div class="dec-in">
+        <span class="dec-n">01</span>
+        <div class="dec-b">
+          <h3 class="dec-t">The unit is Relationship → Term → Deal, in combination</h3>
+          <p>Not the HubSpot deal. A term is what a contract actually is; a deal is how the CRM recorded it; a relationship is what the account is worth over time.</p>
+          <p><span class="row-k">Settles</span> Succession (terms follow each other, deals attach to terms) and taxonomy — “expansion” stops being a pipeline tab and becomes what it is: a deal that raised the current term's value.</p>
+        </div>
+      </div></li>
+
+      <li class="dec"><div class="dec-in">
+        <span class="dec-n">02</span>
+        <div class="dec-b">
+          <h3 class="dec-t">Signal owns Terms. HubSpot owns Deals, read-only.</h3>
+          <p>Terms become first-class Signal records with their own columns. Deals keep syncing and stop being editable. Nothing is dual-owned.</p>
+          <p><span class="row-k">Settles</span> The override model. <code>client.properties.__deal_overrides</code> retires, and with it the eleven “edited” badges — they existed only to explain which of two competing owners won a field. <strong>A full re-sync stops destroying CSM work</strong>, which it does today.</p>
+          <p><span class="row-k">Unlocks</span> Notice period, obligations and true contract dates — none of which HubSpot has anywhere to put.</p>
+        </div>
+      </div></li>
+
+      <li class="dec"><div class="dec-in">
+        <span class="dec-n">03</span>
+        <div class="dec-b">
+          <h3 class="dec-t">The system proposes a Term; a CSM confirms it</h3>
+          <p>A closed-won deal produces a proposed term with dates and value pre-filled. Notice period and obligations start empty — those are exactly the facts only a human has, and they are what confirmation is <em>for</em>.</p>
+          <p><span class="row-k">Settles</span> Nothing is asserted as verified until someone agrees, and nobody faces a blank page. “Terms awaiting confirmation” becomes a real work queue that falls out of the model rather than being bolted on.</p>
+        </div>
+      </div></li>
+
+      <li class="dec"><div class="dec-in">
+        <span class="dec-n">04</span>
+        <div class="dec-b">
+          <h3 class="dec-t">Unconfirmed terms count, carrying a visible unconfirmed state</h3>
+          <p>ARR, account status and the 120-day renewal window keep working from day one. Confirmation raises confidence; it does not switch numbers on.</p>
+          <div class="cost">
+            <span class="row-k">Costs</span>
+            <p>The unconfirmed marker travels with the <em>number</em>, not the term — so it has to appear on the client header, in Reports, on Today and in portfolio ARR. If it only renders on the deal card, the model quietly lies everywhere else. This is wider than it sounds and should be scoped as its own piece.</p>
+          </div>
+        </div>
+      </div></li>
+
+      <li class="dec"><div class="dec-in">
+        <span class="dec-n">05</span>
+        <div class="dec-b">
+          <h3 class="dec-t">Obligations are first-class on the Term</h3>
+          <p>What we owe, not only what they bought. ARMS turns on 20 contracted custom content items and Annex 2's 12-month activation cadence with delay penalties behind it — facts that today exist only as prose in a brief nobody can query.</p>
+          <p><span class="row-k">Settles</span> “Are we delivering?” becomes answerable instead of narrative, and the delay-penalty exposure becomes visible before it lands rather than after.</p>
+        </div>
+      </div></li>
+
+      <li class="dec"><div class="dec-in">
+        <span class="dec-n">06</span>
+        <div class="dec-b">
+          <h3 class="dec-t">Confirming a Term generates a project</h3>
+          <p>Obligations become project milestones from a template at confirmation. One task system, no duplicate entry, and the existing <code>computeProjectDeadlines()</code> and templates do the delivery work — no new definition of “late” in a codebase that already has too many.</p>
+          <div class="cost">
+            <span class="row-k">Costs, and the mitigation</span>
+            <p>If the project is the only home for a commitment, reshaping or deleting a milestone silently edits what you owe. Mitigate with <strong>provenance</strong>: a <code>contractual</code> flag set at generation. The term can then assert “20 of 20 contractual milestones present” and show a discrepancy if one goes missing; deleting one asks for a reason rather than happening quietly.</p>
+          </div>
+        </div>
+      </div></li>
+
+      <li class="dec"><div class="dec-in">
+        <span class="dec-n">07</span>
+        <div class="dec-b">
+          <h3 class="dec-t">A Contracts tab, with each Term on its own route</h3>
+          <p>The tab lists the relationship and its terms; opening one goes to its own URL.</p>
+          <p><span class="row-k">Settles</span> The mechanical cause of the crowding. Three levels, obligations, a generated project and a deal history were being flattened into one accordion strip inside the General information form. Addressability also matters once obligations are worked over months — a term can be linked from Today, from a notification, or shared.</p>
+        </div>
+      </div></li>
+
+    </ol>
+  </section>
+
+  <section>
+    <h2>Problems that stop existing</h2>
+    <p class="lede">Not fixed — dissolved. These were symptoms of the old structure and have no expression in the new one.</p>
+    <div class="gone">
+      <div class="gone-r">
+        <span class="gone-was"><b>Eleven “edited” badges</b> competing with the content</span>
+        <span class="gone-now">Nothing is dual-owned, so there is nothing to disambiguate</span>
+      </div>
+      <div class="gone-r">
+        <span class="gone-was"><b>A full re-sync wipes CSM overrides</b></span>
+        <span class="gone-now">Term-owned facts are never in HubSpot's path</span>
+      </div>
+      <div class="gone-r">
+        <span class="gone-was"><b>Renewal guessed as contract start + 1 year</b>, ignoring the term length beside it</span>
+        <span class="gone-now">A term stores its own end date. Nothing is inferred, so the formula question disappears</span>
+      </div>
+      <div class="gone-r">
+        <span class="gone-was"><b>A checkbox that moves ARR</b>, needing its own save model</span>
+        <span class="gone-now">ARR is a property of the current term, not a sum of ticked rows</span>
+      </div>
+      <div class="gone-r">
+        <span class="gone-was"><b>The “Renewal” tab that was really “renewal or unclassified”</b></span>
+        <span class="gone-now">Pipeline tabs go; a deal's place in the hierarchy replaces its CRM category</span>
+      </div>
+      <div class="gone-r">
+        <span class="gone-was"><b>Twenty-five fields with no order of importance</b></span>
+        <span class="gone-now">Three levels, each answering a different question</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Still worth doing, unchanged</h2>
+    <p>These were real defects in the current card and survive the model change, because they are about permissions and feedback rather than structure. They can ship before any of the above.</p>
+    <ul class="tight">
+      <li><strong>Read-only users get interactive edit controls.</strong> <code>canEditClient</code> never reaches <code>GeneralTab</code>, and <code>OverrideField</code> has no read-only path. The server gate is correct; the UI promises an edit it can't deliver.</li>
+      <li><strong>Failed saves say nothing.</strong> Four <code>catch { revert }</code> blocks. A 403 and a dropped connection look identical to a value that wouldn't stick.</li>
+      <li><strong>Editing an amount strips its formatting</strong> — the input shows bare <code>24480</code>.</li>
+      <li><strong>Extract the code.</strong> <code>ClientProfileTabs.tsx</code> is 3,308 lines. Move deals to <code>components/clients/deals/</code> as a no-behaviour-change commit before any of this starts.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Before anything is built</h2>
+    <div class="callout warn">
+      <span class="rule-k">This is a material product change</span>
+      <p>It alters the data model, a business rule, a calculation and a surface. Per the repository's own convention it goes through the product-manager step for a real specification — states, permissions, edge cases and acceptance criteria — before implementation. This record decides direction; it is not that specification.</p>
+    </div>
+    <div class="open">
+      <div class="open-r"><span class="box"></span><span><strong>Real contract history for ARMS.</strong> Only the first deal in the prototype is your data — the Go1 renewal and Perform pilot figures were invented as shape. The hierarchy can't be drawn against reality without the actual terms.</span></div>
+      <div class="open-r"><span class="box"></span><span><strong>What an obligation records.</strong> What, how many, by when, done — and whether quantity and penalty exposure are modelled or left to the linked project.</span></div>
+      <div class="open-r"><span class="box"></span><span><strong>Which template a confirmed term generates from</strong>, and what happens when no template fits.</span></div>
+      <div class="open-r"><span class="box"></span><span><strong>Concurrent vs sequential terms.</strong> An account can hold more than one live contract at once; “the current term” needs defining when there are two.</span></div>
+      <div class="open-r"><span class="box"></span><span><strong>Migration.</strong> 132 accounts, every term proposed on day one, and the unconfirmed marker reaching Reports, Today and the client header.</span></div>
+    </div>
+  </section>
+
+  <footer>
+    Decisions taken 1 Sept 2026. The three prototypes that preceded this record are superseded by it; the working one at <span class="mono">/scratch-deal-card</span> remains useful only as evidence of what the old structure could and couldn't express.
+  </footer>
+
+</div>
+
+</body>
+</html>

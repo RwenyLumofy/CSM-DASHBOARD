@@ -33,21 +33,28 @@ Guest (read-only), and Support / Implementation / Revenue as readers.
 3. **`ChurnReasonBanner`** — shown when the account is churned and tagged.
 4. **`CsPulsePanel`** — the CSM's qualitative read, with a capture drawer.
 5. **`AccountTasks`** — `today_tasks` filtered to this account. The *same rows* the Today
-   board reads: one dataset, two views.
+   board reads: one dataset, two views. A collapsed trigger showing the open count (and the
+   word "overdue" when any are) opens a 540px sidebar. Since 2026-08-03 each row **expands in
+   place into an update thread with an `@` mention picker**, one task at a time, and a
+   **"N completed"** disclosure keeps a finished task's conversation reachable — the list
+   previously showed open tasks only. Arriving from a notification at
+   `/clients/{id}?task={id}` opens the sidebar on that task's thread, but only when the id is
+   in the account's already-permission-scoped list. Full behaviour, permissions and
+   limitations: [task updates and mentions](../task-updates/README.md).
 6. **Ten tabs** ([`ClientProfileTabs.tsx:212-223`](../../../components/clients/ClientProfileTabs.tsx)):
 
 | Tab | Contents |
 |---|---|
 | General information | Property-definition fields grouped by Contract / Package & product, plus deal fields and deal dates |
 | Stakeholders | Stakeholder profiles, roles, relationship map |
-| Communication | Synced emails and meetings |
+| Communication | Three sub-tabs: **Emails · Meetings · Contacts**. Its fourth, *Stakeholder Mapping*, was removed 2026-08-05 (`9d83a22`) along with the write path behind it |
 | Attachments | Uploaded files (Supabase Storage), categorised |
 | Usage | Metabase adoption metrics and history |
 | Support | Intercom tickets, first-response, SLA |
 | Satisfaction indicator | CSAT / Platform CSAT / NPS |
 | Project Management | Projects → milestones → tasks |
 | Notes | Rich-text notes (TipTap, sanitised) |
-| Action list | This account's generated `client_actions` |
+| **Health signals** | Why the health status is what it is — failed gates, fired status rules, distance to each threshold, the model drawn from itself — with recommendations beneath, plus this account's generated `client_actions`. Renamed from "Action list" 2026-08-05; **the tab key stays `actions`** so saved links still resolve. See [health §4](../health/README.md) |
 
 ## Primary workflows
 
@@ -217,10 +224,15 @@ definitions · project config · property definitions · churn taxonomy.
 ## Source references
 
 `app/(app)/clients/[id]/page.tsx` · `components/clients/ClientProfileTabs.tsx` ·
+`components/clients/AccountTasks.tsx` · `components/clients/CsPulsePanel.tsx` ·
 `lib/auth.ts` · `lib/deal-overrides.ts` · `lib/stakeholders/profile.ts` ·
 `lib/use-case-implementation.ts` · `lib/db/schema.ts`
 
 ---
 
 **Documentation status:** Partially verified
-**Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+**Last verified:** 2026-08-05 · **Commit:** `9d83a22` · **Owner:** Unassigned
+(Tab list, Communication sub-tabs and the Health signals rename re-verified at this commit;
+the workflow and field detail was last read at `6660fe8`.)
+(Only the `AccountTasks` and `CsPulsePanel` entries in Information architecture were re-read at
+this commit; the tabs, workflows, fields and permissions were last read at `4214349`.)

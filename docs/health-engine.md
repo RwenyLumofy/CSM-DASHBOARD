@@ -1,5 +1,26 @@
 # Client Health Scoring Engine
 
+> ## ⚠️ Status changed — this engine is now LIVE
+>
+> Written when the engine was, in its own words, *"inert until wired into a job/endpoint"*.
+> **Since 2026-08-03 (`9a8ea59`) it is the product's only health scorer**, so this document
+> describes current behaviour rather than a design proposal.
+>
+> Three things below are now out of date:
+>
+> - The **"Status"** and **"Next increments"** sections. The metric data-loaders, the
+>   calculation service and the daily job are wired; the admin model editor exists as
+>   Settings → Client health (weights, bands, five gates, sixteen status rules).
+> - **"20 tests"** — `lib/health/engine.test.ts` now has 25, alongside seven more health test
+>   files.
+> - **The rollout and rollback sections.** Rollback is a snapshot/restore of `clients.health`
+>   (`022e342`), not a version reassignment, because results land in **`clients.health` JSONB
+>   and not in the 19 `health_*` tables** — which remain unwritten, so there is still no
+>   health history and the Metabase views are unfed.
+>
+> Current product documentation: [product/health](product/health/README.md) and
+> [business-rules/health-scoring](business-rules/health-scoring.md).
+
 A configuration-driven, versioned, auditable, explainable, deterministic health
 engine. The scoring math is **not** hardcoded — a model version is a tree of
 components + formulas + bands + rules that the engine interprets. New models are

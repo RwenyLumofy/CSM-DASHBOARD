@@ -1,6 +1,9 @@
 # 0007. Define health, risk, renewal confidence and churn as four separate concepts
 
-**Status:** Accepted for the *concepts*; **the implementation is contradictory**
+**Status:** Accepted. **The implementation caught up on 2026-08-03** — see
+[0015](0015-the-engine-scores-health-and-every-surface-reads-the-applied-status.md).
+The engine that embodied this separation is now the scorer, and Churned / Implementation /
+Not Assessed are first-class lifecycle statuses rather than scores in disguise.
 **Date:** Ongoing — the separation is enforced across several modules rather than in one
 change
 **Affected product areas:** Health · CS Pulse · Insights · Churn · Action list · Today

@@ -1,7 +1,10 @@
 # Signal — Product Overview
 
 **Status:** Partially verified
-**Last verified:** 2026-07-31 · **Commit:** `4214349`
+**Last verified:** 2026-08-05 · **Commit:** `9d83a22`
+(§9's limitations rewritten at this commit after the health-engine switch, the
+assignment-engine removal and the stakeholder cutover. §1–§8 last read at `4214349` and
+re-checked, not re-written.)
 
 > Written for someone who understands SaaS and Customer Success but has never seen Signal.
 > This describes the product that exists in this repository. Where something is planned,
@@ -48,8 +51,9 @@ profiles, delivery projects, notes, and per-account use-case implementations.
    that reports who churned and when.
 6. **"What is this customer trying to achieve?"** — a use-case model that separates the
    organisation's canonical definitions from each account's application of them.
-7. **"Who owns this account, and who can change it?"** — assignment workflow plus
-   server-enforced permission scoping.
+7. **"Who owns this account, and who can change it?"** — two owner slots, Super Admin-only
+   reassignment, and server-enforced permission scoping. *(Automatic routing was removed
+   2026-08-03; new accounts arrive unowned.)*
 
 ## 3. Who uses it
 
@@ -199,15 +203,17 @@ These are the ones that change how you should read the rest of the documentation
    unconditionally. The trigger types (`health_below`, `renewal_within`, …) are declared
    in `lib/types.ts` but **nothing evaluates them**. The page is permanently empty.
    *Status: Deprecated / not implemented.*
-2. **Two health systems.** The live score is `lib/metrics/health.ts` (8 weighted metrics,
-   recomputed by `/api/cron/client-health`). A second, far more sophisticated
-   config-driven engine exists at `lib/health/` with 19 tables, 25 tests and its own
-   [design document](health-engine.md) — and is documented there as *"inert until wired
-   into a job/endpoint"*. Only its CS Pulse capture is user-facing today.
-   *Status: Contradictory / partially implemented.*
+2. **The health engine is now the scorer** (2026-08-03, `9a8ea59`). `lib/health/` runs the
+   published model — four weighted components, five qualification gates, sixteen status
+   rules — and every surface reads the **applied status** it concludes. The switch re-sorted
+   the book: 43 "Healthy" became 3, and 79 accounts previously scored as live are now
+   correctly `Churned`. Two residues remain: `lib/metrics/health.ts` is dead code with 21
+   passing tests, and the engine's 19 tables are still unwritten, so there is **no health
+   history**. *Status: Verified, with two residues.*
 3. **Two use-case taxonomies**, explicitly uncoupled and sharing no ids.
-4. **Six test files.** `lib/use-cases*`, `lib/health/engine`, `lib/stakeholders/coverage`.
-   Everything else in this documentation is `Partially verified` at best.
+4. **Twenty test files, 233 tests** — heavily concentrated in health, use cases,
+   stakeholders and task updates. **Not one covers a permission gate, an ARR formula, a page
+   or (almost) a server action.** Most of this documentation is `Partially verified` at best.
 5. **No sample mode**, despite the README. `lib/data.ts` states plainly that the
    sample/demo fallback was removed; an unconfigured database now shows empty states.
    The README still documents sample mode.
@@ -220,9 +226,15 @@ These are the ones that change how you should read the rest of the documentation
    and deal overrides live in `clients.properties`; taxonomies and config live in
    `workspace_config`. Deliberate — it avoids migrations — but it means the schema alone
    does not describe the product.
-9. **`app/scratch-*` prototypes** ship in the build. Seven routes outside the app shell.
-   One of them (`/scratch-wf`) was deleted after leaking the staff directory to
+9. **`app/scratch-*` prototypes** ship in the build. **Twelve** routes outside the app
+   shell. One of them (`/scratch-wf`) was deleted after leaking the staff directory to
    anonymous users (commit `8f00fed`).
+10. **Auto-assignment was removed** (2026-08-03, `07db772`). New accounts arrive **unowned**;
+    the sync warns how many need an owner rather than guessing. Nothing surfaces that count
+    to a person.
+11. **The stakeholder mapping matrix was retired** (2026-08-05, `9d83a22`). Profiles are the
+    only model and now feed four of the health engine's relationship facts. The legacy data
+    is retained as rollback evidence until the cutover is accepted.
 
 Full list: [known-limitations](known-limitations/README.md).
 
@@ -237,4 +249,4 @@ Full list: [known-limitations](known-limitations/README.md).
 
 **Documentation status:** Partially verified — navigation, routes, permissions, ARR,
 churn and health formulas read end to end; workflow-level behaviour is largely untested.
-**Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+**Last verified:** 2026-08-05 · **Commit:** `9d83a22` · **Owner:** Unassigned

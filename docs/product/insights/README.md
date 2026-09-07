@@ -77,7 +77,7 @@ showed a flat, empty report. An in-progress period is flagged with its progress
 
 ### Health subpage
 Distribution across tiers plus **health drag** — the accounts pulling the portfolio score
-down (`lib/metrics/health-drag.ts`). Explicitly as-of-today; there is no health history to
+down (`lib/health/drag.ts`). Explicitly as-of-today; there is no health history to
 trend.
 
 ### Pulse subpage
@@ -148,7 +148,7 @@ Reads `arr_events`, `arr_snapshots`, `clients`, `client_deals`,
 | Movement | `lib/metrics/movement.ts` |
 | Portfolio / concentration | `lib/metrics/portfolio.ts` |
 | Churn | `lib/metrics/churn.ts`, `churn-taxonomy.ts` |
-| Health drag | `lib/metrics/health-drag.ts` |
+| Health drag | `lib/health/drag.ts` — **rewritten 2026-08-05** (`abd355e`) |
 | Takeaways | `lib/metrics/takeaways.ts` |
 | Panels | `components/reports/*.tsx` (25 files) |
 

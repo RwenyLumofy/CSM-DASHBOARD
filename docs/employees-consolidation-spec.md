@@ -11,7 +11,7 @@
 |---|---|---|---|
 | **`app_users`** (table) | `email` (PK, lower-cased) · `name` · `role` · `addedByEmail` · `createdAt` | Login + permission — the security source of truth | `getAppUsers()`, auth scoping (`lib/auth.ts`), `UsersManager` |
 | **`lumofy_staff`** (`workspace_config` JSON) | `[{ id, name, jobTitle, email, phone }]` | Internal directory used to populate stakeholder mapping | Stakeholder-mapping matrix (`components/clients/ClientProfileTabs.tsx`), `/api/admin/stakeholder-config`; managed by `LumofyStaffManager` |
-| **`csm_users`** (table) | `id` · `name` · `email` (unique) · `initials` · `active` | Assignable account owners, **auto-synced from HubSpot** | Assignment (`lib/assignment/health.ts`, `run.ts`), team-member resolution (`lib/data.ts`), owner assignment, `/api/admin/csm-users` |
+| **`csm_users`** (table) | `id` · `name` · `email` (unique) · `initials` · `active` | Assignable account owners, **auto-synced from HubSpot** | Assignment *(the `lib/assignment/` engine was removed 2026-08-03, `07db772`)*, team-member resolution (`lib/data.ts`), owner assignment, `/api/admin/csm-users` |
 
 The same person can exist in one, two, three, or none of these, keyed loosely by email, with nothing keeping them aligned. That drift is exactly why "add from the directory, then set a permission" felt like duct tape.
 

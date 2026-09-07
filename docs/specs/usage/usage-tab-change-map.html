@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Usage tab — the four changes, in place</title>
+<style>
+:root{--ink:#17181c;--ink2:#55575e;--ink3:#8b8d95;--paper:#fff;--page:#f6f6f4;
+--line:#e4e4e0;--line2:#efefec;--acc:#3355e0;--accbg:#eaeeff;
+--add:#1f7a52;--addbg:#e8f4ee;--fix:#b4530d;--fixbg:#fbeee2;
+--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--mono:ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root{--ink:#e8e8ea;--ink2:#a4a6ad;--ink3:#74767d;
+--paper:#1a1b1f;--page:#111216;--line:#2e3037;--line2:#25272c;--acc:#8ba2ff;--accbg:#22284a;
+--add:#5cc493;--addbg:#163024;--fix:#e8945a;--fixbg:#3a2617}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55}
+.wrap{max-width:1000px;margin:0 auto;padding:32px 20px 70px}
+h1{font-size:24px;margin:0;letter-spacing:-.015em}
+h2{font-size:15px;margin:26px 0 8px}
+p{margin:0}
+.lede{color:var(--ink2);max-width:70ch;margin-top:8px;font-size:13px}
+.eyebrow{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}
+.key{display:flex;flex-wrap:wrap;gap:14px;margin:18px 0 22px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--paper);font-size:12px}
+.k{display:flex;align-items:center;gap:6px}
+.sw{width:11px;height:11px;border-radius:3px;flex:none}
+.stack{border:1px solid var(--line);border-radius:11px;background:var(--paper);overflow:hidden}
+.row{display:flex;gap:12px;padding:11px 14px;border-top:1px solid var(--line2);align-items:flex-start}
+.row:first-child{border-top:0}
+.row.keep{opacity:.72}
+.n{flex:none;width:22px;font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums;padding-top:1px}
+.body{flex:1;min-width:0}
+.t{font-size:13.5px;font-weight:600}
+.d{font-size:12px;color:var(--ink2);margin-top:2px}
+.badge{font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:2px 6px;flex:none;align-self:flex-start}
+.b-keep{background:var(--line2);color:var(--ink3)}
+.b-add{background:var(--addbg);color:var(--add)}
+.b-fix{background:var(--fixbg);color:var(--fix)}
+.change{margin-top:8px;border-left:2px solid var(--acc);padding:2px 0 2px 11px}
+.change .lab{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink3)}
+.ba{display:grid;gap:8px;grid-template-columns:1fr 1fr;margin-top:5px}
+.cell{border:1px solid var(--line2);border-radius:7px;padding:7px 9px;font-size:12px}
+.cell .h{font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink3);margin-bottom:3px}
+.mono{font-family:var(--mono);font-size:11px}
+.gauge{display:inline-block;border:1px solid var(--fix);color:var(--fix);border-radius:999px;padding:1px 7px;font-size:11px;font-weight:600}
+.pill{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;background:var(--fixbg);color:var(--fix)}
+.plain{color:var(--ink3);font-size:11.5px}
+.uc{border:1px solid var(--line2);border-radius:7px;margin-top:6px;overflow:hidden}
+.uc div{display:flex;gap:9px;padding:5px 9px;border-top:1px solid var(--line2);font-size:12px;align-items:center}
+.uc div:first-child{border-top:0}
+.uc .nm{flex:1;min-width:0}
+.st{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-radius:4px;padding:1px 5px;flex:none}
+.s-ok{background:var(--addbg);color:var(--add)}.s-no{background:var(--fixbg);color:var(--fix)}
+.s-pa{background:#fbf2dc;color:#8a6d12}.s-ca{background:var(--line2);color:var(--ink3)}
+.note{font-size:12px;color:var(--ink2);margin-top:16px;padding:11px 13px;border:1px solid var(--line);border-radius:9px;background:var(--paper)}
+@media(max-width:720px){.ba{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+
+<p class="eyebrow">Signal · Usage tab</p>
+<h1>The four changes, in place</h1>
+<p class="lede">The live tab's structure, in order, with the only four modifications marked. Everything
+unmarked stays exactly as it is today — same sections, same KPIs, same hints, same insights, same charts.
+This is a change map, not a pixel mock.</p>
+
+<div class="key">
+  <span class="k"><span class="sw" style="background:var(--line2)"></span> Unchanged</span>
+  <span class="k"><span class="sw" style="background:var(--add)"></span> Added</span>
+  <span class="k"><span class="sw" style="background:var(--fix)"></span> Corrected</span>
+</div>
+
+<div class="stack">
+
+  <div class="row">
+    <span class="n">1</span>
+    <div class="body">
+      <p class="t">Timeline · period control</p>
+      <p class="d">Current / week / month / quarter / year, prev-next navigation. Kept as-is.</p>
+      <div class="change">
+        <p class="lab">Added — comparison basis</p>
+        <div class="ba">
+          <div class="cell"><p class="h">Today</p><span class="plain">Deltas appear with no stated basis</span></div>
+          <div class="cell"><p class="h">Change</p><span class="mono">−16 vs Jun 2026</span> <span class="plain">in the KPI sub-line</span></div>
+        </div>
+      </div>
+    </div>
+    <span class="badge b-add">Added</span>
+  </div>
+
+  <div class="row">
+    <span class="n">2</span>
+    <div class="body">
+      <p class="t">HealthBanner · adoption score, tier, PartBar breakdown, refresh</p>
+      <p class="d">Score with its weighted components. Kept as-is.</p>
+      <div class="change">
+        <p class="lab">Added — data freshness</p>
+        <div class="ba">
+          <div class="cell"><p class="h">Today</p><span class="plain">No way to tell if a figure is 6 hours or 6 days old</span></div>
+          <div class="cell"><p class="h">Change</p><span class="plain">synced 6h ago</span> · and only when it matters: <span class="pill">Stale · 143h</span></div>
+        </div>
+      </div>
+    </div>
+    <span class="badge b-add">Added</span>
+  </div>
+
+  <div class="row">
+    <span class="n">3</span>
+    <div class="body">
+      <p class="t">Activation</p>
+      <p class="d">Active users · Active {days/weeks} · Peak {bucket} · Total users · WAU · MAU · Stickiness — with sparklines, hints and insight. All kept.</p>
+      <div class="change">
+        <p class="lab">Corrected — the seat denominator</p>
+        <div class="ba">
+          <div class="cell"><p class="h">Today</p>
+            <span class="mono">pct(m.wau, seatBase)</span><br>
+            <span class="gauge">Seat coverage 104%</span>
+            <span class="plain">— over 100% is the tell: historical activity ÷ today's seats</span></div>
+          <div class="cell"><p class="h">Change</p>
+            <span class="plain">Active users as an absolute count. Used and available licences as their own facts, as of today. No historical percentage.</span></div>
+        </div>
+      </div>
+    </div>
+    <span class="badge b-fix">Corrected</span>
+  </div>
+
+  <div class="row keep"><span class="n">4</span><div class="body">
+    <p class="t">Active users · trend</p>
+    <p class="d">LineChart bucketed to the chosen grain, hover for exact counts, plus the 3-month vs prior-3-month Insight.</p></div>
+    <span class="badge b-keep">Unchanged</span></div>
+
+  <div class="row">
+    <span class="n">5</span>
+    <div class="body">
+      <p class="t">Use cases versus product usage</p>
+      <p class="d"><strong>New section.</strong> Joins what the account said it would do to what the product shows. Nested products per use case.</p>
+      <div class="uc">
+        <div><span class="nm">Compliance training at scale</span><span class="st s-ok">Supporting activity present</span><span class="plain">Develop · 4,812 starts</span></div>
+        <div><span class="nm">⌄ Onboarding new joiners</span><span class="st s-pa">Partial evidence</span><span class="plain">2 products · activity on 1</span></div>
+        <div><span class="nm">Annual performance cycle</span><span class="st s-no">No activity recorded</span><span class="plain">Perform · 0 cycles, 9 months</span></div>
+        <div><span class="nm">Leadership development</span><span class="st s-ca">Cannot be evidenced</span><span class="plain">Definition names no product</span></div>
+      </div>
+      <p class="d" style="margin-top:7px">States describe <em>evidence</em>, never outcome — Signal cannot say whether a use case is succeeding.</p>
+    </div>
+    <span class="badge b-add">Added</span>
+  </div>
+
+  <div class="row keep"><span class="n">6</span><div class="body"><p class="t">Modules in plan</p>
+    <p class="d">Per-module cards, owned/used badges, volume.</p></div><span class="badge b-keep">Unchanged</span></div>
+  <div class="row keep"><span class="n">7</span><div class="body"><p class="t">Content mix</p>
+    <p class="d">Courses / enrolled / completed by category.</p></div><span class="badge b-keep">Unchanged</span></div>
+  <div class="row keep"><span class="n">8</span><div class="body"><p class="t">Content by source</p>
+    <p class="d">Per provider — company, Lumofy, Go1, Coursera — with completion rate.</p></div><span class="badge b-keep">Unchanged</span></div>
+  <div class="row keep"><span class="n">9</span><div class="body"><p class="t">Engagement funnel</p>
+    <p class="d">Enrolled → completed per activity type.</p></div><span class="badge b-keep">Unchanged</span></div>
+  <div class="row keep"><span class="n">10</span><div class="body"><p class="t">AI leverage · competencies</p>
+    <p class="d">Totals and AI-generated share.</p></div><span class="badge b-keep">Unchanged</span></div>
+  <div class="row keep"><span class="n">11</span><div class="body"><p class="t">Setup checklist</p>
+    <p class="d">Existing logic and rules, untouched.</p></div><span class="badge b-keep">Unchanged</span></div>
+  <div class="row keep"><span class="n">12</span><div class="body"><p class="t">All metrics</p>
+    <p class="d">~44-row provenance table.</p></div><span class="badge b-keep">Unchanged</span></div>
+
+</div>
+
+<h2>What is deliberately not moving across</h2>
+<p class="lede">From the prototype: the summary strip, the two-column analysis row, the collapsed reference
+disclosures, the reduced observation list, the replacement trust bar. Each of those replaced something the
+live tab does better — per-section <span class="mono">SectionHint</span> definitions, written
+<span class="mono">Insight</span> conclusions, sparklines, gauges and the hover-readable chart.</p>
+
+<div class="note">
+  <strong>Sequencing.</strong> (3) first — it is a correctness bug, small and self-contained.
+  Then (2), then (1). Then (5), the only one needing new query work: each use-case definition's
+  <span class="mono">products[]</span>, entitlement from the plan, and per-product activity for the period.
+</div>
+
+<p class="lede" style="margin-top:18px">Change map only. Nothing in production has been modified, and no
+migrations, signals or health changes have been made.</p>
+
+</div></body></html>

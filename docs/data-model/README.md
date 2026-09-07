@@ -1,8 +1,12 @@
 # Data model
 
-**Status:** Partially verified · **Last verified:** 2026-07-31 · **Commit:** `4214349`
+**Status:** Partially verified · **Last verified:** 2026-08-05 · **Commit:** `9d83a22`
+(Stakeholder storage and `csmSource` re-verified at this commit; the rest last read at
+`6660fe8`.)
+(Only the Notification, TodayTask, TaskUpdate and Migrations entries were re-read at this
+commit; everything else was last read at `4214349`.)
 
-The **product-level** model, not a column dump. Signal has 29 tables in
+The **product-level** model, not a column dump. Signal has 31 tables in
 [`lib/db/schema.ts`](../../lib/db/schema.ts) and 19 more in
 [`lib/db/health-schema.ts`](../../lib/db/health-schema.ts) — but a large part of the product
 does not live in a table at all.
@@ -33,7 +37,8 @@ clobber each other's keys.
 
 **Key fields:** `id` · `hubspotId` (null for imported/manual accounts) · `source` · `name` ·
 `domain` · `country` · `industry` · `employees` · `customerType` (default `arr`) ·
-`status` · `csm` (JSONB) · `csmSource` (`auto` | `manual`) · `implementationOwner` (JSONB) ·
+`status` · `csm` (JSONB) · `csmSource` (`auto` | `manual` — **nothing writes `auto` since
+2026-08-03**; historical rows survive) · `implementationOwner` (JSONB) ·
 `implementationOwnerSource` · `currency` · `arr` · `previousArr` · `startedAt` ·
 `renewalDate` · `churnedAt` · `segment` · `health` (JSONB) · `support` (JSONB) ·
 `usage` (JSONB) · `tags` · `properties` (JSONB).
@@ -81,8 +86,12 @@ consider tracked deals.
 ### Contact and Stakeholder
 Three layers, deliberately separate — see
 [stakeholders](../product/stakeholders/README.md):
-`client_contacts` (HubSpot-synced identity) · `stakeholder_mappings` (role → contact
-matrix) · `stakeholder_profiles` (relationship intelligence, JSONB).
+`client_contacts` (HubSpot-synced identity) · `stakeholder_profiles` (relationship
+intelligence, JSONB) — **two layers since 2026-08-05**. The third,
+`stakeholder_mappings` (a role→contact matrix), was retired: its UI and **write path** are
+deleted, the data is retained on all 31 accounts as rollback evidence, and dropping the key
+is a separate reviewed change. Profiles now feed four of the health engine's relationship
+facts. See [0017](../decisions/0017-stakeholder-profiles-are-the-only-relationship-model.md).
 
 ### ClientAction
 **Represents:** a generated item in the Action list.
@@ -95,9 +104,22 @@ permanently**.
 ### Notification
 **Represents:** an internal alert **and** an action item — one table serves both.
 `readAt` drives the unread bell badge; `status` (`open`/`done`) drives the action list.
-Recipient is the lower-cased login email. Deep-links to a client.
-**Types:** `assignment_review` · `assignment_needs_admin` · `client_assigned` · `system`.
-**Never sent to a customer.**
+Recipient is the lower-cased login email. **Never sent to a customer.**
+
+**Target.** `client_id` addresses an account. Since 2026-08-03 a nullable
+`entity_type` / `entity_id` pair addresses **what the notification is about** when that is
+narrower than an account — only `task` is written today. Existing rows keep `entity_type`
+null and route on `client_id` exactly as before; nothing was backfilled.
+`notificationHref()` in [`lib/notifications/link.ts`](../../lib/notifications/link.ts) is the
+only consumer.
+
+**Types:** `assignment_review` · `assignment_needs_admin` · `client_assigned` ·
+`profile_incomplete_red` · `profile_incomplete_yellow` · `task_assigned` · `task_mentioned` ·
+`task_update` · `system`. The schema comment listed four while the code wrote seven;
+`task_assigned` in particular was being inserted without appearing in the union at all. All
+nine are now declared in `lib/types.ts`, in the schema comment and in the bell's icon map.
+
+**Product area:** [notifications](../product/notifications/README.md).
 
 ### Project / Milestone / Task
 CSM-authored delivery work. `client_projects` → `project_milestones` → `project_tasks`,
@@ -107,6 +129,43 @@ plus `project_templates`. Status is also the kanban column. Not synced from anyw
 `today_tasks` — **personal** tasks. Scoped to a person, optionally to an account. The Client
 Profile's account-tasks panel reads the *same rows*: one dataset, two views.
 **Unrelated** to `project_tasks` and to the unwritten `playbook_tasks`.
+
+**`notes` does not carry mentions.** Its schema comment claimed *"supports @mentions"* and was
+false — the Add-task modal collected mention chips into local state and dropped them at submit,
+so only the literal `@Name` characters were ever stored. The comment was corrected on
+2026-08-03. Mentions live on `task_updates`.
+
+### TaskUpdate and TaskUpdateMention
+**Represents:** the conversation on one task, and who was named in it. Added 2026-08-03 by
+[`drizzle/0005_add_task_updates.sql`](../../drizzle/0005_add_task_updates.sql).
+
+`task_updates` — one row per posted update, `tup-{uuid}`. Append-only and multi-author, which
+is why it is not `today_tasks.notes` (a mutable, single-writer description) and not
+`client_notes` (an account-scoped rich-text document with its own sanitisation boundary).
+`kind` is `comment` today; `status_changed`, `reassigned` and `due_date_changed` are
+**reserved** so task activity can join the same stream later rather than needing a second table
+and a merge at read time. `body` is plain text carrying an `@[<email>]` token at each mention
+position — not HTML, not character offsets.
+
+**Deletion is soft only.** `deleted_at` is stamped, the row survives, and the body is blanked
+on read: a thread with a hole in it reads as data loss, and an update someone has replied to is
+part of a conversation rather than one person's property.
+
+`task_update_mentions` — one row per distinct person named, `tum-{uuid}`. **This is the
+authoritative index**; the token in the body exists only so the renderer can place a chip.
+`task_id` is denormalised so "tasks I was mentioned in" needs no join. Unique on
+`(update_id, mentioned_email)`.
+
+**Ownership and lifecycle.** Written once by a human, never edited (no edit path exists), and
+read. Nobody maintains an update.
+
+**Neither table declares a foreign key**, matching the rest of this schema — and **nothing
+cascades**: deleting a task leaves its updates, mentions and notifications behind.
+
+**Permissions.** Inherited from the task's account, not stored on the row —
+[permissions-and-scoping R12–R14](../business-rules/permissions-and-scoping.md#r12--a-mention-grants-nothing).
+
+**Product area:** [task updates and mentions](../product/task-updates/README.md).
 
 ### Usage
 `client_usage_snapshots` (one row per client — a **warm cache**, not a hard dependency) and
@@ -133,7 +192,7 @@ the JSONB inventory below.
 | `cs_pulse` | CS Pulse — the CSM's qualitative read | [health](../product/health/README.md) |
 | `cs_health` | Health snapshot / override | [health](../product/health/README.md) |
 | `stakeholder_profiles`, `stakeholder_links` | Stakeholder intelligence | [stakeholders](../product/stakeholders/README.md) |
-| `stakeholder_mappings` | Role → contact matrix | [stakeholders](../product/stakeholders/README.md) |
+| `stakeholder_mappings` | Role → contact matrix — **retired 2026-08-05**; read-only, no writer, kept as rollback evidence | [stakeholders](../product/stakeholders/README.md) |
 | `use_case_implementations` | One account's application of a use case | [use-case-universe](../product/use-case-universe/README.md) |
 | deal override keys | In-app edits layered over synced deal fields | [client-profile](../product/client-profile/README.md) |
 | `deal_dates` (`DEAL_DATES_KEY`) | Seven editable deal dates | [dates-and-periods](../business-rules/dates-and-periods.md) |
@@ -195,7 +254,7 @@ erDiagram
 |---|---|---|---|
 | Account identity, firmographics | HubSpot | No | — |
 | Deal terms | HubSpot | **Yes**, in-app override | Stored on the client, applied on read |
-| Owners | Signal | Super Admin only | `csmSource` / `implementationOwnerSource` = `auto`/`manual` |
+| Owners | Signal | Super Admin only | `csmSource` / `implementationOwnerSource`. **Every new owner is `manual`** — auto-assignment was removed 2026-08-03 and new accounts arrive unowned |
 | ARR | Signal (event ledger) | Via a new event | Append-only ledger |
 | Health | Signal (daily recompute) | Yes, manual override | `cs_health`; **the override's audit trail is not verified** |
 | CS Pulse | Signal (CSM) | It *is* the human input | JSONB with freshness |
@@ -213,8 +272,13 @@ the correction back.
 
 ## Migrations
 
-`drizzle/0000_goofy_unicorn.sql` … `0004_add_client_notes.sql`, plus hand-maintained
+`drizzle/0000_goofy_unicorn.sql` … `0005_add_task_updates.sql`, plus hand-maintained
 `health-tables.sql`, `health-analytics-views.sql`, `stakeholder-tables.sql`.
+
+`0005` (task updates; the two nullable `notifications` columns) is additive and idempotent —
+`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS` — with no backfill and no default that
+changes an existing read. It was applied to production on 2026-08-03 using
+[`scripts/apply-task-updates-migration.mjs`](../../scripts/apply-task-updates-migration.mjs).
 
 ⚠️ **`drizzle/meta` is stale.** `npm run db:generate` emits a **full-schema baseline**
 rather than an incremental; applying it would clash with live tables. Use the reviewed

@@ -47,9 +47,17 @@ Derived gates:
 
 Five values remain valid and all resolve to `operator`: `strategic_csm`, `senior_csm`,
 `csm_officer`, `implementation_officer`, `implementation_manager`. They are no longer
-offered in the role picker. They are kept because existing rows must resolve **and**
-because assignment routing targets a seniority band
-(`WorkflowManager` capacity bands, `lib/assignment/`).
+offered in the role picker.
+
+**Their only remaining purpose is that existing rows must resolve.** Until 2026-08-03 they
+were also kept because assignment routing targeted a seniority band — that engine was
+**removed** (`07db772`, decision
+[0016](../../decisions/0016-remove-auto-assignment-accounts-arrive-unowned.md)), so nothing
+consumes the distinction any more. `lib/roles.ts`'s own header still gives the routing
+justification and is now stale on that point.
+
+Whether to retire them is an open question — see
+[assignment](../../business-rules/assignment.md).
 
 A person's **job title** (`app_users.title`) is free text and is **not** a permission.
 
@@ -233,6 +241,7 @@ No audit log of role or scope changes. No alerting on privilege escalation attem
 ---
 
 **Documentation status:** Verified against implementation; **no tests exist**
-**Last verified:** 2026-07-31 · **Commit:** `15329e3` — only the crown-only action list and
+**Last verified:** 2026-08-05 · **Commit:** `9d83a22` — the legacy-role section re-verified
+after the assignment removal; the rest last read at `15329e3` — only the crown-only action list and
 the task-assignment rule were re-verified at this commit; the rest of the document was last
 read end to end at `4214349` · **Owner:** Unassigned

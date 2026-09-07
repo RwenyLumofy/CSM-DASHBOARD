@@ -5,7 +5,8 @@ implementation supports those behaviours.
 
 **This documents the product itself** — not customer activity, not per-account data.
 
-**Baseline:** 2026-07-31, commit `4214349`, branch `exec-dashboard`.
+**Baseline:** 2026-07-31, commit `4214349`. **Last full audit:** 2026-08-05, commit
+`9d83a22`, branch `exec-dashboard`.
 
 ---
 
@@ -31,19 +32,38 @@ implementation supports those behaviours.
   inputs and exceptions.
 - **[data-model/](data-model/README.md)** — the product-level entity model, including the
   state that lives in JSONB rather than tables.
-- **[architecture/](architecture/README.md)** — how it is built and where the boundaries are.
+- **[architecture/](architecture/README.md)** — how it is built and where the boundaries are,
+  including **[delivery-lifecycle.md](architecture/delivery-lifecycle.md)** — the full
+  ingest → derive → present → document loop, the cron dependency chain, the verification
+  gates, and the open structural questions. Start here if you are new or picking up
+  unfamiliar work.
 - **[decisions/](decisions/README.md)** — why it is the way it is.
 - **[releases/CHANGELOG.md](releases/CHANGELOG.md)** — internal release notes.
 - **[known-limitations/](known-limitations/README.md)** — what does not work, and
   [contradictions](known-limitations/contradictions.md).
 - **[BACKLOG.md](BACKLOG.md)** — documentation still required.
-- **[_templates/](_templates/)** — feature and decision templates.
+- **[_templates/](_templates/)** — feature, decision, and product-definition templates.
+
+### Intended behaviour vs verified behaviour
+
+Everything above records **what Signal does**. Two folders record **what Signal should do**,
+and are written by `signal-product-manager` before implementation:
+
+- **`specs/`** — feature briefs (Level 2) and specifications (Level 3).
+- **`product-notes/`** — Level 1 notes for small, isolated changes.
+
+They are proposals. **Never cite them as evidence of current behaviour**, and never let their
+contents migrate into `product/` or `business-rules/` before the change ships. Open decisions
+awaiting an answer live in `decisions/proposed/`; once accepted and implemented they graduate
+into a numbered `decisions/NNNN-*.md` record.
 
 ### Pre-existing documents
 
 - **[health-engine.md](health-engine.md)** — the design of the config-driven health engine.
-  High quality, retained as written. ⚠️ **It documents an engine that does not currently
-  run.** See [health](product/health/README.md) §1.
+  High quality, retained as written. **As of 2026-08-03 this engine IS the live scorer**
+  (`9a8ea59`), so the document is now current behaviour rather than a design proposal — with
+  two caveats: its "inert until wired" framing and "Next increments" list are out of date, and
+  its 19 tables are still unwritten. See [health](product/health/README.md).
 - **[employees-consolidation-spec.md](employees-consolidation-spec.md)** — a **spec**, not
   implemented behaviour. Not verified in this baseline.
 
@@ -61,8 +81,14 @@ Every non-trivial claim carries one:
 | **Proposed** | Desired behaviour that is not implemented, or only partly |
 | **Contradictory** | Different parts of the system implement or describe different behaviour |
 
-**Signal has six test files.** Most of this documentation is `Partially verified`, and that
-is the accurate label — not a shortfall in the writing. Two documents reach `Verified`.
+**Signal has twenty test files and 233 tests, and not one of them covers a page, a permission
+gate, or (almost) a server action.** Most of this documentation is `Partially verified`, and
+that is the accurate label — not a shortfall in the writing. Roughly a dozen individual
+*rules* reach `Verified` — most of them in health; no product *area* does.
+
+**21 of those 233 tests exercise dead code**: `lib/metrics/health.test.ts` and
+`health-cap.test.ts` cover `lib/metrics/health.ts`, which has had no importers since the
+engine switch. A green suite is not on its own evidence that something runs.
 
 Where the interface says one thing and the backend does another, this documentation
 **preserves the conflict** rather than choosing. Resolving it is a human decision.
@@ -92,7 +118,9 @@ production configuration, never invents behaviour, and never commits unless aske
 1. **Update only what changed.** No regeneration. Focused diffs.
 2. **Preserve human edits.** If a person wrote a better sentence, keep it.
 3. **Never bump "Last verified"** on a document you did not re-verify.
-4. **Cite the implementation.** Repository-relative paths that exist.
+4. **Cite the implementation.** Repository-relative paths that exist. A path in backticks is
+   a citation `docs-check` verifies — so **name a deleted file in plain text**, never in
+   backticks, and say when it went.
 5. **Label uncertainty.** "I could not confirm this" is a valid, useful sentence.
 6. **No secrets, no customer data.** Refer to `.env.example` by name; never quote values.
 
@@ -116,3 +144,7 @@ documentation update. **It never rewrites documentation and never blocks a trivi
   [BACKLOG.md](BACKLOG.md).
 - Feature documents follow [`_templates/feature-template.md`](_templates/feature-template.md).
 - Decision records are sequential: `decisions/NNNN-slug.md`.
+- Product definitions follow [`_templates/product-note.md`](_templates/product-note.md),
+  [`_templates/feature-brief.md`](_templates/feature-brief.md) and
+  [`_templates/product-specification.md`](_templates/product-specification.md). An open
+  decision uses [`_templates/product-decision.md`](_templates/product-decision.md).

@@ -1,7 +1,7 @@
 # Signal — Product Map
 
 **Status:** Verified (routes, navigation, access gates read directly from source)
-**Last verified:** 2026-07-31 · **Commit:** `15329e3`
+**Last verified:** 2026-08-05 · **Commit:** `9d83a22`
 
 Answers: *where does this live · how does a user reach it · what else does it affect ·
 which files implement it.*
@@ -18,10 +18,11 @@ Access control happens inside each page.
 |---|---|---|---|
 | 1 | Today | `/today` | [today](product/today/README.md) |
 | 2 | Clients | `/clients` | [clients](product/clients/README.md) |
-| 3 | Action list | `/inbox` | [action-list](product/action-list/README.md) |
-| 4 | Playbooks | `/playbooks` | [playbooks](product/playbooks/README.md) — **non-functional** |
-| 5 | Insights | `/reports` | [insights](product/insights/README.md) |
-| 6 | Use Case Universe | `/use-cases` | [use-case-universe](product/use-case-universe/README.md) |
+| 3 | Expansion | `/expansion` | [expansion](product/expansion/README.md) |
+| 4 | Action list | `/inbox` | [action-list](product/action-list/README.md) |
+| 5 | Playbooks | `/playbooks` | [playbooks](product/playbooks/README.md) — **non-functional** |
+| 6 | Insights | `/reports` | [insights](product/insights/README.md) |
+| 7 | Use Case Universe | `/use-cases` | [use-case-universe](product/use-case-universe/README.md) |
 | — | Settings *(bottom nav)* | `/settings` | [settings](product/settings/README.md) |
 
 `/` is not a page — it redirects to `/clients` ([`app/(app)/page.tsx`](../app/%28app%29/page.tsx)).
@@ -48,20 +49,30 @@ link carries the current query string forward, because filters live in the URL.
 **Client Profile** — 10 tabs
 ([`components/clients/ClientProfileTabs.tsx:212-223`](../components/clients/ClientProfileTabs.tsx)):
 General information · Stakeholders · Communication · Attachments · Usage · Support ·
-Satisfaction indicator · Project Management · Notes · Action list.
+Satisfaction indicator · Project Management · Notes · **Health signals**.
 
-**Settings** — 7 tabs, role-gated at the tab list
-([`app/(app)/settings/page.tsx:64-73`](../app/%28app%29/settings/page.tsx)):
+The last tab was labelled "Action list" until 2026-08-05. **The tab key stays `actions`**, so
+every saved link still resolves — only the label moved. See
+[health §4](product/health/README.md).
+
+**Communication** has three sub-tabs: Emails · Meetings · Contacts. Its fourth, *Stakeholder
+Mapping*, was removed 2026-08-05 (`9d83a22`) along with the write path behind it — see
+[stakeholders](product/stakeholders/README.md).
+
+**Settings** — **6** tabs, role-gated at the tab list
+([`app/(app)/settings/page.tsx:65-72`](../app/%28app%29/settings/page.tsx)):
 
 | Tab | Visible to |
 |---|---|
 | Members | Admin + Super Admin |
 | Properties | Everyone (read-only below Super Admin for system fields) |
 | Projects | Everyone |
-| Automations | Admin + Super Admin |
 | Client health | Admin + Super Admin |
 | Churn taxonomy | Admin + Super Admin |
 | Integrations | Everyone *(secrets and full re-sync gated to Super Admin inside)* |
+
+**Automations is gone** (2026-08-03, `07db772`) — it configured the auto-assignment engine,
+which was removed. See [assignment](business-rules/assignment.md).
 
 ## 3. Route inventory
 
@@ -73,10 +84,11 @@ Satisfaction indicator · Project Management · Notes · Action list.
 | `/today` | `app/(app)/today/page.tsx` | Personal daily worklist |
 | `/clients` | `app/(app)/clients/page.tsx` | Account directory |
 | `/clients/[id]` | `app/(app)/clients/[id]/page.tsx` | Client Profile (10 tabs) |
+| `/expansion` | `app/(app)/expansion/page.tsx` | Expansion opportunities — board and list |
 | `/inbox` | `app/(app)/inbox/page.tsx` | Action list |
 | `/playbooks` | `app/(app)/playbooks/page.tsx` | Playbooks — always empty |
 | `/reports` | `app/(app)/reports/page.tsx` | Insights overview / retention |
-| `/reports/health` | `app/(app)/reports/health/page.tsx` | Health distribution & drag |
+| `/reports/health` | `app/(app)/reports/health/page.tsx` | Health distribution & drag (**re-pointed at the engine 2026-08-05**, `abd355e`) |
 | `/reports/pulse` | `app/(app)/reports/pulse/page.tsx` | CS Pulse coverage |
 | `/reports/churn` | `app/(app)/reports/churn/page.tsx` | Churn analysis |
 | `/use-cases` | `app/(app)/use-cases/page.tsx` | Use Case Universe directory |
@@ -88,11 +100,21 @@ Satisfaction indicator · Project Management · Notes · Action list.
 
 ### Prototype routes — **not product**
 
-`app/scratch-clients`, `scratch-health`, `scratch-insights`, `scratch-model-editor`,
-`scratch-pulse`, `scratch-settings`, `scratch-usecases`. Outside the app shell, no
-navigation, no documentation. They are authenticated (middleware protects everything not
-explicitly public), but they ship in the production build. `/scratch-wf` was deleted in
-commit `8f00fed` after it served the whole staff directory to anonymous users.
+**Twelve** at `9d83a22`: `app/scratch-clients`, `scratch-health`, `scratch-health-card`,
+`scratch-health-evidence`, `scratch-insights`, `scratch-model-editor`, `scratch-pulse`,
+`scratch-settings`, `scratch-settings-tabs`, `scratch-task-detail`, `scratch-tasks`,
+`scratch-usecases`. Outside the app shell, no navigation, no documentation. They are
+authenticated (middleware protects everything not explicitly public), but they ship in the
+production build. `/scratch-wf` was deleted in commit `8f00fed` after it served the whole
+staff directory to anonymous users.
+
+`scratch-tasks` and `scratch-health-evidence` (both 2026-08-03) exist because reading or
+posting a task thread needs a Clerk session and a local environment has none — they render the
+shipping components against sample data. `scratch-tasks` carries a `NODE_ENV` guard that 404s
+it off any deployment, reads no data and touches no permission gate. They are **tracked rather
+than gitignored deliberately**: Tailwind v4's automatic source detection skips gitignored
+paths, so an ignored preview route renders with a partial stylesheet and misrepresents how the
+real thing looks.
 
 ### API routes
 
@@ -134,8 +156,10 @@ Signal writes almost entirely through server actions, not REST.
 | `app/(app)/clients/churn-actions.ts` · `pulse-actions.ts` | Churn tagging, CS Pulse |
 | `app/(app)/inbox/actions.ts` · `client-actions.ts` | Action list dismiss/complete/regenerate |
 | `app/(app)/today/task-actions.ts` · `note-actions.ts` · `triage-actions.ts` | Today tasks, notes, triage |
+| `app/(app)/today/task-update-actions.ts` | Task update threads, mention audience (**read is gated on write**) |
 | `app/(app)/use-cases/actions.ts` · `taxonomy-actions.ts` · `transfer-actions.ts` | Definitions, taxonomy, export/import |
-| `app/(app)/settings/*-actions.ts` | Members, roles, health formula, project config, churn taxonomy, assignment |
+| `app/(app)/settings/*-actions.ts` | Members, roles, project config, churn taxonomy |
+| `app/(app)/settings/client-health-actions.ts` | Health model weights, bands, gates and status rules — **saving re-scores every account** |
 
 ## 4. Page → sections → actions
 
@@ -149,10 +173,13 @@ Affects: `today_tasks`, `workspace_config` (`today_triage:{email}`), `client_not
 ### `/clients`
 Sections: filters · account table (owner, ARR, health, renewal, status).
 Actions: add client · import · assign owner (super-admin) · open profile.
-Affects: `clients`, and triggers assignment on new accounts.
+Affects: `clients`. **New accounts arrive unowned** — auto-assignment was removed
+2026-08-03 (`07db772`); the sync now warns how many need an owner rather than guessing.
 
 ### `/clients/[id]`
-Sections: header card (ARR, health, owner, renewal) · CS Pulse panel · 10 tabs.
+Sections: header card (ARR, health, owner, renewal) · CS Pulse trigger · 10 tabs
+(the tenth is **Health signals**, renamed from "Action list" 2026-08-05; the tab key stays
+`actions` so saved links still work).
 Actions: edit fields · record ARR event · set/override health · capture CS Pulse ·
 add/edit stakeholders · upload attachments · write notes · manage projects · associate
 use cases and record implementations · reassign owner (super-admin) · tag churn reason.
@@ -203,12 +230,10 @@ flowchart LR
   Stakeholders --> ActionList
   UCU[Use Case Universe] -.definitions.-> Profile
   Settings --> Health
-  Settings --> Assignment
-  Assignment --> Clients
 ```
 
-Read this as: **changing the health formula in Settings changes Today, the Action list and
-Insights.** Changing the churn taxonomy changes the Churn page and the profile's churn
+Read this as: **changing the health model in Settings re-scores every account immediately,
+which changes the clients list, the profile, Today, the Action list and Insights.** Changing the churn taxonomy changes the Churn page and the profile's churn
 banner. Changing permissions changes what every page returns.
 
 ## 6. Access by area
@@ -227,7 +252,7 @@ Enforced server-side. `seesAllClients` / `editsAllClients` / `canSeeClient` /
 | Use Case Universe — definitions | Full | Full | View only | View |
 | Use Case Universe — link an account | All | All *(scope permitting)* | Owned only | **No** |
 | Use Case Universe — apply import, reset | **Yes** | **No** | No | No |
-| Settings → Members / Automations / Health / Churn | Yes | Yes | No | No |
+| Settings → Members / Client health / Churn | Yes | Yes | No | No |
 | Settings → Integrations secrets, full re-sync | **Yes** | No | No | No |
 
 Scope can be narrowed further per user via `app_users.scope` (`all` / `assigned` /

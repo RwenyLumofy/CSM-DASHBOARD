@@ -3,43 +3,119 @@
 Places where different parts of Signal implement or describe **different behaviour**. Each
 is preserved for a human to resolve — none has been silently decided here.
 
-**Last verified:** 2026-07-31 · **Commit:** `15329e3`
+**Last verified:** 2026-08-05 · **Commit:** `9d83a22`
+(Re-read in full at this commit. One entry resolved, two rewritten by the health-engine
+switch. The staff-directory entry remains true — the task mention picker deliberately avoids
+`getAppUsers()` because of it.)
 
 ---
 
-## Two health systems
+## `CsPulsePanel`'s module header contradicts its own body — 2026-08-03, **worse since 2026-08-05**
 
-**Severity:** High — it determines what "health" means in the product.
+**Severity:** Medium → the claim is now flatly false rather than merely outdated. This
+repository treats module headers as decision evidence, and this one documents a rule the
+product no longer follows.
 
-| | Live | Engine |
+| | The file's top-of-file header | Reality at `9d83a22` |
 |---|---|---|
-| Code | `lib/metrics/health.ts` (136 lines) | `lib/health/` (13 files) |
-| Storage | `clients.health`, `clients.properties.cs_health` | 19 tables (`lib/db/health-schema.ts`) |
-| Tests | **None** | **25 passing** (`lib/health/engine.test.ts`) |
-| Runs | Daily via `/api/cron/client-health` | **Nothing invokes it** |
-| Documented | This documentation set | [`docs/health-engine.md`](../health-engine.md) |
-| Users see | Everywhere | **Only CS Pulse capture** |
+| How many health numbers | *"There are two health numbers in this app"* — the header ring's, **naming `lib/metrics/health.ts`**, and the engine's | **One.** The engine is the only scorer. `lib/metrics/health.ts` has **no importers outside its own two test files** |
+| What a lapsed Pulse does | *"drops it to 'Not Assessed'"* | It fails the `q_pulse_valid` gate. And because the CS Pulse component is **mandatory**, an account with no valid Pulse *is* `Not Assessed` — so the header is now accidentally close to right, for a completely different reason |
 
-`docs/health-engine.md` states the engine *"is inert until wired into a job/endpoint — no
-user-facing surface changes on migrate."* Its own "Next increments" list confirms the metric
-data-loaders, calculation service, jobs, REST APIs, admin model editor and audit-log writes
-are all pending.
+The header was stale on 2026-08-03 because CS Pulse had moved *into* the retired formula.
+It is stale again on 2026-08-05 for the opposite reason: the formula it names is dead and the
+engine it treats as a rival is the product. A reader following the header lands on a module
+nothing calls.
 
-**The confusing part:** the engine's **CS Pulse** *is* live. `lib/health/pulse.ts` is the
-source of truth for the CSM's qualitative read, and the profile panel, Today's nudge and
-`/reports/pulse` all read it. So one half of `lib/health/` is production and the other half
-is not.
+The contradiction is contained in one file:
+[`components/clients/CsPulsePanel.tsx`](../../components/clients/CsPulsePanel.tsx). Its body
+and its `health` prop comment describe the current behaviour correctly; only the header above
+them is wrong.
 
-**Practical consequence:** anyone quoting bands "65 → Healthy, 50 → Watch, 25 → At Risk"
-is quoting the *engine's* Version 1.1 seed. The live tiers are admin-defined and may be any
-names and cutoffs.
+**A terminology collision follows from it.** The same file carries a `BAND_TONE` map with a
+`"Not Assessed"` key — the **engine's** band — while
+[`lib/metrics/health-evidence.ts`](../../lib/metrics/health-evidence.ts) exports
+`NOT_ASSESSED_LABEL = "Not assessed"` for the **evidence** rule. Two different concepts,
+differing by one capital letter, in one file.
 
-**Needs a decision from:** Product + Engineering.
-**Question:** Is the engine the intended future of health scoring, or abandoned work? Are
-its 19 tables migrated in production?
+**Needs a decision from:** Engineering.
+**Question:** Correct the header (documentation-only, but it is application code and outside
+this documentation set's remit to edit), and rename one of the two "Not assessed" concepts.
 
-**Files:** `lib/metrics/health.ts` · `lib/metrics/health-config.ts` · `lib/health/*` ·
-`lib/db/health-schema.ts` · `docs/health-engine.md`
+**Files:** `components/clients/CsPulsePanel.tsx` · `lib/metrics/health-evidence.ts` ·
+`lib/metrics/health.ts`
+
+---
+
+## ~~A task-update delete is stated one way and executed another~~ — RESOLVED
+
+**Raised 2026-08-03. Fixed the same day in commit `4ed593d`**, whose message credits the
+find: *"Found by the product documenter while writing up the feature."*
+
+The soft delete stamped `deleted_at` and *then* compared the author, so anyone with write
+access to the account could delete anybody's update and be told they were not allowed —
+with the update deleted anyway.
+
+**Now:** the author predicate is passed **down** into `deleteTaskUpdateDb` and evaluated
+before the write, returning `"deleted" | "forbidden" | "missing"`. `"missing"` covers both
+absent and already-deleted, so a retried delete stays a no-op. Verified at `9d83a22`
+([`app/(app)/today/task-update-actions.ts`](../../app/%28app%29/today/task-update-actions.ts)
+lines 186–196).
+
+Kept as a record because the general rule it violated is worth restating: per decision
+[0004](../decisions/0004-four-flat-permission-tiers-with-server-side-write-gates.md), **a
+permission check has to gate the write, not follow it** — and a hidden UI control is not a
+permission.
+
+---
+
+## ~~Two health systems~~ — RESOLVED as a *scoring* contradiction; two residues remain
+
+**Resolved 2026-08-03 in commit `9a8ea59`**, and the question this entry asked for months —
+*is the engine the intended future of health scoring, or abandoned work?* — is answered:
+**the engine is the scorer.** `recomputeClientHealth` runs the published model, every surface
+reads the applied status (`31777c2`), and the ten-metric formula in `lib/metrics/health.ts`
+now has **no importers outside its own two test files**.
+
+Kept as a record because the migration produced a failure mode worth naming, and because two
+residues are still live.
+
+### The failure mode: a key set written against a retired formula
+
+**Three instances landed in a single day.** The engine stores component keys
+(`reach`, `progress`, `outcomes`, `breadth`, `stakeholder`, `engagement`, `renewal`, `sla`,
+`incidents`, `aged`, `ticket_sat`, `sentiment`) with **zero overlap** against the retired
+formula's (`usage`, `csat`, `platform_csat`, `nps`, `sla_breaches`, `cs_pulse`). Each of
+these still **compiled** and silently matched nothing:
+
+| Where | Symptom | Fixed in |
+|---|---|---|
+| Insights health-drag panel | Every row read `undefined`; all ten signals reported as maximally dragging on no data | `abd355e` |
+| `CUSTOMER_EVIDENCE_METRICS` | `hasCustomerEvidence()` false for every row → **"Not assessed" on all 133 accounts**, on top of good scores | `afc55a5` |
+| Settings → Client health "Formula" editor | Configured a formula that no longer decided anyone's health | `e6dc235` |
+
+**Nothing in the type system prevents a fourth.** A `Record<string, number>` keyed on a
+retired vocabulary type-checks against the new one.
+
+### Residue 1 — the retired formula is still in the tree, and still tested
+
+`lib/metrics/health.ts` and `lib/metrics/health-config.ts` have no importers outside
+`lib/metrics/health.test.ts` and `health-cap.test.ts` — **21 tests exercising a module
+nothing calls.** Dead code that reads as live, with a green test suite vouching for it.
+
+**Needs a decision from:** Engineering. **Question:** delete it, or state why it stays?
+
+### Residue 2 — the engine's 19 tables are still unused
+
+Scoring runs, but the result lands in `clients.health` JSONB. `health_score_snapshots`,
+`health_audit_logs` and `drizzle/health-analytics-views.sql` are all unfed, so there is still
+**no health history** and `/reports/health` is still "as of today".
+
+**Needs a decision from:** Product + Engineering. **Question:** are the tables intended to be
+used, or removed along with the views?
+
+**Files:** `lib/health/*` · `lib/metrics/health.ts` · `lib/metrics/health-evidence.ts` ·
+`lib/db/health-schema.ts` · [`docs/health-engine.md`](../health-engine.md) ·
+[health](../product/health/README.md)
 
 ---
 
@@ -137,22 +213,42 @@ different?
 
 ---
 
-## "At risk" may have more than one definition
+## "At risk" still has two definitions — narrowed 2026-08-05, not closed
 
-**Severity:** Medium — the same phrase may mean different things on different pages.
+**Severity:** Medium–High. Sharper than before: the two definitions now use **different
+cutoffs on different fields**, so they disagree in a way that is easy to reproduce.
 
-`lib/actions/signals.ts` hardcodes health `< 55` as at-risk and `55–74` as watch. Insights
-has its own at-risk panel. **These were not confirmed to share a single function.**
+Commit `31777c2` ("every surface reads the applied status, 3/3") fixed **three** surfaces —
+the clients list, the team rollup and the signals engine — which now all read
+`health.tier` through [`lib/health/status.ts`](../../lib/health/status.ts). Verified at
+`9d83a22`.
 
-Compounding it: health **tiers are admin-configurable** (any names, any cutoffs), so an
-admin can rename and re-cut tiers without changing what the Action list calls at-risk.
+**Four more still re-band the raw score, on the retired 75/55 cutoffs:**
+
+| File | What it does |
+|---|---|
+| [`lib/metrics/portfolio.ts`](../../lib/metrics/portfolio.ts):30–31 | `score >= 75` healthy, `>= 55` watch. **Still called** — by `getPortfolioSummary` (`lib/data.ts`) and by `buildExecReport` (`lib/metrics/exec.ts`) |
+| [`lib/metrics/movement.ts`](../../lib/metrics/movement.ts):288 | `score < 55` |
+| [`lib/today/build.ts`](../../lib/today/build.ts):187, 260, 281, 357 | `< 55`, `< 40`, `< 70` thresholds for priorities, focus state and segment risk |
+| [`lib/metrics/exec.ts`](../../lib/metrics/exec.ts):71 | `healthBand()` itself — **exported and now uncalled**, referenced only in `status.ts`'s own warning comment. Dead, but it is the function the fix was written against |
+
+The model's bands are **65 / 50 / 25**. Every surface above uses **75 / 55**. So Insights'
+portfolio donut and Today's priorities disagree with the clients list and the profile by
+construction, not by data drift — and the three lifecycle statuses (`Churned`,
+`Implementation`, `Not Assessed`) are invisible to all of them, which is the specific error
+that made the old dashboard report 75 at-risk accounts on a mostly-churned book.
+
+`exec.ts`'s own comment says the bands *"mirror `buildPortfolioSummary`'s fixed 75/55 cutoffs
+on purpose"* — a deliberate consistency between two surfaces that are now both inconsistent
+with the engine.
 
 **Needs a decision from:** Product + Engineering.
-**Question:** Is "at risk" one definition? Should the Action-list thresholds derive from the
-configured tiers?
+**Question:** Should Insights, Today and movement read `accountStatus()` too? If Insights
+deliberately reports a different question ("how many score well" vs "how many are at risk"),
+the two need different **names** on screen.
 
-**Files:** `lib/actions/signals.ts` · `lib/metrics/health-config.ts` ·
-`components/reports/AtRiskPanel.tsx`
+**Files:** `lib/metrics/portfolio.ts` · `lib/metrics/exec.ts` · `lib/metrics/movement.ts` ·
+`lib/today/build.ts` · `lib/health/status.ts`
 
 ---
 

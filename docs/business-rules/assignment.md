@@ -1,158 +1,115 @@
 # Business rule — Owner assignment and routing
 
-**Status:** Partially verified · **No tests** (despite the engine being pure and trivially
-testable)
-**Last verified:** 2026-07-31 · **Commit:** `4214349`
-
-Signal fills an account's empty owner slots automatically, from configured rules. Two
-independent workflows run: **CSM** and **Implementation**.
+**Status:** **Removed** — the feature no longer exists
+**Removed:** 2026-08-03, commit `07db772`
+**Last verified:** 2026-08-05 · **Commit:** `9d83a22`
 
 ---
 
-## R1 — Only an empty slot is filled
+## The rule now
 
-**Definition.** Assignment writes an owner **only when the slot is currently `null`**.
+**Signal does not assign owners automatically. New accounts arrive unowned.**
 
-**Consequence.** It is idempotent: a re-run never reassigns an owned account and never
-duplicates an action item (notification ids are deterministic).
+The sync **warns how many accounts need an owner** rather than guessing, and
+`/api/add-account` no longer returns an `assignment` block. Owners are set by hand, and
+**only a Super Admin may set them** — see
+[permissions-and-scoping R6](permissions-and-scoping.md#r6--owner-reassignment-is-super-admin-only).
 
-**Code.** [`lib/assignment/run.ts`](../../lib/assignment/run.ts).
+The `lib/assignment/` folder no longer exists. Neither does WorkflowManager.tsx,
+app/(app)/settings/workflow-actions.ts, or the Settings → **Automations** tab.
 
----
-
-## R2 — Two entry points
-
-| Call | Scope | Triggered by |
-|---|---|---|
-| `runAssignment(ids)` | A specific set of clients | The sync, for **brand-new business only** (`persistSync` → new logos; also `/api/add-account`) |
-| `runAssignment()` | Every **active** client missing an owner | The Super Admin's "Run assignment" button in Settings → Automations |
+*(Deleted paths are named in plain text throughout these docs, never in backticks — a
+backticked path is a citation the validator checks, and a deleted file would fail it.)*
 
 ---
 
-## R3 — CSM tier from ARR bands
+## Why it was removed
 
-**Definition.** The client's ARR selects a role tier.
+From commit `07db772`:
 
-**Formula.** `resolveCsmTier(arr, config)` — the band with the **largest `minArr` that is
-≤ the client's ARR** wins. Lower bound inclusive.
+> It routed new accounts by ARR band to the least-loaded owner in the matching role tier.
+> That never matched how the team actually assigns, so its output was overridden by hand
+> every time — and it ran silently on every new logo, from both the HubSpot sync and
+> `/api/add-account`, not only from the Settings UI. Removing the tab alone would have left
+> it running and unconfigurable.
 
-**Inputs.** Client ARR (the ledger balance); `CsmAssignmentConfig.bands` from
-`workspace_config`.
+**The slot is intended to come back as a configuration engine for playbooks.** That is a
+statement of intent in the commit message, not an implemented feature — see
+[playbooks](../product/playbooks/README.md).
 
-**Exception.** No band matches → no tier → the workflow reports `no_candidates`.
+## The trap in the removal, worth keeping
 
-**Optional helper filter.** `helperProperty`, when set, makes a candidate eligible only if
-their `app_users` helper value matches the client's value. A **soft filter**; empty or null
-means no filter, which is the common case today.
+This was **not** a straight delete, and the reason is a good example of what a folder
+boundary can hide:
 
----
+- `getClientHealthConfig` lived in the assignment folder's own config module, and
+  `lib/repo/drizzle.ts` — the recompute path — imported it from there. **Deleting the folder
+  would have taken every health score with it.**
+- `saveClientHealthConfigAction`, the only way to change the formula or force a recompute,
+  sat in the Automations tab's server actions.
 
-## R4 — Implementation tier from implementation level
+Both were relocated to health-owned modules **first**:
 
-**Definition.** The client's implementation level selects a role tier.
-
-**Client implementation level** = the **highest-touch level among its tracked deals**.
-Rank: `White Glove` (3) > `Guided` (2) > `Self-Serve` (1). Unknown levels rank 0.
-Null when no tracked deal carries a level.
-
-**Formula.** `resolveImplementationTier(level, config)` — the first rule whose level
-matches (case- and spacing-insensitive via `normalizeLevel`), otherwise
-`config.defaultRole`.
-
-**Exception.** Unlike CSM, Implementation has a **default role**, so an unmapped or missing
-level still resolves to a tier.
-
----
-
-## R5 — Least-loaded wins; a tie goes to a human
-
-**Definition.** Among candidates holding the selected role, the **least loaded** is chosen.
-
-**Load definition.**
-
-| Team | Load metric |
+| Was | Now |
 |---|---|
-| CSM | Managed ARR |
-| Implementation | Count of accounts at that implementation level |
+| assignment's own config module → `get/setClientHealthConfig` | `lib/metrics/health-config-store.ts` |
+| the Automations tab's actions → `saveClientHealthConfigAction` | `app/(app)/settings/client-health-actions.ts` |
 
-Lower is better.
-
-**Formula.** `pickLeastLoaded(candidates, loadOf)`:
-- Exactly one candidate at the minimum → that candidate wins.
-- **Two or more share the minimum → no winner.** The tie is returned for a Super Admin to
-  break.
-
-**This is the rule most worth knowing:** Signal does not break ties arbitrarily. It stops
-and asks.
+Health configuration had been living inside the assignment feature purely by accident of
+where it was first written.
 
 ---
 
-## R6 — Decision statuses
+## What the removal invalidated elsewhere
 
-| Status | Meaning |
-|---|---|
-| `assigned` | An owner was chosen and written |
-| `needs_admin` | A tie, or a helper conflict — a Super Admin must choose |
-| `no_candidates` | No team member holds the required role |
-| `skipped` | Already owned, or nothing to do |
-| `disabled` | This team's workflow is turned off |
+**The legacy granular roles lost their only justification.** `strategic_csm`, `senior_csm`,
+`csm_officer`, `implementation_officer` and `implementation_manager` all resolve to the
+`operator` permission tier and were retained *specifically so assignment routing could target
+a seniority band*. Nothing targets a seniority band now. They remain valid values so existing
+rows resolve, and that is the whole of their remaining purpose. See
+[users-and-permissions](../product/users-and-permissions/README.md).
 
-Every decision carries a **human-readable `reason`**, which becomes the notification text.
-
----
-
-## R7 — The engine is pure; the orchestrator does the I/O
-
-`lib/assignment/engine.ts` contains only deterministic decision functions — no database, no
-notifications. `lib/assignment/run.ts` feeds it clients, candidates and load metrics, then
-acts on the decision.
-
-**Consequence.** Every rule above is unit-testable in isolation. **None of them is
-currently tested.**
+**`clients.csmSource` / `implementationOwnerSource`** were `'auto'` (assignment workflow) or
+`'manual'` (human). Nothing writes `'auto'` any more — the sync and churn import both write
+`null`, and the owner-assignment path writes the source it is given. Historical `'auto'`
+rows survive and still resolve.
 
 ---
 
-## R8 — Capacity is an indicator, not a gate
+## The rules as they were
 
-`CapacityConfig` sets `maxClientsByRole` and `maxWhiteGlove`. These power a **team-health
-indicator**; they do not block an assignment. Being over capacity does not prevent
-receiving another account.
+Recorded because they explain historical `csmSource: 'auto'` rows and the shape any
+replacement is likely to take.
+
+- **Only an empty slot was filled** — idempotent by design; a re-run never reassigned.
+- **CSM tier came from ARR bands** — the band with the largest `minArr` ≤ the client's ARR.
+- **Implementation tier came from the implementation level** — the highest-touch level among
+  the account's tracked deals (White Glove > Guided > Self-Serve), with a default role when
+  unknown.
+- **The least-loaded candidate won**; load was managed ARR for CSM, level-account count for
+  Implementation.
+- **A tie was never broken arbitrarily.** Two or more candidates at the minimum returned
+  `needs_admin` for a Super Admin to decide.
+- **Capacity was advisory** — it powered a team-health indicator and never blocked an
+  assignment.
+
+**None of it was ever tested**, despite the engine being pure and trivially testable. That,
+and the fact that its output was overridden by hand every time, are the two facts most worth
+carrying into whatever replaces it.
 
 ---
-
-## R9 — Legacy roles exist because of this feature
-
-The five granular roles (`strategic_csm`, `senior_csm`, `csm_officer`,
-`implementation_officer`, `implementation_manager`) all resolve to the `operator` permission
-tier and are no longer offered in the picker. They remain valid values **specifically so
-assignment routing can target a seniority band**.
-
-**Consequence.** A workspace using only flat `operator` roles has no seniority bands for
-`resolveCsmTier` to select, and CSM assignment will find `no_candidates`. This coupling
-between a legacy role model and a live feature is a real constraint on removing the legacy
-roles.
-
----
-
-## Known inconsistencies
-
-1. **No tests**, on pure functions designed to be tested.
-2. **Flat operators break ARR-band routing** (R9), and nothing warns an admin who migrates
-   everyone to `operator`.
-3. **Capacity is advisory only** (R8), which means routing can knowingly overload someone.
-4. **No audit trail** of automated assignments beyond the notification.
-5. **Ties block silently** until someone reads the notification — there is no queue of
-   `needs_admin` decisions surfaced anywhere in this pass.
 
 ## Open questions
 
-- Should legacy granular roles be replaced by an explicit "seniority band" field on
-  `app_users`, decoupling routing from the deprecated role model?
-- Where does a Super Admin see the list of accounts stuck in `needs_admin`?
+- Is the "configuration engine for playbooks" a committed plan or a placeholder? Both
+  [playbooks](../product/playbooks/README.md) and this rule family are waiting on the same
+  answer.
+- Should the legacy granular roles now be removed, given nothing consumes them?
+- Should the sync's "needs an owner" warning become a notification or an Action-list signal,
+  rather than a count in a job response nobody reads?
 
 ## Source references
 
-`lib/assignment/engine.ts` · `lib/assignment/run.ts` · `lib/assignment/types.ts` ·
-`lib/assignment/config.ts` · `lib/assignment/health.ts` ·
-`components/settings/WorkflowManager.tsx` · `app/(app)/settings/workflow-actions.ts` ·
-`app/api/add-account/route.ts` · `lib/roles.ts`
+Commit `07db772` · `lib/metrics/health-config-store.ts` ·
+`app/(app)/settings/client-health-actions.ts` · `lib/integrations/sync.ts` ·
+`app/api/add-account/route.ts` · `lib/roles.ts` · `lib/types.ts` (`AssignmentSource`)

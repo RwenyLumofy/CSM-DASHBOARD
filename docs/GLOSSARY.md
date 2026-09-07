@@ -1,6 +1,8 @@
 # Signal — Glossary
 
-**Status:** Partially verified · **Last verified:** 2026-07-31 · **Commit:** `4214349`
+**Status:** Partially verified · **Last verified:** 2026-08-05 · **Commit:** `9d83a22`
+(Health, assignment and stakeholder vocabulary rewritten at this commit; the rest last read
+at `4214349`.)
 
 The language Signal uses. Where a term is used differently in the UI and the code, both
 are given — the mismatch is the useful part.
@@ -21,8 +23,9 @@ Called "account" throughout the UI and "client" throughout the code.
 
 **App user** — a person with access to Signal (`app_users`). Distinct from a Contact.
 
-**Lumofy staff / CSM user** — `csm_users`, the internal team directory used for
-assignment routing. Distinct from `app_users`, which is the access list.
+**Lumofy staff / CSM user** — `csm_users`, the internal team directory. It fed assignment
+routing until that engine was removed (2026-08-03); it now serves team-member resolution and
+owner pickers. Distinct from `app_users`, which is the access list.
 
 **Contact** — a person at the client, synced from HubSpot. Eight fields, read-only in
 practice; the sync owns them.
@@ -42,8 +45,9 @@ This is the only thing that grants access.
 
 **Role** — the stored value in `app_users.role`. Nine values exist; five are legacy
 granular tiers (`strategic_csm`, `senior_csm`, `csm_officer`, `implementation_officer`,
-`implementation_manager`) that all resolve to `operator` and are kept only so assignment
-routing can target a seniority band.
+`implementation_manager`) that all resolve to `operator`. They were kept so assignment
+routing could target a seniority band; **that engine was removed 2026-08-03**, so their only
+remaining purpose is that existing rows must resolve.
 
 **Title** — free text on a person's record (e.g. "Strategic CSM"). **Not a permission.**
 
@@ -52,7 +56,8 @@ own), or `selected` (an explicit set in `user_account_grants`). Set per user; na
 role default. Super Admin is always `all` and cannot be narrowed.
 
 **Team** — `csm` or `implementation`. Only the legacy granular roles belong to a team.
-Flat operators, admins, guests and super-admins belong to none.
+Flat operators, admins, guests and super-admins belong to none. **Nothing branches on team
+any more** — permission never did, and assignment routing, which did, was removed.
 
 ## Revenue
 
@@ -84,23 +89,81 @@ on the deal and renewal ARR events on the ledger.
 
 ## Health, risk and churn — four different things
 
-**Health** — the account's **current condition**: a 0–100 weighted score over up to eight
-metrics, resolved to an admin-named tier. Recomputed daily.
-`lib/metrics/health.ts`, `lib/metrics/health-config.ts`.
+**Health** — the account's **current condition**: a 0–100 score over **four weighted
+components** (Product Adoption 50% · CS Pulse 25% · Support and Reliability 15% · Client
+Sentiment 10%), then five qualification gates and sixteen status rules. Recomputed daily by
+the **health engine**. `lib/health/*`. *(Until 2026-08-03 it was a flat ten-metric average in
+`lib/metrics/health.ts`; that module is now dead code.)*
 
-**Health tier** — the band a score lands in. Admin-defined name, cutoff and colour — not
-fixed to Healthy/Watch/At Risk.
+**Score / band / status** — three different things, all stored:
+- **`score`** — the weighted arithmetic, 0–100, **never rewritten** by a rule.
+- **`band`** — where that score lands on the model's cutoffs (Healthy ≥65 · Watch ≥50 ·
+  At Risk ≥25 · Critical <25), before any judgement.
+- **`tier`** — the **applied status**, the engine's conclusion after gates and rules. **This
+  is what the product means by "how is this account doing".**
+
+**Read the status; never re-band the score.** `lib/health/status.ts` → `accountStatus()` is
+the single answer. Three surfaces used to re-derive their own band and disagreed with the
+profile on 20 of 133 accounts.
+
+**Qualification gate** — one of five conditions that must **hold** or the account is capped
+to Watch. A gate uses `ne: true` rather than `isFalse` so an *unanswered* question does not
+fail it — Signal must never penalise an account for its own missing data.
+
+**Status rule** — one of sixteen priority-ordered rules that can cap, force or replace the
+applied status. Configurable (toggle, threshold, cap target) but **not** a condition builder.
+
+**Lifecycle status** — `Churned` · `Implementation` · `Not Assessed`. Facts, not judgements;
+no score should be read from them and no at-risk count may include them.
+
+**Not assessed** — used for **two related things**, and it is worth keeping them apart:
+
+1. **The applied status `Not Assessed`** — the engine's own conclusion when a *mandatory*
+   component (Product Adoption or CS Pulse) has no data. It is a lifecycle status, stored in
+   `health.tier`, and no at-risk count includes it.
+2. **The evidence rule** — a **read-time** check that hides the number when the score rests
+   on no customer signal. `lib/metrics/health-evidence.ts`, applied by `HealthPill`, the CS
+   Pulse panel and the `/clients` at-risk headline.
+
+**A usage reading of zero is evidence** — only an *absent* metric is missing evidence.
+Both are distinct from *"no health score has been computed yet"*, which means the recompute
+has not run.
+
+⚠️ On the engine switch the evidence rule's key set still named the retired formula's
+metrics, with **zero overlap** against the engine's — so every one of 133 accounts read
+"Not assessed" on top of a perfectly good score, until `afc55a5`.
+
+**Capped status** — an applied status lowered by a **status rule** or a failed
+**qualification gate**, without the score being rewritten. Sixteen rules can cap, force or
+replace; five gates cap to Watch. The triggered reasons are stored so the profile's Health
+signals panel can explain the verdict. `lib/health/engine.ts`.
+
+*(Until 2026-08-03 the same idea was implemented far more narrowly as `PULSE_CRITICAL_CAPS`
+in the retired formula — a Critical CS Pulse rating on renewal or engagement dropped the
+tier. That is now the `r_pulse_below_60` status rule and the `q_pulse` gate.)*
 
 **CS Pulse** — the CSM's **qualitative** read of an account: rated dimensions with rubrics
 plus risk signals, captured through a form and stored in `clients.properties.cs_pulse`.
-Has its own freshness rule. `lib/health/pulse.ts`.
+Has its own freshness rule (`PULSE_VALIDITY_DAYS = 30`). It is **25% of the health score and
+a mandatory component** — an account with no valid Pulse resolves to `Not Assessed`, not to
+zero. `lib/health/pulse.ts`.
 
 **Risk signal** — **evidence** that something may be wrong. Not a score and not a status.
 
-**At risk** — a *classification* derived from health and other conditions for the Insights
-at-risk panel. Distinct from a health tier named "At Risk".
+**At risk** — ⚠️ **two definitions in the product today.** The clients list, the profile and
+the Action list read the engine's applied status (`At Risk`, band < 50 after gates and
+rules). Insights' portfolio donut, `lib/metrics/movement.ts` and Today's priorities still
+band the **raw score** on **75/55** — different cutoffs on a different field, and blind to
+the three lifecycle statuses. See
+[contradictions](known-limitations/contradictions.md#at-risk-still-has-two-definitions--narrowed-2026-08-05-not-closed).
 
-**Health drag** — the accounts pulling the portfolio score down. `lib/metrics/health-drag.ts`.
+**Health drag** — the accounts and components pulling the portfolio score down.
+`lib/health/drag.ts`, which decomposes the engine's **own** component tree: each leaf's share
+is parent weight × weight within parent, so the shares sum to the whole score by
+construction. It takes the same assembled model the recompute scored with, so the
+decomposition and the stored components can never describe different formulas. (Was
+lib/metrics/health-drag.ts *(deleted)*, which iterated the retired formula's keys and read `undefined`
+for every row — `abd355e`.)
 
 **Churn** — a **recorded outcome**: the account ended. Requires a churn ARR event and,
 where recorded, a reason from the churn taxonomy. Churned accounts are excluded from
@@ -147,6 +210,24 @@ Profile's Project Management tab. Authored in Signal; not synced.
 
 **Playbook** — a triggered sequence of tasks. **Declared but not implemented** — see
 [playbooks](product/playbooks/README.md).
+
+**Task update** — an **append-only, attributed** comment on a single task, stored in
+`task_updates`. Distinct from a **note**, which is a mutable account-level document, and from
+`today_tasks.notes`, which is a single-writer description of the task itself. An update is
+never edited (no edit path exists) and is removed only softly. See
+[task updates](product/task-updates/README.md).
+
+**Mention** — a stored reference to a **person** inside a task update, held as a lower-cased
+email in `task_update_mentions` and as an `@[<email>]` token in the body. **A mention confers
+no access** — the picker offers only people who can already see the account, so the question
+never arises. Decision
+[0012](decisions/0012-a-mention-is-a-reference-not-a-grant.md). Signal does **not** mention
+accounts or pages.
+
+**Notification** — an in-app alert to one person, shown in the sidebar bell. Since 2026-08-03
+it can name **what it is about** (`entity_type` / `entity_id`) and not only which account, so a
+click lands on the thing rather than near it. Shares a table with the Action list's items. See
+[notifications](product/notifications/README.md).
 
 ## Use cases
 
@@ -204,8 +285,10 @@ directions.
 **Sync checkpoint** — `sync_checkpoints`, what the last run got through.
 
 **Workspace config** — `workspace_config`, a key–value store holding product configuration
-that has no table: use-case taxonomy, health formula, assignment config, churn taxonomy,
-role labels, per-user Today triage.
+that has no table: use-case taxonomy, the health model's component weights, bands,
+qualification gates and status rules, CS Pulse dimensions and rating scale, churn taxonomy,
+role labels, per-user Today triage. *(Assignment config was a key here until the engine was
+removed; the retired `client_health_formula` key is also no longer read.)*
 
 **Notification** — an internal alert to a Signal user. Never sent to a customer.
 
@@ -213,6 +296,8 @@ role labels, per-user Today triage.
 
 **Stickiness (WAU/MAU)** — weekly over monthly active users.
 
-**Assignment** — the workflow that fills an empty owner slot from configured routing rules
-and capacity bands. Idempotent: it only fills a `null` owner.
-`lib/assignment/engine.ts` (pure) and `run.ts` (orchestrator).
+**Assignment** — **removed 2026-08-03** (`07db772`). It routed new accounts by ARR band to
+the least-loaded owner in the matching role tier; its output was overridden by hand every
+time. New accounts now arrive **unowned**, and the sync warns how many need an owner rather
+than guessing. Owners are set by hand, Super Admin only. See
+[assignment](business-rules/assignment.md).

@@ -108,9 +108,13 @@ health and renewal analysis everywhere.
 
 ## Automations and side effects
 
-Creating an account via `/api/add-account` triggers `runAssignment(newClientIds)`, which
-fills empty owner slots from the configured routing rules and emits notifications
-([`lib/assignment/run.ts`](../../../lib/assignment/run.ts)).
+**None on creation.** Until 2026-08-03 a new account triggered `runAssignment(newClientIds)`,
+which filled empty owner slots from configured routing rules and emitted notifications. That
+engine was **removed** (`07db772`) because its output was overridden by hand every time.
+
+**New accounts now arrive unowned.** The sync reports how many need an owner rather than
+guessing, and `/api/add-account` no longer returns an `assignment` block. See
+[assignment](../../business-rules/assignment.md).
 
 ## Empty, loading and error states
 
@@ -142,7 +146,7 @@ No product analytics events. Errors are `console.error` only. No monitoring on t
 
 ## Dependencies
 
-HubSpot sync (account list and owners) · assignment workflow · ARR ledger · health engine ·
+HubSpot sync (account list and owners) · ARR ledger · health engine ·
 profile completeness.
 
 ## Known limitations
@@ -160,7 +164,7 @@ profile completeness.
 ## Source references
 
 `app/(app)/clients/page.tsx` · `components/clients/ClientsTable.tsx` · `lib/auth.ts` ·
-`lib/data.ts` · `lib/profile-completeness.ts` · `lib/assignment/run.ts` · `lib/db/schema.ts`
+`lib/data.ts` · `lib/profile-completeness.ts` · `lib/db/schema.ts` · commit `07db772`
 
 ---
 

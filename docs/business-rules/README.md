@@ -7,10 +7,10 @@ documents link here rather than restating them.
 |---|---|---|
 | Roles, permissions, ownership, scoping | [permissions-and-scoping.md](permissions-and-scoping.md) | Verified (no tests) |
 | ARR, revenue movement, retention, renewals | [arr-and-revenue-movement.md](arr-and-revenue-movement.md) | Partially verified |
-| Health scoring, tiers, at-risk | [health-scoring.md](health-scoring.md) | Contradictory (two systems) |
+| Health scoring and account status | [health-scoring.md](health-scoring.md) | Partially verified — **rewritten 2026-08-05, the engine is now the scorer** |
 | Churn classification and evidence | [churn.md](churn.md) | Partially verified |
 | Profile completeness and data quality | [profile-completeness.md](profile-completeness.md) | Partially verified |
-| Owner assignment and routing | [assignment.md](assignment.md) | Partially verified |
+| Owner assignment and routing | [assignment.md](assignment.md) | **Removed** — the feature was deleted 2026-08-03 (`07db772`) |
 | Use-case associations and lifecycle | [use-case-associations.md](use-case-associations.md) | Partially verified |
 | Date filtering and period comparison | [dates-and-periods.md](dates-and-periods.md) | Partially verified |
 | Archiving, deletion and audit | [archiving-and-audit.md](archiving-and-audit.md) | Partially verified |
@@ -22,7 +22,8 @@ Recorded in [BACKLOG.md](../BACKLOG.md), not invented here:
 - **Attention prioritisation** — how Today ranks priorities. The ranking function has not
   been read end to end.
 - **Task priority** — `today_tasks.priority` and `project_tasks` priority semantics.
-- **Stakeholder role rules** beyond coverage.
+- **Stakeholder role rules** beyond coverage — more urgent since the 2026-08-05 cutover made
+  stakeholder profiles the only model, with two new first-class roles.
 - **Data reconciliation** — what happens when HubSpot and Signal disagree, beyond the
   override mechanism.
 

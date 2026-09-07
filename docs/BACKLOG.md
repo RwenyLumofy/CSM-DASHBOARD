@@ -1,7 +1,7 @@
 # Documentation backlog
 
-What still needs documenting, ordered by value. Created 2026-07-31 against commit
-`4214349`.
+What still needs documenting, ordered by value. Created 2026-07-31 against commit `4214349`.
+**Last revised 2026-08-05 against `9d83a22`.**
 
 This is a documentation backlog, not a product backlog. Product gaps live in
 [known-limitations](known-limitations/README.md).
@@ -14,9 +14,9 @@ This is a documentation backlog, not a product backlog. Product gaps live in
 |---|---|---|---|
 | 1 | **Usage and the adoption score** | `usage` is the heaviest health input and nothing explains how the score is computed, what "stickiness" means, or how environments map to accounts | `lib/usage/{score,queries,sync,types}.ts`, profile Usage tab |
 | 2 | **Support, SLA and satisfaction** | SLA breaches feed health; CSAT normalisation differs between ticket CSAT and platform CSAT; Support and Satisfaction are two profile tabs with no documentation | `lib/sla.ts`, `lib/support/*`, `lib/integrations/intercom*.ts` |
-| 3 | **Notifications** | One table serves both the bell feed and action items. Recipients, types and lifecycle are undocumented | `lib/db/schema.ts:362`, `components/layout/NotificationsBell.tsx` |
+| ~~3~~ | ~~**Notifications**~~ | **Done 2026-08-03** — [product/notifications](product/notifications/README.md) | — |
 | 4 | **Today's priority ranking** | The core of the product's daily value, and the one thing this baseline could not trace end to end | `lib/today/build.ts` (476 lines) |
-| 5 | **The at-risk definition** | Possibly several definitions of the same phrase. Resolve, then document once | `lib/actions/signals.ts`, `components/reports/AtRiskPanel.tsx` |
+| 5 | **The at-risk definition** | **Most urgent item on this list.** Two definitions now use *different cutoffs on different fields*: the clients list, profile and Action list read the engine's applied status (65/50/25, after gates and rules); `lib/metrics/portfolio.ts`, `movement.ts` and `lib/today/build.ts` band the **raw score** on **75/55** and are blind to Churned / Implementation / Not Assessed. Reproducible, not drift. Resolve, then document once | `lib/metrics/portfolio.ts`, `lib/metrics/movement.ts`, `lib/today/build.ts`, `lib/health/status.ts` |
 
 ## P2 — Needed for support and implementation
 
@@ -36,7 +36,7 @@ This is a documentation backlog, not a product backlog. Product gaps live in
 | 12 | **Task priority semantics** across `today_tasks` and `project_tasks` | `lib/today/types.ts`, `lib/projects/types.ts` |
 | 13 | **Stakeholder role rules** beyond coverage | `lib/stakeholders/*` |
 | 14 | **Data reconciliation** — what happens when sources disagree, beyond the override mechanism | `lib/deal-overrides.ts`, `lib/integrations/sync.ts` |
-| 15 | **The 19 health-engine tables**, individually — only worth doing if the engine is going to run | `lib/db/health-schema.ts` |
+| 15 | **The 19 health-engine tables**, individually — **the engine now runs but does not use them**; worth doing only once someone decides whether they stay | `lib/db/health-schema.ts` |
 | 16 | **Settings managers individually** — 15 components, documented collectively | `components/settings/*` |
 | 17 | **Per-tab workflows on the Client Profile** — 10 tabs, documented as a set | `components/clients/*` |
 | 17a | **The Use Case Portfolio section on the profile** — new and substantial (`7f731b7`), currently covered only by a pointer from the Client Profile doc to the Universe doc. The account-side editing surface for objective, scope, status, owner and target date lives here | `components/clients/UseCasePortfolio.tsx` |
@@ -50,7 +50,7 @@ writing two versions of the truth.
 
 | # | Item | Blocked on |
 |---|---|---|
-| 20 | **Health** — one authoritative document | Is `lib/health/` shipping? ([contradiction](known-limitations/contradictions.md#two-health-systems)) |
+| ~~20~~ | ~~**Health** — one authoritative document~~ | **Unblocked and done 2026-08-05.** The engine ships; [health](product/health/README.md) and [health-scoring](business-rules/health-scoring.md) were rewritten against it |
 | 21 | **Use cases** — one taxonomy story | Which taxonomy is canonical? ([0006](decisions/0006-two-unlinked-use-case-taxonomies.md)) |
 | 22 | **Playbooks** | Ship it or remove it |
 | 23 | **Dismissal semantics** | Should Action-list dismissal expire, like Today's snooze? |
@@ -61,6 +61,15 @@ Raised here so they are not lost. They belong in the product backlog.
 
 | Item | Severity |
 |---|---|
+| **Delete `lib/metrics/health.ts` and `health-config.ts`**, or state why they stay — dead since the engine switch, with 21 passing tests vouching for them | High |
+| **Point `lib/metrics/portfolio.ts`, `movement.ts` and `lib/today/build.ts` at `accountStatus()`** — or rename what they report, since 75/55 on a raw score is a different question from the model's applied status | High |
+| **Decide the fate of the 19 `health_*` tables** and `drizzle/health-analytics-views.sql` — the engine runs without them, so there is still no health history | Medium |
+| **Correct `CsPulsePanel.tsx`'s module header** — it names `lib/metrics/health.ts` as a live source of a second health number; that module has no importers | Medium |
+| **Correct `app/api/cron/client-health/route.ts`'s comment** — it points at "Settings → Workflows" and `workflow-actions.ts`, both removed | Low |
+| **Correct `lib/roles.ts`'s header** — it justifies the legacy granular roles by assignment routing, which no longer exists | Low |
+| **Run the stakeholder before/after health comparison against a real recompute** (needs `METABASE_URL`) — the local result of "0 accounts changed" is not evidence of no impact | Medium |
+| **Surface the unowned-account count** — the sync reports it in a job response nobody reads | Medium |
+| **Decide whether the legacy granular roles are retired** now that nothing consumes them | Low |
 | Scope `getAppUsers()` — the staff directory reaches every signed-in user including Guests | High |
 | Add tests for the permission gates | High |
 | Add tests for the ARR and retention formulas | High |
