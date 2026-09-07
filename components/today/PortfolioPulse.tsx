@@ -28,7 +28,7 @@ function metricsFor(scope: string): Metric[] {
       return [
         { label: `${arrLabel} · ${p.accountCount}`, value: formatMoney(p.arrOwned) },
         { label: `At-risk ARR · ${p.attentionCount}`, value: p.attentionCount ? formatMoney(p.arrAttention) : "None", drill: true, tone: p.attentionCount ? "danger" : undefined },
-        { label: "Renewal ARR · 90d", value: p.renew90Count ? formatMoney(p.renew90Arr) : "None", drill: true },
+        { label: "Renewal ARR · 120d", value: p.renewCount ? formatMoney(p.renewArr) : "None", drill: true },
         { label: "Overdue actions", value: String(p.overdueCount), drill: true, tone: p.overdueCount ? "warning" : undefined },
       ];
     }
@@ -45,7 +45,7 @@ function metricsFor(scope: string): Metric[] {
   return [
     { label: "ARR owned", value: formatMoney(p.arrOwned) },
     { label: `At risk · ${p.attentionCount}`, value: p.attentionCount ? formatMoney(p.arrAttention) : "None", drill: true, tone: p.attentionCount ? "danger" : undefined },
-    { label: `Renews 90d · ${p.renew90Count}`, value: p.renew90Count ? formatMoney(p.renew90Arr) : "None", drill: true },
+    { label: `Renews 120d · ${p.renewCount}`, value: p.renewCount ? formatMoney(p.renewArr) : "None", drill: true },
     { label: `Due · ${p.overdueCount} overdue`, value: String(dueTotal), drill: true, tone: p.overdueCount ? "warning" : undefined },
   ];
 }

@@ -15,12 +15,13 @@ import type {
   ComparisonBasis, ComparisonDelta, DataFreshness, TodaySnapshot, TodayViewer, TodayNotification,
   LaneKey, LaneItem, TodayTask, StatusOverview,
 } from "./types";
+import { RENEWAL_WINDOW_DAYS } from "@/lib/status";
 
 /* --------------------------------------------------------------- store */
 
 const EMPTY_METRIC = { status: "loading" as const, value: null, formatted: "—" };
 const EMPTY_SUMMARY: PortfolioSummary = {
-  needsAttention: EMPTY_METRIC, arrExposed: EMPTY_METRIC, renewing90: EMPTY_METRIC, expansionReady: EMPTY_METRIC,
+  needsAttention: EMPTY_METRIC, arrExposed: EMPTY_METRIC, renewingUpcoming: EMPTY_METRIC, expansionReady: EMPTY_METRIC,
 };
 
 let store: TodaySnapshot = {
@@ -112,7 +113,7 @@ export function getScopeOverview(scope: PortfolioScope): {
 export interface Pulse {
   arrOwned: number; accountCount: number;
   arrAttention: number; attentionCount: number;
-  renew90Arr: number; renew90Count: number; renew90PctOfArr: number;
+  renewArr: number; renewCount: number; renewPctOfArr: number;
   dueCount: number; overdueCount: number;
   /** Honest data-coverage: accounts with a real health band ÷ total in scope.
    *  Accounts absent from statusByAccount are genuinely un-scored, never healthy. */
@@ -122,13 +123,13 @@ export function getPulse(scope: PortfolioScope): Pulse {
   const visible = visibleAccountIds(scope);
   const accts = store.accounts.filter((a) => visible.has(a.id));
   const today = store.today;
-  const cutoff = new Date(`${today.slice(0, 10)}T00:00:00Z`).getTime() + 90 * 86_400_000;
-  let arrOwned = 0, arrAttention = 0, attentionCount = 0, renew90Arr = 0, renew90Count = 0, healthScored = 0;
+  const cutoff = new Date(`${today.slice(0, 10)}T00:00:00Z`).getTime() + RENEWAL_WINDOW_DAYS * 86_400_000;
+  let arrOwned = 0, arrAttention = 0, attentionCount = 0, renewArr = 0, renewCount = 0, healthScored = 0;
   for (const a of accts) {
     arrOwned += a.arr;
     if (store.statusByAccount[a.id] !== undefined) healthScored++;
     if (store.statusByAccount[a.id] === "atrisk") { attentionCount++; arrAttention += a.arr; }
-    if (a.renewalDate && a.renewalDate >= today && new Date(`${a.renewalDate.slice(0, 10)}T00:00:00Z`).getTime() <= cutoff) { renew90Count++; renew90Arr += a.arr; }
+    if (a.renewalDate && a.renewalDate >= today && new Date(`${a.renewalDate.slice(0, 10)}T00:00:00Z`).getTime() <= cutoff) { renewCount++; renewArr += a.arr; }
   }
   let dueCount = 0, overdueCount = 0;
   for (const act of store.actions) {
@@ -136,7 +137,7 @@ export function getPulse(scope: PortfolioScope): Pulse {
     if (act.dueDate < today) overdueCount++;
     else if (act.dueDate.slice(0, 10) === today.slice(0, 10)) dueCount++;
   }
-  return { arrOwned, accountCount: accts.length, arrAttention, attentionCount, renew90Arr, renew90Count, renew90PctOfArr: arrOwned ? Math.round((renew90Arr / arrOwned) * 100) : 0, dueCount, overdueCount, healthScored, healthTotal: accts.length };
+  return { arrOwned, accountCount: accts.length, arrAttention, attentionCount, renewArr, renewCount, renewPctOfArr: arrOwned ? Math.round((renewArr / arrOwned) * 100) : 0, dueCount, overdueCount, healthScored, healthTotal: accts.length };
 }
 
 /** The DISTINCT work objects attached to an account, so a single Focus entry can
@@ -280,7 +281,7 @@ export function snapshotFor(_date: string | null): null { return null; }
 export function getPortfolioSummary(_scope: PortfolioScope, date: string | null): PortfolioSummary {
   if (isHistorical(date)) {
     const partial = { status: "partial" as const, value: null, formatted: "—" };
-    return { needsAttention: partial, arrExposed: partial, renewing90: partial, expansionReady: partial };
+    return { needsAttention: partial, arrExposed: partial, renewingUpcoming: partial, expansionReady: partial };
   }
   return store.summary;
 }

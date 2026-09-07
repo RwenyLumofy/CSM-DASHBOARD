@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, AlertTriangle, Check, ChevronDown, ChevronRight, Download, Loader2, Plus, SlidersHorizontal, X } from "lucide-react";
 import type { Client, PropertyDefinition } from "@/lib/types";
-import { STATUS_OVERRIDE_KEY } from "@/lib/status";
+import { STATUS_OVERRIDE_KEY, RENEWAL_WINDOW_DAYS } from "@/lib/status";
 import { HealthPill } from "@/components/ui/HealthPill";
 import { cn } from "@/lib/cn";
 import { PopMenu } from "@/components/clients/projects/shared";
@@ -28,7 +28,7 @@ const STATUS_OPTIONS: { value: StatusValue; label: string }[] = [
   { value: "renewal", label: "Renewal" },
   { value: "churned", label: "Churned" },
 ];
-type RenewalFilter = "all" | "overdue" | "this_quarter" | "next_quarter" | "next_30" | "next_90" | "custom";
+type RenewalFilter = "all" | "overdue" | "this_quarter" | "next_quarter" | "next_30" | "next_120" | "custom";
 
 function addDaysIso(ymd: string, days: number): string {
   const d = new Date(`${ymd}T00:00:00Z`);
@@ -57,7 +57,7 @@ function renewalBounds(filter: RenewalFilter, customStart: string, customEnd: st
     case "this_quarter": return periodBounds(currentQuarter());
     case "next_quarter": return periodBounds(nextQuarterOf(currentQuarter()));
     case "next_30": return { start: today, end: addDaysIso(today, 30) };
-    case "next_90": return { start: today, end: addDaysIso(today, 90) };
+    case "next_120": return { start: today, end: addDaysIso(today, RENEWAL_WINDOW_DAYS) };
     case "custom":
       if (!customStart && !customEnd) return null;
       // end is exclusive elsewhere in this function, so bump the picked end
@@ -124,7 +124,7 @@ function StatusPill({ status }: { status: string }) {
 }
 
 /** Turns days-to-renewal into an urgency chip ("in 23d" / "overdue 5d"), or
- *  null when it's far out (>90d) or the account is churned — then just the date
+ *  null when it's far out (beyond the renewal window) or the account is churned — then just the date
  *  shows. Colour escalates as the date approaches / passes. */
 function renewalCountdown(dtr: number | null, churned: boolean): { text: string; tone: string } | null {
   if (dtr == null || churned) return null;
@@ -337,7 +337,7 @@ export function ClientsTable({
          they need a CSM to go and look, not to be triaged as failing. */
       if (isJudged(c.health) && isAtRisk(c.health)) atRisk++;
       const d = daysToRenewal(c.renewalDate);
-      if (d != null && d >= 0 && d <= 90) renewing++;
+      if (d != null && d >= 0 && d <= RENEWAL_WINDOW_DAYS) renewing++;
     }
     return { atRisk, renewing };
   }, [clients]);
@@ -348,14 +348,14 @@ export function ClientsTable({
     !anyFilterActive ? "all"
     : mineOnly && !riskOnly && renewal === "all" && statusFilter.size === 0 ? "mine"
     : riskOnly && !mineOnly ? "risk"
-    : renewal === "next_90" && !riskOnly && !mineOnly && statusFilter.size === 0 ? "renewing"
+    : renewal === "next_120" && !riskOnly && !mineOnly && statusFilter.size === 0 ? "renewing"
     : statusFilter.size === 1 && statusFilter.has("onboarding") && !riskOnly && !mineOnly && renewal === "all" ? "onboarding"
     : "custom";
   function selectView(v: ViewKey) {
     clearAll();
     if (v === "mine") setMineOnly(true);
     else if (v === "risk") setRiskOnly(true);
-    else if (v === "renewing") setRenewal("next_90");
+    else if (v === "renewing") setRenewal("next_120");
     else if (v === "onboarding") setStatusFilter(new Set(["onboarding"]));
   }
   const views = ([
@@ -367,9 +367,9 @@ export function ClientsTable({
   ] as { key: ViewKey; label: string; count: number | null; tone: string }[]).filter((v) => v.key !== "mine" || !!currentUserEmail);
 
   // Active-filter chips — what's applied, always visible, each removable. Note
-  // "mine"/"risk"/renewal(≤90d)/status(onboarding) are also what the tabs set,
+  // "mine"/"risk"/renewal(≤120d)/status(onboarding) are also what the tabs set,
   // so removing a chip cleanly drops you back toward "All book".
-  const RENEWAL_LABEL: Record<string, string> = { overdue: "Overdue", this_quarter: "This quarter", next_quarter: "Next quarter", next_30: "Next 30 days", next_90: "≤ 90 days", custom: "Custom range" };
+  const RENEWAL_LABEL: Record<string, string> = { overdue: "Overdue", this_quarter: "This quarter", next_quarter: "Next quarter", next_30: "Next 30 days", next_120: "≤ 120 days", custom: "Custom range" };
   const COMPLETENESS_LABEL: Record<string, string> = { none: "Complete", yellow: "Partial", red: "Incomplete" };
   const chips: { label: string; onRemove: () => void }[] = [];
   if (mineOnly) chips.push({ label: "My accounts", onRemove: () => setMineOnly(false) });
@@ -591,7 +591,7 @@ export function ClientsTable({
             <option value="this_quarter">This quarter</option>
             <option value="next_quarter">Next quarter</option>
             <option value="next_30">Next 30 days</option>
-            <option value="next_90">Next 90 days</option>
+            <option value="next_120">Next 120 days</option>
             <option value="custom">Custom range…</option>
           </FilterSelect>
           {renewal === "custom" && (

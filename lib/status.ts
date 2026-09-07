@@ -10,7 +10,7 @@
                   the __deal_overrides pattern (app wins over HubSpot).
      renewal    — any TRACKED deal's renewal date (contract start + 1yr,
                   falling back to close date + 1yr) is upcoming — due in the
-                  next 90 days. NOT triggered by an overdue renewal date:
+                  next RENEWAL_WINDOW_DAYS (120) days. NOT triggered by an overdue renewal date:
                   most deals never get a HubSpot contract-start-date, so the
                   close-date fallback is often years stale for a long-tenured
                   account (it renews without that field ever being updated),
@@ -44,7 +44,10 @@ import type { AccountStatus } from "@/lib/types";
 
 export const STATUS_OVERRIDE_KEY = "__status_override";
 
-const RENEWAL_WINDOW_DAYS = 90;
+/** How far ahead a renewal counts as approaching. The ONE definition —
+    imported by the portfolio/team metrics and the Today signal so the
+    status, the counts and the alert can never disagree. */
+export const RENEWAL_WINDOW_DAYS = 120;
 
 export interface StatusDeal {
   id: string;

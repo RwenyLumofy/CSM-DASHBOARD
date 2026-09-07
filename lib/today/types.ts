@@ -273,7 +273,7 @@ export interface SummaryMetric {
 export interface PortfolioSummary {
   needsAttention: SummaryMetric;
   arrExposed: SummaryMetric;
-  renewing90: SummaryMetric;
+  renewingUpcoming: SummaryMetric;
   expansionReady: SummaryMetric;
 }
 

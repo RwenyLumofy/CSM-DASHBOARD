@@ -114,7 +114,7 @@ export default async function ReportsPage({
   // Critical band (risk ≥ 60) splits the exposure bar's red segment from amber.
   const criticalArr = attentionRows.filter((x) => x.risk >= 60).reduce((a, x) => a + x.arr, 0);
   // The forward window's far end. This section is anchored to TODAY, not the
-  // selected period, so it says so — 90 days from now.
+  // selected period, so it says so — 120 days from now.
   const outlookHorizon = (() => {
     const d = new Date();
     d.setUTCDate(d.getUTCDate() + 90);
@@ -192,8 +192,8 @@ export default async function ReportsPage({
               nrr: cur.nrr,
               grrPrev: prev?.grr ?? null,
               nrrPrev: prev?.nrr ?? null,
-              renewalArr: portfolio.arrUpForRenewal90d,
-              renewalCount: portfolio.renewalsNext90d,
+              renewalArr: portfolio.arrUpForRenewalUpcoming,
+              renewalCount: portfolio.renewalsUpcoming,
               attentionArr: attentionRows.reduce((a, x) => a + x.arr, 0),
               attentionCount: attentionRows.length,
               topRisk: attentionRows[0] ?? null,
@@ -305,13 +305,13 @@ export default async function ReportsPage({
               the closed period; this looks ahead from today, independent of which
               quarter is selected. Top three material renewals only — the full
               pipeline is one link away. */}
-          <Section title="Forward outlook" when="as of today · next 90 days" />
+          <Section title="Forward outlook" when="as of today · next 120 days" />
           <ForwardOutlook
             rows={outlookRows}
             criticalArr={criticalArr}
             attentionArr={attentionArr}
-            upcomingArr={portfolio.arrUpForRenewal90d}
-            upcomingCount={portfolio.renewalsNext90d}
+            upcomingArr={portfolio.arrUpForRenewalUpcoming}
+            upcomingCount={portfolio.renewalsUpcoming}
             horizonLabel={outlookHorizon}
             provisional={!r.arr.reconciled}
             qs={qs}

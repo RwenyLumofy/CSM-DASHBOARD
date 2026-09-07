@@ -252,7 +252,15 @@ export interface Deal {
   numberOfUsers?: number | null; // → Licenses Purchased
   pricePerUser?: number | null; // → User Price
   complementaryLicenses?: number | null; // → Complementary Licenses
-  contractDuration?: number | null; // → Contract Length (Years)
+  /** → HubSpot "Contract Length". UNIT IS AMBIGUOUS and must not be used in
+   *  arithmetic: HubSpot-synced rows read as MONTHS (6, 12, 24, 36 observed),
+   *  CSM overrides read as YEARS (1, 2, 3 observed), and the values 1-3 are
+   *  unresolvable between the two. 230 of 255 deals carry no value at all.
+   *  Normalising this is a data decision — see
+   *  docs/contracts-review-01-confirmed-findings.md §1. Until it is taken,
+   *  renewalDisplay() (lib/deal-overrides.ts) refuses to infer a term from it
+   *  rather than guessing a unit. */
+  contractDuration?: number | null;
   products?: string[]; // → Module (HubSpot deal `modules`)
   useCases?: string[]; // → Use Case (use_cases)
   globalLibraryPackage?: string[]; // → Global Library Package (HubSpot deal `global_libraries`)
@@ -262,10 +270,15 @@ export interface Deal {
   /** Sales → CSM handover narrative (HubSpot deal `use_case_brief`, free text). */
   accountBrief?: string | null;
   /** Contracts & deals tab bucket. "renewal" = direct/indirect Closed Won + CS
-   *  Renewed (also the fallback for any unclassified CS stage); "expansion" =
-   *  CS Expanded; "confirmed_churn" = CS Confirmed Churned; "downgraded" = CS
-   *  Downgraded. The Sales tab is pipeline-based, not category-based. */
-  category?: "renewal" | "expansion" | "confirmed_churn" | "downgraded";
+   *  Renewed; "expansion" = CS Expanded; "confirmed_churn" = CS Confirmed
+   *  Churned; "downgraded" = CS Downgraded; "unmapped" = a CS stage this build
+   *  does not recognise. The Sales tab is pipeline-based, not category-based.
+   *
+   *  "unmapped" used to be silently folded into "renewal", so a stage nobody
+   *  had configured became a renewal with no signal anywhere — and renewals are
+   *  the bucket whose ARR treatment is under review. It is now its own state so
+   *  the misclassification is visible instead of inferred. */
+  category?: "renewal" | "expansion" | "confirmed_churn" | "downgraded" | "unmapped";
   /** Synced from HubSpot deal selects (read-only badges on the card). */
   supportLevel?: string | null;
   implementationLevel?: string | null;
@@ -596,6 +609,6 @@ export interface PortfolioSummary {
   openTickets: number;
   avgCsat: number | null;
   avgNps: number | null;
-  renewalsNext90d: number;
-  arrUpForRenewal90d: number;
+  renewalsUpcoming: number;
+  arrUpForRenewalUpcoming: number;
 }

@@ -1,5 +1,6 @@
 import type { Client, PortfolioSummary } from "@/lib/types";
 import { differenceInCalendarDays, parseISO } from "date-fns";
+import { RENEWAL_WINDOW_DAYS } from "@/lib/status";
 
 export function buildPortfolioSummary(
   clients: Client[],
@@ -17,8 +18,8 @@ export function buildPortfolioSummary(
   let csatN = 0;
   let npsSum = 0;
   let npsN = 0;
-  let renewalsNext90d = 0;
-  let arrUpForRenewal90d = 0;
+  let renewalsUpcoming = 0;
+  let arrUpForRenewalUpcoming = 0;
 
   for (const c of active) {
     totalArr += c.arr;
@@ -44,9 +45,9 @@ export function buildPortfolioSummary(
 
     if (c.renewalDate) {
       const days = differenceInCalendarDays(parseISO(c.renewalDate), now);
-      if (days >= 0 && days <= 90) {
-        renewalsNext90d += 1;
-        arrUpForRenewal90d += c.arr;
+      if (days >= 0 && days <= RENEWAL_WINDOW_DAYS) {
+        renewalsUpcoming += 1;
+        arrUpForRenewalUpcoming += c.arr;
       }
     }
   }
@@ -62,8 +63,8 @@ export function buildPortfolioSummary(
     openTickets,
     avgCsat: csatN ? Math.round(csatSum / csatN) : null,
     avgNps: npsN ? Math.round(npsSum / npsN) : null,
-    renewalsNext90d,
-    arrUpForRenewal90d,
+    renewalsUpcoming,
+    arrUpForRenewalUpcoming,
   };
 }
 

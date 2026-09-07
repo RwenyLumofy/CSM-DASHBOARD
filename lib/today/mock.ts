@@ -289,7 +289,7 @@ export const PATTERNS: Pattern[] = [
 export const PORTFOLIO_SUMMARY: PortfolioSummary = {
   needsAttention: { status: "ok", value: 7, formatted: "7", deltaLabel: "+2 this week", deltaTone: "up", sub: "accounts" },
   arrExposed: { status: "ok", value: 284000, formatted: "$284K", deltaLabel: "+$31K this week", deltaTone: "up", sub: "at risk" },
-  renewing90: { status: "ok", value: 412000, formatted: "$412K", sub: "8 accounts · 63% have a confirmed plan" },
+  renewingUpcoming: { status: "ok", value: 412000, formatted: "$412K", sub: "8 accounts · 63% have a confirmed plan" },
   expansionReady: { status: "ok", value: 236000, formatted: "$236K", sub: "5 qualified accounts" },
 };
 
@@ -306,7 +306,7 @@ export const SNAPSHOTS: HistoricalSnapshot[] = [
     summary: {
       needsAttention: { status: "ok", value: 5, formatted: "5", deltaLabel: "+1 vs prior week", deltaTone: "up", sub: "accounts" },
       arrExposed: { status: "ok", value: 253000, formatted: "$253K", deltaLabel: "flat", deltaTone: "flat", sub: "at risk" },
-      renewing90: { status: "ok", value: 412000, formatted: "$412K", sub: "8 accounts · 50% have a confirmed plan" },
+      renewingUpcoming: { status: "ok", value: 412000, formatted: "$412K", sub: "8 accounts · 50% have a confirmed plan" },
       expansionReady: { status: "ok", value: 188000, formatted: "$188K", sub: "4 qualified accounts" },
     },
     priorityIds: ["pri_mep", "pri_beyon", "pri_gulfair"],
