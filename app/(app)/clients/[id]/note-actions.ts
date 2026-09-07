@@ -12,8 +12,7 @@
 
    MENTIONS grant no access. The picker is built server-side from people who
    can already see the account, and every token is re-checked here on write —
-   the browser's word for who may be named is never taken. They also do not
-   NOTIFY yet: the mention is stored and rendered, and that is all. */
+   the browser's word for who may be named is never taken. */
 
 import { getDealsForClient, getMeetingsForClient } from "@/lib/data";
 import { denyClientWrite, getCurrentUserRole } from "@/lib/auth";
@@ -67,8 +66,7 @@ async function resolveMeetingId(clientId: string, meetingId: string | null | und
  *
  *  Uses the SAME server-built list as the task-update picker
  *  (getUsersWhoCanSeeClientDb) rather than a second implementation of "who can
- *  see this account". A note mention does not notify yet, but it is intended to,
- *  and the audience rule must not have drifted by the time it does. */
+ *  see this account" — a mention notifies, so the two must not drift. */
 export async function listMentionableForClientAction(clientId: string): Promise<MentionablePerson[]> {
   if (!hasDatabase()) return [];
   const role = await getCurrentUserRole();

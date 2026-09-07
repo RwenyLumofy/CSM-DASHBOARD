@@ -45,17 +45,14 @@ import type {
   UsageResult,
   UsageSnapshot,
   UsageSnapshotRow,
-  UsageTier,
   UsageTrendGrain,
 } from "@/lib/usage/types";
 
-const TIER_COLOR: Record<UsageTier, string> = {
-  thriving: "var(--color-aurora)",
-  growing: "var(--color-sirius)",
-  at_risk: "var(--color-stellar)",
-  dormant: "var(--color-nova)",
-};
-const TIER_LABEL: Record<UsageTier, string> = { thriving: "Thriving", growing: "Growing", at_risk: "At risk", dormant: "Dormant" };
+/* The adoption tier's colours and labels lived here. They were the tab's own
+   four-state vocabulary (Thriving / Growing / At risk / Dormant), competing
+   with the account's health statuses one tab over. Removed with the score —
+   see HealthBanner. UsageTier itself still exists in lib/usage/types.ts and
+   is still written into the stored snapshot; it is simply not shown. */
 
 const C = { dev: "var(--color-sirius)", talent: "var(--color-eclipse)", perf: "var(--color-aurora)", ai: "var(--color-nova)", muted: "var(--color-border)" };
 
@@ -180,14 +177,8 @@ function InfoTip({ text }: { text: string }) {
  *  model in plain language. Open by default so a first-time viewer sees it,
  *  collapsible so regulars can tuck it away. */
 function HowToRead({ environmentName }: { environmentName: string | null }) {
-  const TIERS: { label: string; range: string; color: UsageTier }[] = [
-    { label: "Thriving", range: "75–100", color: "thriving" },
-    { label: "Growing", range: "50–74", color: "growing" },
-    { label: "At risk", range: "25–49", color: "at_risk" },
-    { label: "Dormant", range: "0–24", color: "dormant" },
-  ];
   return (
-    <details open className="group rounded-2xl border border-border bg-bg-muted/30 px-5 py-3.5">
+    <details className="group rounded-2xl border border-border bg-bg-muted/30 px-5 py-3.5">
       <summary className="flex cursor-pointer list-none items-center gap-2 font-body text-[13px] font-semibold text-fg [&::-webkit-details-marker]:hidden">
         <Info size={15} className="text-sirius" />
         How to read this dashboard
@@ -196,31 +187,30 @@ function HowToRead({ environmentName }: { environmentName: string | null }) {
       <div className="mt-3 flex flex-col gap-3 border-t border-border-subtle pt-3 font-body text-[12.5px] leading-relaxed text-fg-muted">
         <p>
           This is a live read of how actively <span className="font-semibold text-fg">{environmentName ?? "this account"}</span> uses
-          the Lumofy platform — pulled straight from product data, not entered by hand. Read it top to bottom: the verdict first, then the
-          detail behind it.
+          the Lumofy platform — pulled straight from product data, not entered by hand. Read it top to bottom: the four headline facts
+          first, then the detail behind them.
         </p>
         <div>
-          <p className="mb-1.5 font-semibold text-fg">The Adoption Score (0–100) blends three signals:</p>
+          <p className="mb-1.5 font-semibold text-fg">This tab does not score the account.</p>
+          <p>
+            It reports what the product recorded, and nothing more. There is one score for an account — the health score, on the
+            Overview tab — and it already reads this usage data among its inputs. A second score here would only give you two numbers
+            to reconcile.
+          </p>
+        </div>
+        <div>
+          <p className="mb-1.5 font-semibold text-fg">The four facts at the top:</p>
           <ul className="flex flex-col gap-1 pl-0.5">
-            <li>· <span className="font-semibold text-fg">Activation (45%)</span> — share of paid seats that logged in during the last 30 days. The core question: are the people they paid for actually showing up?</li>
-            <li>· <span className="font-semibold text-fg">Module adoption (35%)</span> — of the modules this account <em>bought</em> (Develop / Perform / Engage), how many are actually being used. Owning three but using one drags this down; using everything they bought maxes it out.</li>
-            <li>· <span className="font-semibold text-fg">Momentum (20%)</span> — did people log in <em>this week</em>, not just this month? Catches accounts that are quietly going cold.</li>
+            <li>· <span className="font-semibold text-fg">Active users</span> — distinct people who logged in over the last 30 days. A count, not a share: the licence count it would be divided by only exists as of today, so a percentage against past activity would be false.</li>
+            <li>· <span className="font-semibold text-fg">Licences assigned</span> — how many of the licences on the contract have been handed to a person. Assigned is not the same as used; that is the gap between this and active users.</li>
+            <li>· <span className="font-semibold text-fg">Modules in use</span> — of the modules this account <em>bought</em> (Develop / Perform / Engage), how many saw real activity. Owning three and using one is the most common expansion conversation on this page.</li>
+            <li>· <span className="font-semibold text-fg">Active this week</span> — did anyone log in over the last 7 days, not just the last 30. Catches accounts that are quietly going cold before the monthly number moves.</li>
           </ul>
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <span className="font-semibold text-fg">Tiers:</span>
-          {TIERS.map((t) => (
-            <span key={t.label} className="inline-flex items-center gap-1.5">
-              <span className="inline-block size-2.5 rounded-full" style={{ background: TIER_COLOR[t.color] }} />
-              <span className="font-semibold text-fg">{t.label}</span>
-              <span className="text-fg-subtle">{t.range}</span>
-            </span>
-          ))}
-        </div>
         <p className="text-fg-subtle">
-          <span className="font-semibold text-fg-muted">How to use it with your team:</span> lead with the score and the one-line
-          verdict, then explain <em>why</em> from the three signals, then turn it into one action — e.g. high seat utilization but low
-          activation means the licenses are handed out but people aren't logging in, so the play is enablement, not more seats.
+          <span className="font-semibold text-fg-muted">How to use it with your team:</span> read the four facts against each other
+          rather than in isolation — licences well ahead of active users means the seats are handed out but people are not logging in,
+          so the play is enablement, not more seats. Then take the account&rsquo;s condition from its health score, not from here.
         </p>
       </div>
     </details>
@@ -339,7 +329,11 @@ function UsageUnavailableCard({ result, onRetry }: { result: Exclude<UsageResult
 
 /* ── the dashboard ──────────────────────────────────────────────────────── */
 
-function UsageDashboard({
+/* Exported so a development-only route can render the REAL tab against fixture
+   data — the production path needs a Clerk session, which meant this component
+   had never actually been looked at while it was being redesigned. Adding the
+   keyword changes no behaviour and no rendering. */
+export function UsageDashboard({
   snap,
   onRefresh,
   periodKey,
@@ -519,7 +513,7 @@ function UsageDashboard({
 
       {filterBar}
 
-      <HealthBanner score={score} environmentName={snap.environmentName} periodLabel={period?.label ?? null} onRefresh={onRefresh} />
+      <HealthBanner score={score} metrics={snap.metrics} environmentName={snap.environmentName} periodLabel={period?.label ?? null} onRefresh={onRefresh} />
 
       {period && !hasPeriodActivity ? (
         <Card>
@@ -879,77 +873,98 @@ function inclusiveEndDate(endExclusive: string): string {
 }
 
 
+/* WHY THERE IS NO ADOPTION SCORE HERE.
+   This banner used to lead with a second 0-100 score and its own four tiers
+   (Thriving / Growing / At risk / Dormant), sitting one tab away from the
+   account's health score and its statuses. Two numbers on the same account,
+   two vocabularies, and nothing anywhere stating how they related — the CSM
+   had to guess whether a "Growing" account was a healthy one.
+
+   The score is still computed and still stored (lib/usage/score.ts writes it
+   into the snapshot), so nothing downstream broke; it is no longer the
+   headline a CSM reads. What replaces it is the same four inputs the score
+   was blended from, stated as facts.
+
+   Removing it also removed a wrong number. Activation was
+   pct(wau, seatBase) — a trailing-window active count over TODAY's licence
+   count, which is how an account could show "seat coverage 104%". Active
+   users and licences are now separate facts, each true on its own terms,
+   and no percentage claims a denominator it does not have. */
 function HealthBanner({
   score: s,
+  metrics: m,
   environmentName,
   periodLabel,
   onRefresh,
 }: {
   score: AdoptionScore;
+  /** ALWAYS snap.metrics, never the period slice. All four facts below are
+   *  current-state by nature — trailing-window active counts, and licence
+   *  counts that only exist as of today — so they do not move when a period
+   *  is selected, and their labels must not imply they do. */
+  metrics: UsageSnapshotRow;
   environmentName: string | null;
-  /** Non-null in period mode — swaps the part-bar tips to describe the
-   *  period-rebased definitions instead of "now"/"the last 30 days". */
+  /** Names the selected period in the heading only. */
   periodLabel: string | null;
   onRefresh: () => void;
 }) {
-  const color = TIER_COLOR[s.tier];
+  const owned = (["develop", "perform", "engage"] as const).filter((k) => s.modules[k].owned);
+  const used = owned.filter((k) => s.modules[k].used);
+  const unused = owned.filter((k) => !s.modules[k].used);
+  const title = (k: string) => k.charAt(0).toUpperCase() + k.slice(1);
   return (
     <Card>
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-4">
-          <Donut size={112} centerLabel={String(s.score)} centerSub="score" segments={[{ label: "score", value: s.score, color }, { label: "rest", value: 100 - s.score, color: "var(--color-border-subtle)" }]} />
-          <div>
-            <span className="inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 font-body text-[12px] font-semibold" style={{ background: `${color}1f`, color }}>
-              <Sparkles size={12} /> {TIER_LABEL[s.tier]}
-            </span>
-            <h3 className="mt-2 font-display text-[15px] font-bold text-fg">
-              {environmentName ?? "Platform environment"}{periodLabel && <span className="font-body text-[12px] font-medium text-fg-subtle"> · {periodLabel}</span>}
-            </h3>
-            <p className="caption mt-0.5 max-w-lg leading-relaxed">{s.verdict}</p>
-          </div>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-4">
+          <h3 className="font-display text-[15px] font-bold text-fg">
+            {environmentName ?? "Platform environment"}
+            {periodLabel && <span className="font-body text-[12px] font-medium text-fg-subtle"> · {periodLabel}</span>}
+          </h3>
+          <button
+            onClick={onRefresh}
+            title="Refresh usage"
+            className="shrink-0 rounded-lg border border-border p-1.5 text-fg-subtle hover:border-sirius hover:text-sirius"
+          >
+            <RefreshCw size={14} />
+          </button>
         </div>
-        <div className="flex flex-1 flex-col gap-2.5 sm:border-l sm:border-border-subtle sm:pl-6">
-          <PartBar
-            label="Activation"
-            value={s.parts.activation}
-            weight="45%"
-            tip={periodLabel ? "Share of current seats that logged in during this period." : "Share of seats that logged in over the last 30 days. The biggest driver of the score."}
-          />
-          <PartBar label="Module adoption" value={s.parts.breadth} weight="35%" tip={`Of the modules this account bought (Develop / Perform / Engage), how many saw real use${periodLabel ? " during this period" : ""}.`} />
-          <PartBar
-            label="Momentum"
-            value={s.parts.recency}
-            weight="20%"
-            tip={periodLabel ? "Did activity persist into this period's closing days (100), taper off earlier in the period (55), or never show up at all (0)." : "Is the account active right now — people logging in this week (100), only this month (55), or not at all (0)."}
-          />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Fact label="Active users · 30 days" value={m.active_users.toLocaleString()} />
+          <Fact label="Licences assigned" value={m.used_licenses.toLocaleString()} sub={`of ${m.seats.toLocaleString()}`} />
+          <Fact label="Modules in use" value={String(used.length)} sub={`of ${owned.length}`} />
+          {/* Same metric as the first fact over a shorter window, so it states
+              the relationship rather than repeating a bare number: 112 of the
+              317 came back this week. A Yes/No here read as a third kind of
+              answer next to two counts. */}
+          <Fact label="Active users · 7 days" value={m.wau.toLocaleString()} sub={m.active_users > 0 ? `of ${m.active_users.toLocaleString()}` : undefined} />
         </div>
-        <button
-          onClick={onRefresh}
-          title="Refresh usage"
-          className="shrink-0 self-start rounded-lg border border-border p-1.5 text-fg-subtle hover:border-sirius hover:text-sirius"
-        >
-          <RefreshCw size={14} />
-        </button>
+        {unused.length > 0 && (
+          <p className="caption border-t border-border-subtle pt-3 leading-relaxed">
+            {unused.map(title).join(" and ")}{" "}
+            {unused.length === 1 ? "is owned but unused" : "are owned but unused"}. Account health is on the Overview tab.
+          </p>
+        )}
       </div>
     </Card>
   );
 }
 
-function PartBar({ label, value, weight, tip }: { label: string; value: number; weight?: string; tip?: string }) {
+/** One plain fact: a number that is true on its own terms, with the
+ *  denominator spelled out beside it rather than folded into a percentage. */
+function Fact({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="flex items-center gap-3">
-      <span className="flex w-36 shrink-0 items-center font-body text-[12px] text-fg-muted">
-        {label}
-        {weight && <span className="ml-1 font-body text-[10px] text-fg-subtle">·{weight}</span>}
-        {tip && <InfoTip text={tip} />}
-      </span>
-      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-bg-muted">
-        <span className="block h-full rounded-full bg-sirius transition-[width] duration-500" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
-      </span>
-      <span className="tabular w-9 shrink-0 text-right font-body text-[12px] font-semibold text-fg">{value}%</span>
+    <div className="rounded-lg border border-border-subtle p-3">
+      <p className="caption">{label}</p>
+      <p className="mt-1 font-display text-[22px] font-bold leading-none text-fg">
+        {value}
+        {sub && <span className="ml-1.5 font-body text-[13px] font-medium text-fg-subtle">{sub}</span>}
+      </p>
     </div>
   );
 }
+
+/* PartBar rendered the score's three weighted components as labelled bars.
+   It had no other caller and went with the score. */
 
 function Kpi({ label, value, sub, spark, tip }: { label: string; value: string; sub?: string; spark?: number[]; tip?: string }) {
   return (

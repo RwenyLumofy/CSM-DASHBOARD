@@ -233,13 +233,8 @@ export const clientNotes = pgTable("client_notes", {
 /**
  * One row per person named in a note — the same shape as task_update_mentions
  * and for the same reason: the `@[email]` token in the body only tells the
- * renderer where to draw a chip, while THIS table is the authority for who
- * was named.
- *
- * Nothing reads it yet. Naming somebody records them here and draws their
- * chip; no notification is sent, because there is no `note_mentioned`
- * NotificationType. The table exists now because the write path already
- * fills it correctly.
+ * renderer where to draw a chip, while THIS table is what notifications and
+ * "notes I am mentioned in" read.
  *
  * A mention grants NO access (decision 2026-08-02). The picker only offers
  * people who can already see the account, and the server re-checks on write.

@@ -21,10 +21,9 @@ export function extractMentions(html: string): string[] {
 
 /** Drop tokens naming anyone not on `allowed`, rewriting them to plain text.
  *
- *  A mention grants no access, and does not yet notify — but it is intended to,
- *  so the server must never take the browser's word for who may be named: the
- *  picker offers only people who can already see the account, and this
- *  re-checks it. An
+ *  A mention grants no access, but it does send a notification, so the server
+ *  must never take the browser's word for who may be named: the picker offers
+ *  only people who can already see the account, and this re-checks it. An
  *  unauthorised token becomes "@someone@example.com" as ordinary prose rather
  *  than vanishing — silently deleting words somebody wrote is worse. */
 export function filterMentions(html: string, allowed: Set<string>): string {

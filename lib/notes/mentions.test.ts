@@ -3,10 +3,9 @@ import assert from "node:assert/strict";
 import { extractMentions, filterMentions } from "./mentions";
 import { isNoteType, noteDate, DEFAULT_NOTE_TYPE } from "./types";
 
-/* Mentions will decide who gets notified once a `note_mentioned` type exists.
-   The rules that have to hold before then are the same two: which tokens
-   count, and that the server never takes the browser's word for who may be
-   named. */
+/* Mentions decide who gets notified, so the rules that matter are: which
+   tokens count, and that the server never takes the browser's word for who
+   may be named. */
 
 test("a token is found even when the editor split it across tags", () => {
   const html = "<p>Handing this to @[<strong>sakina@lumofy.com</strong>] before Friday</p>";

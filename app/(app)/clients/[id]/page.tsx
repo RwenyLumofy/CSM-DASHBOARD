@@ -29,7 +29,7 @@ import { permissionRole, editsAllClients } from "@/lib/roles";
 import { getProjectBoard, getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getNotesForClient } from "@/lib/notes/data";
 import { hasDatabase, integrations } from "@/lib/config";
-import { applyDealOverrides, computeRenewal, dealOverridesMap, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
+import { applyDealOverrides, renewalDisplay, dealOverridesMap, DEAL_DATES_KEY, type DealDatesMap } from "@/lib/deal-overrides";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { getSupabaseProjectUrl } from "@/lib/integrations/supabase-storage";
@@ -138,17 +138,34 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   // what the CSM sees/sets on the deal card, not the raw HubSpot-synced value.
   const overridesByDeal = dealOverridesMap(props);
   const effectiveTrackedDeals = trackedDeals.map((d) => applyDealOverrides(d, overridesByDeal[d.id]));
-  // Upcoming renewal = nearest (effective contract start + 1yr) across all tracked
-  // deals that is still in the future — uses CSM overrides where set, so the header
+  // Upcoming renewal = nearest assumed-annual renewal across all tracked deals
+  // that is still in the future — uses CSM overrides where set, so the header
   // nudges the CSM toward the soonest renewal to plan for.
+  //
+  // Goes through renewalDisplay for the same reason the deal card does: a deal
+  // whose declared term is not one year has no derivable renewal date, and
+  // showing one here while the card below says "Term needs confirmation" would
+  // put two answers to the same question on one screen.
   const upcomingRenewal = (() => {
     const now = Date.now();
     const dates = effectiveTrackedDeals
-      .map((d) => computeRenewal(d.contractStartDate))
+      .map((d) => renewalDisplay(d.contractStartDate, d.contractDuration))
+      .map((r) => (r.kind === "assumed" ? r.date : null))
       .filter((iso): iso is string => !!iso && new Date(iso).getTime() > now)
       .sort();
     return dates[0] ?? null;
   })();
+  // Why the viewer can't edit, when they can't. canEditClient collapses three
+  // causes into one boolean, but the CSM's next action differs: a view-only
+  // role is a permissions request, an unassigned account is an ownership
+  // question. `role` is resolved above in the same Promise.all, so telling them
+  // apart costs nothing. Presentation only — the server gate is unchanged.
+  const dealEditLockReason = mayEditClient
+    ? null
+    : permissionRole(role) === "guest"
+      ? "View only — your role can't edit accounts."
+      : "View only — this account isn't assigned to you.";
+
   // Combined lifecycle status (merged Status + Phase).
   const STATUS_LABELS: Record<string, string> = { onboarding: "Onboarding", active: "Active", renewal: "Renewal", churned: "Churn" };
   const statusLabel = STATUS_LABELS[client.status] ?? "Active";
@@ -307,6 +324,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         projectConfig={projectConfig}
         projectTemplates={projectTemplates.map((t) => ({ id: t.id, name: t.name }))}
         canEditClient={mayEditClient}
+        editLockReason={dealEditLockReason}
         teamEmails={assignableTeam}
         today={new Date().toISOString().slice(0, 10)}
         projectCsms={projectMembers(csmMembers)}

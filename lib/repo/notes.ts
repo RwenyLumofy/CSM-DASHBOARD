@@ -79,13 +79,7 @@ export async function getNoteClientId(noteId: string): Promise<string | null> {
 }
 
 /** Replace a note's mention index. The body's tokens place the chips; these
- *  rows are the authority for who was named.
- *
- *  NOT YET WIRED TO NOTIFICATIONS. Naming somebody in a note records them here
- *  and draws their chip, but nobody is told — there is no `note_mentioned`
- *  NotificationType and no insert on the write path, unlike postTaskUpdateAction.
- *  Kept as a separate change so it can be written against the notification
- *  union once the notifications centre lands. */
+ *  rows are what notifications read. */
 async function setMentions(noteId: string, clientId: string, emails: string[]): Promise<void> {
   const db = getDb();
   await withDbTimeout(db.delete(schema.clientNoteMentions).where(eq(schema.clientNoteMentions.noteId, noteId)));

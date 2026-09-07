@@ -51,13 +51,9 @@ CREATE INDEX IF NOT EXISTS client_notes_meeting_id_idx ON client_notes (meeting_
 
 -- One row per person named in a note, mirroring task_update_mentions exactly.
 -- The `@[email]` token in the body exists only so the renderer can place the
--- chip; THIS is the authority for who was named (decision 0012). A mention
--- grants NO access — the picker only offers people who can already see the
--- account, and the server re-checks on write.
---
--- Nothing reads this table yet: notifying a mentioned person needs a
--- `note_mentioned` NotificationType that does not exist. The table is created
--- now because the write path already fills it correctly.
+-- chip; THIS is the authority for notifications and for "notes I am mentioned
+-- in" (decision 0012). A mention grants NO access — the picker only offers
+-- people who can already see the account, and the server re-checks on write.
 CREATE TABLE IF NOT EXISTS client_note_mentions (
   id text PRIMARY KEY,
   note_id text NOT NULL,
