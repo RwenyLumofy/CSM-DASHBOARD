@@ -141,3 +141,53 @@ export function computeRenewal(contractStart: string | null | undefined): string
   d.setUTCFullYear(d.getUTCFullYear() + 1);
   return d.toISOString();
 }
+
+/**
+ * What the deal card may honestly say about a renewal date.
+ *
+ * The card used to render `computeRenewal(contractStartDate)` under a flat
+ * `Auto · +1yr` badge, unconditionally — including on deals with no contract
+ * start date at all, which read as an em-dash next to a badge asserting an
+ * automatic annual renewal. The brief's standing instruction is not to infer
+ * renewal terms and to say so when the evidence is unclear, so this decides
+ * which of three things is actually known.
+ *
+ * `contractDuration` cannot resolve the term (see the field's comment in
+ * lib/types.ts — HubSpot writes months, CSMs write years, and the two overlap
+ * at 1-3). So the only safe readings are:
+ *
+ *   - absent, or 1 — assume one year, and SAY it is an assumption. A value of
+ *     1 is annual under either unit, since a one-month contract is not a thing
+ *     this business sells.
+ *   - anything else — the term is definitely not one year under at least one
+ *     reading, and which reading applies is unknowable. Show no date.
+ *
+ * Deliberately no fallback to the deal's close date. That is a different
+ * question ("when was this booked") wearing the answer's clothes, and the
+ * account header already makes that substitution for 16 accounts — which is
+ * why their header shows a renewal date while every card below reads "—".
+ */
+export type RenewalDisplay =
+  /** Contract start known, term assumed annual. `date` is safe to show. */
+  | { kind: "assumed"; date: string; note: string }
+  /** Term is declared and is not annual — no date can be derived. */
+  | { kind: "term_unknown"; date: null; note: string }
+  /** No contract effective date on the deal — nothing to count from. */
+  | { kind: "no_start"; date: null; note: string };
+
+export function renewalDisplay(
+  contractStart: string | null | undefined,
+  contractDuration: number | null | undefined,
+): RenewalDisplay {
+  if (!contractStart) {
+    return { kind: "no_start", date: null, note: "Needs contract start date" };
+  }
+  if (contractDuration != null && contractDuration !== 1) {
+    return { kind: "term_unknown", date: null, note: "Term needs confirmation" };
+  }
+  const date = computeRenewal(contractStart);
+  if (!date) {
+    return { kind: "no_start", date: null, note: "Needs contract start date" };
+  }
+  return { kind: "assumed", date, note: "Assumed 1 year · confirm" };
+}

@@ -49,13 +49,21 @@ const PIPELINES = [
 const CS_NON_ARR_STAGES = new Set<string>([CS_PIPELINE_CONFIRMED_CHURNED, CS_PIPELINE_DOWNGRADED]);
 
 /** Classify a CS-pipeline deal's stage into its Contracts & deals tab bucket.
- *  "renewal" is the catch-all/fallback (matches CS_PIPELINE_RENEWED and any
- *  other CS stage that reaches WON_DEAL_STAGES in the future). */
-function classifyCsCategory(dealstage: string | null | undefined): "renewal" | "expansion" | "confirmed_churn" | "downgraded" {
+ *
+ *  There is deliberately NO catch-all onto "renewal" any more. It used to
+ *  return "renewal" for anything unrecognised, which meant a CS stage nobody
+ *  had configured silently became a renewal — in the one bucket whose ARR
+ *  treatment is under review, with nothing on screen saying the classification
+ *  was a guess. An unknown stage now returns "unmapped" and surfaces as its own
+ *  state on the deal card, so it gets configured instead of absorbed. */
+function classifyCsCategory(
+  dealstage: string | null | undefined,
+): "renewal" | "expansion" | "confirmed_churn" | "downgraded" | "unmapped" {
+  if (dealstage === CS_PIPELINE_RENEWED) return "renewal";
   if (dealstage === CS_PIPELINE_EXPANDED) return "expansion";
   if (dealstage === CS_PIPELINE_CONFIRMED_CHURNED) return "confirmed_churn";
   if (dealstage === CS_PIPELINE_DOWNGRADED) return "downgraded";
-  return "renewal";
+  return "unmapped";
 }
 
 // ---- Engagement object properties ----------------------------------------

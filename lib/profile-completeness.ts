@@ -60,7 +60,11 @@ type FieldCheck =
 
 const RED_FIELDS: FieldCheck[] = [
   { key: "products", label: "Module", scope: "deal", get: (d) => d.products },
-  { key: "useCases", label: "Use case", scope: "deal", get: (d) => d.useCases },
+  /* No `useCases` check. The deal card's Use case editor was removed on
+     2026-09-01 — it duplicated the header's rollup and nothing computes from it
+     any more — so requiring it here would flag every account red for a field
+     with nowhere left to fill it in. What CS confirms lives in the Use Case
+     Universe block, which has its own completeness story. */
   { key: "globalLibraryPackage", label: "Global library", scope: "deal", get: (d) => d.globalLibraryPackage },
   { key: "globalLibraryLicenses", label: "Global library licenses", scope: "deal", get: (d) => d.globalLibraryLicenses },
   { key: "aiCourseCredits", label: "AI course credits", scope: "deal", get: (d) => d.aiCourseCredits },

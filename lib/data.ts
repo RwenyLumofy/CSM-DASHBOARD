@@ -1120,6 +1120,36 @@ export async function updateClientDetails(
   }
 }
 
+/**
+ * Write ONE deal's entry in a deal-scoped property bag (`__deal_overrides`,
+ * `__deal_dates`, `__deal_briefs`) without touching any other deal's entry.
+ *
+ * The deal card used to route these through updateClientDetails, sending the
+ * whole bag; that made two CSMs editing different deals on one account
+ * overwrite each other. See setDealScopedPropertyDb for the mechanism.
+ *
+ * Post-write behaviour deliberately matches the properties branch of
+ * updateClientDetails: an override can change `amount` or `contractStartDate`,
+ * which feed ARR and the renewal date, so re-materialize immediately — and
+ * swallow a failure, so a slow recompute still returns a successful save rather
+ * than 500-ing the edit the CSM just made.
+ */
+export async function setDealScopedProperty(
+  clientId: string,
+  bagKey: string,
+  dealId: string,
+  value: Record<string, unknown> | string | null,
+): Promise<void> {
+  if (!hasDatabase()) throw new Error("Database not configured");
+  const { setDealScopedPropertyDb, recomputeClient } = await import("@/lib/repo/drizzle");
+  await withDbTimeout(setDealScopedPropertyDb(clientId, bagKey, dealId, value));
+  try {
+    await recomputeClient(clientId);
+  } catch (err) {
+    console.warn("[data] recomputeClient after deal-scoped save failed:", err);
+  }
+}
+
 /** Toggle whether a deal is tracked (counts toward ARR). */
 export async function setDealTracked(dealId: string, tracked: boolean): Promise<void> {
   if (!hasDatabase()) throw new Error("Database not configured");
