@@ -88,7 +88,34 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
     }
   };
 
-  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers, implMembers, roleLabels, superAdmin, clientActions, role, projects, projectConfig, projectTemplates, churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy, expansion] =
+  /* Three bounded waves, NOT one 22-wide Promise.all.
+   *
+   * The pool is 20 connections per lambda (lib/db/client.ts) and 10 in dev.
+   * This page had grown to 22 concurrent reads — more than the pool holds — so
+   * a single profile view could not fit inside its own pool: every view queued,
+   * the slowest reads crossed withDbTimeout's 45s bound, and because that
+   * timeout races the caller rather than cancelling the query, each loser left
+   * an orphaned backend pinned in `active`/`ClientRead`. Two people opening
+   * profiles at once starved each other, which is how this presented: /clients/[id]
+   * hitting Postgres statement timeouts and Vercel's 300s function ceiling.
+   *
+   * Measured on 2026-09-07 against the dev pool of 10: as one 22-wide batch,
+   * loads alternated between ~1s and 46-53s (the 45s timeout firing, the page
+   * then rendering degraded and visibly smaller). Raising the pool to 30 made
+   * all ten consecutive loads succeed at ~3.9s, confirming pool starvation
+   * rather than a slow query — every individual statement measured 30-230ms.
+   *
+   * Capping the wave at 8 is the fix that does not depend on pool size: it
+   * leaves a single view comfortably inside even the dev pool, and lets two
+   * concurrent viewers coexist inside the production one. The cost is two extra
+   * sequential round trips (~0.5s at the current ~230ms RTT to the ap-northeast-1
+   * pooler), which is worth paying to never spend 45s and render degraded.
+   *
+   * Deliberately NOT another bump to the pool max — see the comment on `max` in
+   * lib/db/client.ts, which called that lever exhausted the last time this
+   * happened.
+   */
+  const [notes, attachments, deals, contacts, emails, meetings, propertyDefs, csmMembers] =
     await Promise.all([
       getNotesForClient(id, 200),
       getAttachmentsForClient(id),
@@ -98,6 +125,9 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       getMeetingsForClient(id),
       getPropertyDefinitions(),
       getTeamMembers("csm"),
+    ]);
+  const [implMembers, roleLabels, superAdmin, clientActions, role, projects, projectConfig, projectTemplates] =
+    await Promise.all([
       getTeamMembers("implementation"),
       getRoleLabels(),
       isSuperAdmin(),
@@ -106,6 +136,9 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       getProjectBoard(id),
       getProjectConfig(),
       listProjectTemplates(),
+    ]);
+  const [churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy, expansion] =
+    await Promise.all([
       getChurnTaxonomy(),
       isAdminOrSuper(),
       getCsPulseDimensions(),
