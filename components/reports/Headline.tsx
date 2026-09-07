@@ -117,7 +117,7 @@ export function Headline({ data, currency }: { data: HeadlineData; currency: str
             {data.renewalsCount > 0 ? (
               <>
                 <Num>{data.renewalsCount}</Num> {data.renewalsCount === 1 ? "renewal" : "renewals"} (
-                <Num>{money(data.renewalsArr)}</Num>) land in the next 90 days
+                <Num>{money(data.renewalsArr)}</Num>) land in the next 120 days
                 {data.atRiskCount > 0 ? (
                   <>
                     {", "}
@@ -129,7 +129,7 @@ export function Headline({ data, currency }: { data: HeadlineData; currency: str
                 )}
               </>
             ) : (
-              "No renewals due in the next 90 days."
+              "No renewals due in the next 120 days."
             )}
           </p>
         </div>

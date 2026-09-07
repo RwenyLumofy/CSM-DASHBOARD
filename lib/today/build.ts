@@ -32,6 +32,7 @@ import { getTodayTasksVisibleDb } from "@/lib/repo/drizzle";
 import { applyTriage, getTriageMap, priorityFingerprint } from "./triage";
 import { formatMoney } from "./format";
 import * as MOCK from "./mock";
+import { RENEWAL_WINDOW_DAYS } from "@/lib/status";
 
 /* --------------------------------------------------- lane derivation */
 
@@ -197,7 +198,7 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
     const fresh = freshnessFrom(c.health?.updatedAt ?? null, today);
     const detected = c.health?.updatedAt ?? `${today}T00:00:00Z`;
     const dRenew = c.renewalDate ? daysBetween(c.renewalDate, today) : null;
-    if (dRenew !== null && dRenew <= 90) {
+    if (dRenew !== null && dRenew <= RENEWAL_WINDOW_DAYS) {
       const overdue = dRenew < 0;
       addSignal({ id: `sig_${c.id}_renewal`, accountId: c.id, type: overdue ? "Renewal overdue" : `Renewal in ${dRenew} days`, category: "commercial", direction: "negative", severity: overdue ? "critical" : dRenew <= 14 ? "high" : "medium", confidence: "high", detectedAt: detected, source: "CRM", evidence: [{ id: `ev_${c.id}_r`, label: overdue ? `Contract end passed ${Math.abs(dRenew)} days ago` : `Contract ends ${c.renewalDate}`, observedAt: `${today}T00:00:00Z`, source: "CRM" }], commercialImpact: c.arr, recommendedAction: overdue ? "Escalate and secure a decision date" : "Confirm the renewal decision plan", status: "active", dataFreshness: fresh });
     }
@@ -405,7 +406,7 @@ export async function buildTodaySnapshot(): Promise<TodaySnapshot> {
   const summary: PortfolioSummary = {
     needsAttention: metric(portfolio.atRisk + portfolio.watch, String(portfolio.atRisk + portfolio.watch), { sub: "accounts" }),
     arrExposed: metric(exposedArr(clients, today), formatMoney(exposedArr(clients, today)), { sub: "at risk" }),
-    renewing90: metric(portfolio.arrUpForRenewal90d, formatMoney(portfolio.arrUpForRenewal90d), { sub: `${portfolio.renewalsNext90d} accounts` }),
+    renewingUpcoming: metric(portfolio.arrUpForRenewalUpcoming, formatMoney(portfolio.arrUpForRenewalUpcoming), { sub: `${portfolio.renewalsUpcoming} accounts` }),
     expansionReady: metric(expansionArr, formatMoney(expansionArr), { sub: `${expansionReady} qualified accounts` }),
   };
 

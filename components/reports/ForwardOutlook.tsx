@@ -72,7 +72,7 @@ export function ForwardOutlook({
   /** All renewal ARR in the window. */
   upcomingArr: number;
   upcomingCount: number;
-  /** e.g. "through 17 Oct" — the far end of the 90-day window. */
+  /** e.g. "through 17 Oct" — the far end of the renewal window. */
   horizonLabel: string;
   provisional: boolean;
   qs: string;
@@ -82,7 +82,7 @@ export function ForwardOutlook({
   if (upcomingCount === 0) {
     return (
       <div className="rounded-2xl border border-border bg-surface p-5">
-        <p className="caption">No renewals fall in the next 90 days.</p>
+        <p className="caption">No renewals fall in the next 120 days.</p>
         <p className="caption mt-1 text-fg-subtle">As of today · through {horizonLabel}</p>
       </div>
     );
@@ -98,7 +98,7 @@ export function ForwardOutlook({
       {/* Header: the total renewing pipeline, the attention callout, and the
           explicit anchor. */}
       <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="caption">Renewing next 90 days</span>
+        <span className="caption">Renewing next 120 days</span>
         <DateTag>as of today · through {horizonLabel}</DateTag>
       </div>
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">

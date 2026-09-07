@@ -102,14 +102,14 @@ export function SummaryRow({ d }: { d: SummaryData }) {
       <Cell
         href={link("/clients")}
         label="Upcoming renewals"
-        tip="ARR on accounts whose renewal date falls in the 90 days after the selected period ends."
+        tip="ARR on accounts whose renewal date falls in the 120 days after the selected period ends."
       >
         <span className="flex items-center">
           <Value>{money(d.renewalArr)}</Value>
           {d.provisional && <ProvisionalTag />}
         </span>
         <Ctx>{d.renewalCount} accounts</Ctx>
-        <Ctx>{d.isCurrent ? "Next 90 days" : `90 days following ${d.periodEndLabel}`}</Ctx>
+        <Ctx>{d.isCurrent ? "Next 120 days" : `120 days following ${d.periodEndLabel}`}</Ctx>
       </Cell>
 
       <Cell

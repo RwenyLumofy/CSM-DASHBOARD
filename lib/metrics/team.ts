@@ -14,6 +14,7 @@
 
 import type { Client } from "@/lib/types";
 import { isAtRisk } from "@/lib/health/status";
+import { RENEWAL_WINDOW_DAYS } from "@/lib/status";
 
 /** Days until renewal, or null when the account has no renewal date. */
 function daysToRenewal(iso: string | null): number | null {
@@ -45,7 +46,7 @@ export interface TeamMemberBook {
   /** Share of the whole visible book's ARR, 0–1. */
   arrShare: number;
   atRisk: number;
-  renewing90: number;
+  renewingUpcoming: number;
   churned: number;
   pulseFresh: number;
   /** Accounts eligible for a pulse (active/renewal) — the coverage denominator. */
@@ -54,7 +55,7 @@ export interface TeamMemberBook {
 
 export interface TeamBook {
   members: TeamMemberBook[];
-  totals: { accounts: number; arr: number; atRisk: number; renewing90: number; pulseFresh: number; pulseEligible: number };
+  totals: { accounts: number; arr: number; atRisk: number; renewingUpcoming: number; pulseFresh: number; pulseEligible: number };
   /** True when at least one visible account has no CSM. */
   hasUnassigned: boolean;
 }
@@ -74,7 +75,7 @@ export function buildTeamBook(
   const blank = (id: string, name: string, email: string | null): TeamMemberBook => ({
     id, name, email, roleLabel: email ? roleLabelByEmail.get(email) ?? null : null,
     accounts: 0, implAccounts: 0, arr: 0, arrShare: 0,
-    atRisk: 0, renewing90: 0, churned: 0, pulseFresh: 0, pulseEligible: 0,
+    atRisk: 0, renewingUpcoming: 0, churned: 0, pulseFresh: 0, pulseEligible: 0,
   });
   const get = (id: string, name: string, email: string | null): TeamMemberBook => {
     let m = byId.get(id);
@@ -107,7 +108,7 @@ export function buildTeamBook(
     // churned is not.
     if (isAtRisk(c.health)) m.atRisk += 1;
     const d = daysToRenewal(c.renewalDate);
-    if (d != null && d >= 0 && d <= 90) m.renewing90 += 1;
+    if (d != null && d >= 0 && d <= RENEWAL_WINDOW_DAYS) m.renewingUpcoming += 1;
     if (c.status === "active" || c.status === "renewal") {
       m.pulseEligible += 1;
       if (hasFreshPulse(c, now)) m.pulseFresh += 1;
@@ -127,7 +128,7 @@ export function buildTeamBook(
       accounts: members.reduce((s, m) => s + m.accounts, 0),
       arr: totalArr,
       atRisk: members.reduce((s, m) => s + m.atRisk, 0),
-      renewing90: members.reduce((s, m) => s + m.renewing90, 0),
+      renewingUpcoming: members.reduce((s, m) => s + m.renewingUpcoming, 0),
       pulseFresh: members.reduce((s, m) => s + m.pulseFresh, 0),
       pulseEligible: members.reduce((s, m) => s + m.pulseEligible, 0),
     },
