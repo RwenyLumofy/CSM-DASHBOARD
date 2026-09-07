@@ -15,7 +15,13 @@ import { PULSE_VALIDITY_DAYS } from "@/lib/health/pulse";
 import type { PulseQueueItem } from "@/lib/health/pulse-queue";
 
 const money = (n: number) => (n >= 1000 ? `$${Math.round(n / 1000)}k` : `$${Math.round(n)}`);
-const monthYear = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric" }) : null);
+/* timeZone pinned — renewalDate is a calendar date stored in a timestamptz at
+   00:00:00Z, so reading it in the viewer's zone slides a 1 Oct renewal back to
+   "Sep 2026" for anyone west of UTC, and disagrees with the SSR pass (this
+   component is rendered straight from app/(app)/reports/pulse/page.tsx). The
+   stored month is the true one; see the note on formatDate in lib/format.ts. */
+const monthYear = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" }) : null;
 
 function stateChip(i: PulseQueueItem): { label: string; cls: string } {
   switch (i.state) {

@@ -10,17 +10,20 @@
    • Full re-sync (super-admin only) — a "factory reset": clears the per-deal
      field overrides (__deal_overrides) so HubSpot's current values show through,
      rewinds the checkpoint, and re-pulls every Closed Won deal. Milestone dates
-     and account-brief edits are preserved. Guarded by an explicit confirm.
+     and account-brief edits are preserved. Guarded by an explicit confirm that
+     reads the live consequence first: two of the cleared fields (amount,
+     contract start date) are inputs to ARR and the renewal date, so this moves
+     reported numbers, not just labels. The dialog says so in figures.
 
    Both run via server actions (settings/actions.ts) — auth-gated server-side, so
    the destructive path is never reachable from the open /api/sync endpoint.
    ========================================================================= */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { RefreshCw, RotateCcw, AlertTriangle, Loader2, Check, X } from "lucide-react";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { syncNowAction, fullResyncAction, type SyncActionResult } from "@/app/(app)/settings/actions";
+import { syncNowAction, fullResyncAction, previewFullResyncAction, type SyncActionResult, type ResetPreview } from "@/app/(app)/settings/actions";
 
 export function SyncManager({
   isSuperAdmin,
@@ -37,6 +40,29 @@ export function SyncManager({
   const [running, setRunning] = useState<null | "incremental" | "full">(null);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [confirmFull, setConfirmFull] = useState(false);
+  // Read on open, never hardcoded — a number written into the copy would be
+  // wrong the first time anyone edited a deal.
+  const [preview, setPreview] = useState<ResetPreview | null>(null);
+
+  /* "Last synced 4 minutes ago" is a function of the CURRENT TIME, so the
+     server renders it against the request clock and the browser recomputes it
+     against the hydration clock — the two disagree the moment a minute
+     boundary falls between them, which is a genuine hydration mismatch, not a
+     cosmetic one. Same reasoning (and same fix) as the mount gate in
+     components/notifications/NotificationsCentre.tsx.
+
+     Formatting in UTC on both passes would silence React and keep the SSR
+     pass, but "ago" has no timezone to pin — the disagreement is about WHEN
+     each pass ran, not where. Deferring one frame is the only honest fix. */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!confirmFull) { setPreview(null); return; }
+    let live = true;
+    previewFullResyncAction().then((p) => { if (live) setPreview(p); });
+    return () => { live = false; };
+  }, [confirmFull]);
 
   async function run(full: boolean) {
     setRunning(full ? "full" : "incremental");
@@ -89,7 +115,9 @@ export function SyncManager({
                 : (
                   <>
                     Last synced{" "}
-                    <span className="font-semibold text-fg">{lastSyncedAt ? relativeTime(lastSyncedAt) : "never"}</span>.
+                    <span className="font-semibold text-fg">
+                      {!mounted ? "\u2026" : lastSyncedAt ? relativeTime(lastSyncedAt) : "never"}
+                    </span>.
                   </>
                 )}
           </p>
@@ -168,7 +196,62 @@ export function SyncManager({
                     </li>
                   ))}
                 </ul>
+
+                {/* The commercial half, which the copy above never mentioned:
+                    `amount` and `contractStartDate` overrides are applied by
+                    recomputeClient BEFORE it derives ARR and the renewal date,
+                    so clearing them restates reported numbers. Read live. */}
+                {preview === null ? (
+                  <p className="caption mt-3 flex items-center gap-1.5">
+                    <Loader2 size={12} className="animate-spin" /> Checking what this would change…
+                  </p>
+                ) : !preview.ok ? (
+                  <p className="mt-3 font-body text-[12.5px] text-[#B23A57]">
+                    Couldn&apos;t check what this would change: {preview.error}
+                  </p>
+                ) : preview.clients === 0 ? (
+                  <p className="caption mt-3 leading-relaxed">
+                    No account currently has per-deal overrides, so nothing would be cleared.
+                  </p>
+                ) : (
+                  <div className="mt-3 rounded-[10px] border border-[#B23A57]/25 bg-[#B23A57]/8 px-3 py-2.5">
+                    <p className="font-body text-[12.5px] font-semibold leading-relaxed text-[#B23A57]">
+                      This also changes reported numbers.
+                    </p>
+                    <ul className="mt-1.5 flex flex-col gap-1">
+                      {preview.accountsWithArrChange! > 0 && (
+                        <li className="font-body text-[12.5px] leading-relaxed text-fg-muted">
+                          ARR moves on <span className="tabular font-semibold text-fg">{preview.accountsWithArrChange}</span>{" "}
+                          account{preview.accountsWithArrChange === 1 ? "" : "s"} — portfolio total by{" "}
+                          <span className="tabular font-semibold text-fg">
+                            {preview.arrDelta! > 0 ? "+" : ""}
+                            {preview.arrDelta!.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </span>.
+                        </li>
+                      )}
+                      {preview.contractStartOverrides! > 0 && (
+                        <li className="font-body text-[12.5px] leading-relaxed text-fg-muted">
+                          Renewal dates change on{" "}
+                          <span className="tabular font-semibold text-fg">{preview.contractStartOverrides}</span> deal
+                          {preview.contractStartOverrides === 1 ? "" : "s"}.
+                        </li>
+                      )}
+                      <li className="font-body text-[12.5px] leading-relaxed text-fg-muted">
+                        <span className="tabular font-semibold text-fg">{preview.fields}</span> field correction
+                        {preview.fields === 1 ? "" : "s"} across{" "}
+                        <span className="tabular font-semibold text-fg">{preview.clients}</span> account
+                        {preview.clients === 1 ? "" : "s"} are removed.
+                      </li>
+                    </ul>
+                  </div>
+                )}
+
                 <p className="mt-3 font-body text-[12.5px] font-semibold text-[#B23A57]">This cannot be undone.</p>
+                {preview?.ok && preview.clients! > 0 && (
+                  <p className="caption mt-1 leading-relaxed">
+                    A copy of all {preview.fields} cleared values is saved first, so they can be restored by hand.
+                  </p>
+                )}
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">

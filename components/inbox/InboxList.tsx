@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, RotateCcw, ExternalLink, Loader2, CheckCircle2 } from "lucide-react";
@@ -27,6 +27,18 @@ function Item({ n, done }: { n: Notification; done?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
+  /* The age line is now-relative, so the server computes it against the
+     request clock (UTC, at request time on Vercel) and the browser recomputes
+     it against the hydration clock. A minute boundary falling between the two
+     is enough to render "3 minutes ago" on the server and "4 minutes ago" in
+     the browser — a real hydration mismatch. Deferring to after mount is the
+     same fix, for the same reason, as the mount gate in
+     components/notifications/NotificationsCentre.tsx; formatting in UTC on
+     both passes is NOT an option here, because "ago" is a function of when
+     each pass ran, not of which zone it ran in. */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   async function toggle() {
     setBusy(true);
     try {
@@ -45,7 +57,15 @@ function Item({ n, done }: { n: Notification; done?: boolean }) {
           <span className={cn("inline-flex items-center rounded-pill border px-2 py-0.5 font-body text-[10.5px] font-semibold uppercase tracking-[0.04em]", TYPE_TONE[n.type] ?? TYPE_TONE.system)}>
             {TYPE_LABEL[n.type] ?? "Notification"}
           </span>
-          <span className="font-body text-[10.5px] text-fg-subtle">{formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}</span>
+          {/* Fixed-width placeholder for the pre-mount frame, so the badge
+              row beside it does not shift when the real age lands. */}
+          <span className="font-body text-[10.5px] text-fg-subtle">
+            {mounted ? (
+              <time dateTime={n.createdAt}>{formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}</time>
+            ) : (
+              <span className="inline-block h-[10px] w-16 rounded bg-bg-muted align-middle" aria-hidden />
+            )}
+          </span>
         </div>
         <p className="font-body text-[13.5px] font-semibold text-fg">{n.title}</p>
         {n.body && <p className="mt-0.5 font-body text-[12.5px] text-fg-muted">{n.body}</p>}

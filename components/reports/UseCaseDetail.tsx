@@ -41,8 +41,14 @@ import { saveUseCaseSectionAction, type SectionPatch } from "@/app/(app)/use-cas
 const fieldCls =
   "w-full rounded-lg border border-border bg-bg px-3 py-2 font-body text-[13px] leading-relaxed text-fg outline-none placeholder:text-fg-subtle focus:border-sirius focus:ring-2 focus:ring-sirius/15";
 
+/* timeZone pinned to UTC. Without it the runtime's zone picks the day — UTC on
+   the server, the reader's zone in the browser — and the governance line
+   ("Last updated 6 Sep 2026") renders in the SSR pass, so the two disagree
+   whenever the local date differs. A day-granularity stamp on an edit is a
+   record of which day it landed on, so the canonical stored day is the right
+   answer to settle on. See the note on formatDate in lib/format.ts. */
 const shortDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 function Section({ title, canEdit, editing, busy, onEdit, onSave, onCancel, children, form }: {
   title: string; canEdit: boolean; editing: boolean; busy: boolean;
