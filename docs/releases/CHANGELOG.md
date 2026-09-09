@@ -16,6 +16,60 @@ limitations · commit.
 
 ---
 
+## 2026-09-09
+
+### Client Profile records the systems an account already runs
+**Area:** Client Profile → General information
+**Roles affected:** CSM (operator) on owned accounts · Admin and Super Admin on any account
+(write) · everyone who can open a profile (read)
+**Before:** There was nowhere in Signal to write down what an account already runs — the
+HRIS the org chart has to come out of, the LMS Lumofy sits beside, the identity provider
+that gates every login. That answer lived in call notes and left with whoever took them.
+**After:** A **Tech stack** section at the bottom of the General information tab, collapsed
+by default, with a badge showing how many tools are recorded. Eight lists — HRIS / HRMS,
+LMS / LXP, Performance management, ATS / recruiting, SSO / identity, Collaboration,
+BI / analytics, and a catch-all *Other tools* — plus an **Integration notes** free-text box
+for who owns a system, how it can be connected and what blocks a migration.
+
+Each list is a chip box rather than a text field, because recording a stack is
+list-building: known tools are offered as you type, pasting `Workday, BambooHR, Personio`
+files three chips, and a name nobody has heard of (the in-house portal) is accepted exactly
+like a known one. There is **no Save button** — every add and removal is written
+immediately, and a failed write silently removes the chip again.
+
+**Migration/data:** **None.** Each category is its own key in `clients.properties`
+(`tech_stack_hris`, `_lms`, `_performance`, `_ats`, `_sso`, `_collaboration`, `_bi`,
+`_other`, plus `tech_stack_notes`) — no schema change and no backfill. Because the sync
+merges properties rather than replacing them, a HubSpot sync or a re-import cannot clear a
+recorded stack. **Nothing populates these fields automatically**: they are CSM-entered
+only, and every account starts empty.
+
+**Permissions:** unchanged. Writes go through the existing `PATCH /api/clients/[id]` and its
+`canSeeClient` / `canEditClient` gates — an operator can record a stack only on an account
+they own or have been granted.
+
+**Known limitations:**
+- The section is shown with live inputs to people who cannot save (Guests, non-owning
+  operators). Their chip is drawn, the server refuses it, and it vanishes **with no error
+  message**. The same silent rollback covers a genuine network failure.
+- The recorded stack **feeds nothing**: no profile-completeness contribution, no health
+  input, no action item, no notification, no Insights panel, no Clients-directory column,
+  no export. It is readable one account at a time.
+- Tool names are free text with no spelling reconciliation, so aggregating them across the
+  book would need normalisation first.
+- The suggestion lists are code constants, not admin-curated property options.
+- No tests cover any of it.
+
+**Documentation:** [client-profile → tech-stack](../product/client-profile/tech-stack.md)
+**Commit:** `d45a6cd` ([`lib/tech-stack.ts`](../../lib/tech-stack.ts),
+[`components/clients/ToolChipInput.tsx`](../../components/clients/ToolChipInput.tsx))
+
+> **Gap in this changelog.** Entries between 2026-08-01 and 2026-09-08 are missing —
+> notes, notifications and expansion work landed in that window with specifications under
+> `docs/specs/` but no release entry. This entry covers `d45a6cd` only.
+
+---
+
 ## 2026-07-31
 
 ### Use-case names and categories restored to the Definition Library

@@ -2300,7 +2300,6 @@ function EditableField({
   currency,
   readOnly,
   alertSeverity,
-  placeholder,
 }: {
   clientId: string;
   label: string;
@@ -2311,8 +2310,6 @@ function EditableField({
   currency?: string;
   readOnly?: boolean;
   alertSeverity?: "red" | "yellow";
-  /** Hint shown in the empty input — e.g. a couple of named tools. */
-  placeholder?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2380,7 +2377,7 @@ function EditableField({
         {readOnly || !target ? (
           <span className={valueCls}>{display}</span>
         ) : editing ? (
-          <EditInput type={type} options={options} value={localValue} saving={saving} placeholder={placeholder} onCommit={commit} onCancel={() => setEditing(false)} />
+          <EditInput type={type} options={options} value={localValue} saving={saving} onCommit={commit} onCancel={() => setEditing(false)} />
         ) : (
           <button onClick={() => setEditing(true)} className="group -ml-1 flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-bg-muted">
             <span className={valueCls}>{display}</span>
@@ -2618,7 +2615,6 @@ function EditInput({
   options,
   value,
   saving,
-  placeholder,
   onCommit,
   onCancel,
 }: {
@@ -2626,7 +2622,6 @@ function EditInput({
   options?: Opt[];
   value: unknown;
   saving: boolean;
-  placeholder?: string;
   onCommit: (out: unknown) => void;
   onCancel: () => void;
 }) {
@@ -2681,7 +2676,7 @@ function EditInput({
   const inputType = type === "date" ? "date" : "text";
   return (
     <div className="flex items-center gap-1.5">
-      <input autoFocus disabled={saving} type={inputType} value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} className={cn(editCls, "placeholder:text-fg-subtle")} />
+      <input autoFocus disabled={saving} type={inputType} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} className={editCls} />
       {buttons}
     </div>
   );

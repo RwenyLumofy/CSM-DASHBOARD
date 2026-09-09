@@ -38,7 +38,7 @@ Guest (read-only), and Support / Implementation / Revenue as readers.
 
 | Tab | Contents |
 |---|---|
-| General information | Property-definition fields grouped by Contract / Package & product, plus deal fields and deal dates |
+| General information | Property-definition fields grouped by Contract / Package & product, plus deal fields, deal dates, and the [Tech stack](tech-stack.md) section |
 | Stakeholders | Stakeholder profiles, roles, relationship map |
 | Communication | Synced emails and meetings |
 | Attachments | Uploaded files (Supabase Storage), categorised |
@@ -116,6 +116,11 @@ preserved.
 is no account-executive user role — that scaffolding was removed because nothing wrote to
 it (`lib/roles.ts` header).
 
+**Tech stack** is a fixed, code-defined set of fields at the bottom of the same tab — eight
+lists of tools plus an integration-notes box, CSM-entered and never synced. It is not part
+of `property_definitions` and not part of profile completeness. See
+[tech-stack](tech-stack.md).
+
 ## States and statuses
 
 Account status · health tier (admin-named) · churn reason (from the taxonomy) ·
@@ -169,7 +174,8 @@ their own components. Attachments require Supabase Storage; without it, uploads 
 
 JSONB-resident product state on `clients.properties`: `cs_pulse` · `cs_health` ·
 `stakeholder_profiles` · `stakeholder_links` · `stakeholder_mappings` ·
-`use_case_implementations` · deal overrides · `deal_dates`.
+`use_case_implementations` · deal overrides · `deal_dates` · the eight `tech_stack_*` tool
+lists and `tech_stack_notes`.
 
 See [data-model](../../data-model/README.md).
 
@@ -220,7 +226,16 @@ definitions · project config · property definitions · churn taxonomy.
 `lib/auth.ts` · `lib/deal-overrides.ts` · `lib/stakeholders/profile.ts` ·
 `lib/use-case-implementation.ts` · `lib/db/schema.ts`
 
+## Sub-features documented separately
+
+| Feature | Document | Status |
+|---|---|---|
+| Tech stack (General information) | [tech-stack.md](tech-stack.md) | Partially verified · `d45a6cd` |
+
 ---
 
 **Documentation status:** Partially verified
 **Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+
+**Tech stack section added 2026-09-09, verified against `d45a6cd`.** The rest of this
+document was not re-read in that pass and keeps its earlier verification date.

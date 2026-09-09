@@ -8,9 +8,14 @@ a document.
 `Deprecated`
 
 **Baseline established:** 2026-07-31 against commit `4214349` (branch `exec-dashboard`).
-**Last change pass:** 2026-07-31 against commit `15329e3` — covering `7f731b7` (Use Case
-Universe directory, orphaning fixes, adoption backfill) and `15329e3` (documentation set,
-no-database notice).
+**Last change pass:** 2026-09-09 against commit `d45a6cd` — covering `d45a6cd` only (Client
+Profile **Tech stack**). The previous pass was 2026-07-31 against `15329e3`.
+
+> **Coverage debt, recorded 2026-09-09.** Roughly 40 commits between 2026-08-05 and
+> 2026-09-07 (usage tab v2, expansion, notes, notifications, the `/clients/[id]`
+> connection-pool fix) have **specifications under `docs/specs/` but no feature
+> documentation, no changelog entries and no rows here**. This index therefore understates
+> what exists in the product. The 2026-09-09 pass deliberately did not backfill them.
 
 A row still showing `4214349` was **not re-verified in that pass** and is not stale by
 implication — it simply has not been read again. Only rows the change touched were moved.
@@ -23,7 +28,8 @@ implication — it simply has not been read again. Only rows the change touched 
 |---|---|---|---|---|---|---|---|
 | Today | `/today` | [product/today](product/today/README.md) | Partially verified | 2026-07-31 | `4214349` | Priority ranking function not read end to end; commitments are mock-backed | Unassigned |
 | Clients | `/clients` | [product/clients](product/clients/README.md) | Partially verified | 2026-07-31 | `4214349` | `ClientsTable` filter/sort behaviour not traced | Unassigned |
-| Client Profile | `/clients/[id]` | [product/client-profile](product/client-profile/README.md) | Partially verified | 2026-07-31 | `4214349` | Per-tab workflows not individually documented | Unassigned |
+| Client Profile | `/clients/[id]` | [product/client-profile](product/client-profile/README.md) | Partially verified | 2026-07-31 | `4214349` | Per-tab workflows not individually documented. Only the Tech stack section was re-verified at `d45a6cd` | Unassigned |
+| Client Profile → Tech stack | `/clients/[id]` → General information | [product/client-profile/tech-stack](product/client-profile/tech-stack.md) | Partially verified | 2026-09-09 | `d45a6cd` | No tests exist for the module, the component or the write path; not exercised in a browser by this pass. Whether the data should feed any product surface is an open product question | Unassigned |
 | Action list | `/inbox` | [product/action-list](product/action-list/README.md) | Partially verified | 2026-07-31 | `4214349` | Un-dismiss path unconfirmed; `enrich.ts` prompt not reviewed | Unassigned |
 | Users & permissions | `/settings?tab=members` | [product/users-and-permissions](product/users-and-permissions/README.md) | Partially verified | 2026-07-31 | `15329e3` | No tests exist to raise this to Verified. Only the crown-only action list re-verified at this commit | Unassigned |
 | Health & CS Pulse | `/reports/health`, profile | [product/health](product/health/README.md) | **Contradictory** | 2026-07-31 | `4214349` | Two systems; override behaviour in the live path unverified | Unassigned |
@@ -50,12 +56,12 @@ implication — it simply has not been read again. Only rows the change touched 
 |---|---|---|---|---|
 | [PRODUCT_OVERVIEW.md](PRODUCT_OVERVIEW.md) | Partially verified | 2026-07-31 | `4214349` | — |
 | [PRODUCT_MAP.md](PRODUCT_MAP.md) | Verified | 2026-07-31 | `15329e3` | Page-section lists are summaries, not exhaustive. Only the `/use-cases` rows and the access table were re-read at this commit |
-| [GLOSSARY.md](GLOSSARY.md) | Partially verified | 2026-07-31 | `4214349` | Usage and support vocabulary thin |
-| [data-model](data-model/README.md) | Partially verified | 2026-07-31 | `4214349` | Per-entity field lists incomplete; health tables not individually documented |
+| [GLOSSARY.md](GLOSSARY.md) | Partially verified | 2026-07-31 | `4214349` | Usage and support vocabulary thin. *Tech stack* and *Integration notes* added 2026-09-09 at `d45a6cd`; nothing else re-read |
+| [data-model](data-model/README.md) | Partially verified | 2026-07-31 | `4214349` | Per-entity field lists incomplete; health tables not individually documented. The nine `tech_stack_*` keys were added to the JSONB inventory at `d45a6cd` |
 | [architecture](architecture/README.md) | Partially verified | 2026-07-31 | `4214349` | `instrumentation.ts` unverified |
-| [known-limitations](known-limitations/README.md) | Partially verified | 2026-07-31 | `15329e3` | Now carries outstanding-work and never-browser-tested sections |
+| [known-limitations](known-limitations/README.md) | Partially verified | 2026-09-09 | `15329e3` | Carries outstanding-work and never-browser-tested sections. The `scratch-*` row was re-counted at `d45a6cd` (26 tracked routes, 8 unguarded in production); the Testing section's "seven test files, 124 tests" is **stale** — 24 test files exist |
 | [contradictions](known-limitations/contradictions.md) | Verified | 2026-07-31 | `15329e3` | — |
-| [releases/CHANGELOG.md](releases/CHANGELOG.md) | Partially verified | 2026-07-31 | `15329e3` | Only covers 2026-07-26 onward. Backfill run figures are reported from an execution, not repo-verifiable |
+| [releases/CHANGELOG.md](releases/CHANGELOG.md) | Partially verified | 2026-09-09 | `d45a6cd` | Covers 2026-07-26 to 2026-07-31 plus the 2026-09-09 Tech stack entry. **2026-08-01 → 2026-09-08 is a gap** — roughly 40 commits with no entry. Backfill run figures are reported from an execution, not repo-verifiable |
 | [BACKLOG.md](BACKLOG.md) | Verified | 2026-07-31 | `4214349` | — |
 
 ## Business rules
@@ -91,6 +97,7 @@ implication — it simply has not been read again. Only rows the change touched 
 | [0008](decisions/0008-a-retirement-marker-is-not-enough-keep-the-taxonomy-row.md) | A retirement marker is not enough — keep the taxonomy row | Accepted |
 | [0009](decisions/0009-validate-outbound-urls-on-read-not-only-on-write.md) | Validate an outbound URL on read | Accepted |
 | [0010](decisions/0010-transfer-the-universe-by-name-never-by-id.md) | Transfer by name, never by id | Accepted |
+| [0023](decisions/0023-a-tech-stack-is-a-list-per-category-written-through-on-every-chip.md) | A tech stack is a list per category, written through on every chip | Accepted |
 
 ## Pre-existing documents retained
 
@@ -108,7 +115,9 @@ implication — it simply has not been read again. Only rows the change touched 
 - **9 business-rule families documented**, 4 `Missing`. Three individual rules
   (use-case-associations R2, R2a, R7a) reached `Verified` on 2026-07-31 — the first rules in
   Signal pinned by tests written specifically for the invariant rather than for the module.
-- **10 decision records.**
+- **16 decision records on disk** — 11 indexed, plus `0023` (written 2026-09-09) and four
+  earlier records the index does not list. See
+  [decisions/README](decisions/README.md).
 - **1 area verified non-functional** and documented as such.
 - **Zero product areas at `Verified`** except `PRODUCT_MAP` and `contradictions` — a direct
   consequence of seven test files covering the whole product, none of which touch a server

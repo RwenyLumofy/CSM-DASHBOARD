@@ -2,6 +2,8 @@
 
 **Status:** Partially verified · **No tests**
 **Last verified:** 2026-07-31 · **Commit:** `4214349`
+*Inconsistency 2a was added 2026-09-09 after re-reading the field lists at `d45a6cd`; no
+other rule in this document was re-verified in that pass.*
 
 ---
 
@@ -105,6 +107,12 @@ account became complete.
    yellow gap and twelve red gaps score identically: 0.
 2. **The field list is in code**, not configuration, unlike client property definitions
    which are admin-editable. Adding a required field is a code change.
+2a. **Fields added to the profile do not join the list by default.** The Client Profile's
+   [Tech stack](../product/client-profile/tech-stack.md) section (commit `d45a6cd`) added
+   nine `clients.properties` keys that no completeness check reads, so an account with no
+   tech stack recorded is never flagged. Whether it should be is a product decision, not an
+   oversight in the rule — but the coupling is manual, and nothing fails when a new field
+   is left out.
 3. **No tests.**
 4. **The clients directory silently blanks the indicator** when the deals query times out
    — indistinguishable from "no gaps".
