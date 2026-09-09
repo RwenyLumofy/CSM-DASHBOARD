@@ -33,6 +33,7 @@ import {
   Gauge,
   Inbox,
   LifeBuoy,
+  Layers,
   ListChecks,
   Loader2,
   Mail,
@@ -84,6 +85,8 @@ import type { ProjectDetail } from "@/lib/projects/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { FIELD_SEVERITY } from "@/lib/profile-completeness";
+import { TECH_STACK_FIELDS, TECH_STACK_NOTES_KEY, TECH_STACK_OTHER, ALL_TOOL_SUGGESTIONS, normalizeTools } from "@/lib/tech-stack";
+import { ToolChipInput } from "@/components/clients/ToolChipInput";
 import {
   DEAL_OVERRIDES_KEY,
   DEAL_DATES_KEY,
@@ -485,7 +488,160 @@ function GeneralTab({
           </FieldGrid>
         </Section>
       ))}
+
+      {/* What they already run — the systems Lumofy integrates with, pulls
+          people/skills data from, or displaces. CSM-entered; no HubSpot source. */}
+      <TechStackSection clientId={id} props={props} />
     </Panel>
+  );
+}
+
+/* ----------------------------------------------------------- tech stack */
+
+/**
+ * The account's existing systems. Fixed rows for the categories that come up
+ * on nearly every deal, plus a free-text box for everything else — versions,
+ * integration constraints, the in-house tool nobody else has heard of.
+ */
+export function TechStackSection({ clientId, props }: { clientId: string; props: Record<string, unknown> }) {
+  /* Chips are written straight through on every add/remove, so the section
+     has no Save button and no dirty state to lose. Each category is its own
+     property key — one PATCH touches one key. */
+  const categories = TECH_STACK_FIELDS.map((f) => ({ ...f, tools: normalizeTools(props[f.key]) }));
+  const other = normalizeTools(props[TECH_STACK_OTHER.key]);
+
+  /* The header count has to track the chips as they're added, not the server
+     props this rendered from — those don't refresh until the page does. */
+  const [counts, setCounts] = useState<Record<string, number>>(() => ({
+    ...Object.fromEntries(categories.map((c) => [c.key, c.tools.length])),
+    [TECH_STACK_OTHER.key]: other.length,
+  }));
+  const total = Object.values(counts).reduce((n, c) => n + c, 0);
+
+  async function saveTools(key: string, next: string[]): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ properties: { [key]: next.length > 0 ? next : null } }),
+      });
+      if (!res.ok) return false;
+      setCounts((c) => ({ ...c, [key]: next.length }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  return (
+    <Section
+      icon={Layers}
+      title="Tech stack"
+      subtitle="Systems this account already runs"
+      defaultOpen={false}
+      right={<Badge tone="neutral">{total === 0 ? "Not recorded" : `${total} tool${total === 1 ? "" : "s"}`}</Badge>}
+    >
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+        {categories.map((f) => (
+          <ToolChipInput
+            key={f.key}
+            label={f.label}
+            value={f.tools}
+            suggestions={f.suggestions}
+            placeholder={f.placeholder}
+            onCommit={(next) => saveTools(f.key, next)}
+          />
+        ))}
+        <ToolChipInput
+          label={TECH_STACK_OTHER.label}
+          value={other}
+          suggestions={ALL_TOOL_SUGGESTIONS}
+          placeholder={TECH_STACK_OTHER.placeholder}
+          onCommit={(next) => saveTools(TECH_STACK_OTHER.key, next)}
+        />
+      </div>
+      <div className="mt-5 border-t border-border-subtle pt-4">
+        <TechStackNotes clientId={clientId} value={props[TECH_STACK_NOTES_KEY]} />
+      </div>
+    </Section>
+  );
+}
+
+/** Prose alongside the chips: who owns a system, how it can be connected,
+ *  what blocks a migration — the things a tool name can't carry. */
+function TechStackNotes({ clientId, value }: { clientId: string; value: unknown }) {
+  const initial = typeof value === "string" ? value : "";
+  const [saved, setSaved] = useState(initial);
+  const [draft, setDraft] = useState(initial);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  function cancel() {
+    setDraft(saved);
+    setEditing(false);
+  }
+
+  async function commit() {
+    const next = draft.trim();
+    const prev = saved;
+    // Optimistic, with rollback — same contract as EditableField.commit().
+    setSaved(next);
+    setEditing(false);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ properties: { [TECH_STACK_NOTES_KEY]: next || null } }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch {
+      setSaved(prev);
+      setDraft(prev);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">
+        Integration notes
+      </span>
+      {editing ? (
+        <div className="flex flex-col items-end gap-2">
+          <textarea
+            autoFocus
+            rows={4}
+            disabled={saving}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") cancel(); }}
+            placeholder="Who owns these systems, how can we connect to them, and what stands in the way?"
+            className={cn(editCls, "resize-y placeholder:text-fg-subtle")}
+          />
+          <span className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={cancel} disabled={saving}>Cancel</Button>
+            <Button size="sm" iconLeft={saving ? Loader2 : Check} onClick={commit} disabled={saving}>Save</Button>
+          </span>
+        </div>
+      ) : (
+        <button
+          onClick={() => { setDraft(saved); setEditing(true); }}
+          className="group -ml-1 flex w-full items-start gap-1.5 rounded px-1 py-1 text-left transition-colors hover:bg-bg-muted"
+        >
+          <span
+            className={cn(
+              "whitespace-pre-wrap break-words font-body text-[13px] leading-relaxed",
+              saved ? "text-fg" : "italic text-fg-subtle",
+            )}
+          >
+            {saved || "No notes yet — click to add."}
+          </span>
+          <Pencil size={11} className="ml-auto mt-1 shrink-0 text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100" />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -2144,6 +2300,7 @@ function EditableField({
   currency,
   readOnly,
   alertSeverity,
+  placeholder,
 }: {
   clientId: string;
   label: string;
@@ -2154,6 +2311,8 @@ function EditableField({
   currency?: string;
   readOnly?: boolean;
   alertSeverity?: "red" | "yellow";
+  /** Hint shown in the empty input — e.g. a couple of named tools. */
+  placeholder?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2221,7 +2380,7 @@ function EditableField({
         {readOnly || !target ? (
           <span className={valueCls}>{display}</span>
         ) : editing ? (
-          <EditInput type={type} options={options} value={localValue} saving={saving} onCommit={commit} onCancel={() => setEditing(false)} />
+          <EditInput type={type} options={options} value={localValue} saving={saving} placeholder={placeholder} onCommit={commit} onCancel={() => setEditing(false)} />
         ) : (
           <button onClick={() => setEditing(true)} className="group -ml-1 flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-bg-muted">
             <span className={valueCls}>{display}</span>
@@ -2459,6 +2618,7 @@ function EditInput({
   options,
   value,
   saving,
+  placeholder,
   onCommit,
   onCancel,
 }: {
@@ -2466,6 +2626,7 @@ function EditInput({
   options?: Opt[];
   value: unknown;
   saving: boolean;
+  placeholder?: string;
   onCommit: (out: unknown) => void;
   onCancel: () => void;
 }) {
@@ -2520,7 +2681,7 @@ function EditInput({
   const inputType = type === "date" ? "date" : "text";
   return (
     <div className="flex items-center gap-1.5">
-      <input autoFocus disabled={saving} type={inputType} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} className={editCls} />
+      <input autoFocus disabled={saving} type={inputType} value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} className={cn(editCls, "placeholder:text-fg-subtle")} />
       {buttons}
     </div>
   );
