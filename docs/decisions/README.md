@@ -21,6 +21,12 @@ but the reason is not, the record says *"Rationale requires confirmation from th
 | [0009](0009-validate-outbound-urls-on-read-not-only-on-write.md) | Validate an outbound URL on read, not only on the write path that happens to exist | Accepted | 2026-07-31 |
 | [0010](0010-transfer-the-universe-by-name-never-by-id.md) | Move the Use Case Universe between environments by name, never by id | Accepted | 2026-07-29 |
 | [0011](0011-split-compliance-out-of-readiness-and-transformation.md) | Split Compliance out of Readiness & Transformation | Accepted | 2026-08-01 |
+| [0023](0023-a-tech-stack-is-a-list-per-category-written-through-on-every-chip.md) | A tech stack is a list per category, written through on every chip | Accepted | 2026-09-09 |
+
+> **This index is behind the folder.** Records `0018`, `0020`, `0021` and `0022` exist and
+> are not listed above; `0012`–`0017` and `0019` are referenced by other records but have no
+> file. Indexing them belongs to the changes that wrote them — noted here on 2026-09-09 so
+> the gap is visible rather than silent.
 
 ## Decisions that are evident but not yet recorded
 

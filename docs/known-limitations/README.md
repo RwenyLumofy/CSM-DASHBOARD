@@ -57,7 +57,7 @@ What is untested is everything between the button and the pure function.
 | **Auth-disabled mode grants everyone Super Admin** | Correct locally; catastrophic if a deployment loses its Clerk keys. Nothing prevents that configuration booting |
 | **`SUPER_ADMIN_EMAILS` has a hardcoded default** | `lib/config.ts` — an environment that does not set it grants a permanent super-admin |
 | **No permission tests** | Every gate is verified by reading only |
-| **`app/scratch-*` prototypes ship** | Seven routes outside the app shell in the production build. `/scratch-wf` was one of them, and it was a data leak |
+| **`app/scratch-*` prototypes ship** | Prototype routes outside the product, with no navigation entry and no documentation. `/scratch-wf` was one of them, and it was a data leak. **Re-counted 2026-09-09 at `d45a6cd`: 26 tracked scratch routes**, of which **8 have no production guard and therefore ship in the production build** — `scratch-clients`, `scratch-health`, `scratch-insights`, `scratch-model-editor`, `scratch-pulse`, `scratch-settings`, `scratch-usage-v2`, `scratch-usecases`. The other 18 call `notFound()` when `NODE_ENV === "production"`. The newest, [`app/scratch-tech-stack/page.tsx`](../../app/scratch-tech-stack/page.tsx) (commit `d45a6cd`), is one of the guarded ones: it previews the Client Profile's [Tech stack](../product/client-profile/tech-stack.md) section against a hand-written properties bag with the client `PATCH` stubbed in the browser, so nothing it does reaches a database. **It is not product.** Guarding the remaining eight is the outstanding work |
 | **Env files in the working tree** | `.env.clone`, `.env.local`, `.env.local.bak` sit in the working directory. **Verified 2026-07-31: all three are gitignored** (`.gitignore:24,86,87`), so this is a local-machine concern, not a repository leak |
 
 ## Auditability
@@ -136,6 +136,11 @@ scheduled reports.
 - No queue surfacing assignment decisions stuck in `needs_admin`.
 - No way to un-dismiss an Action-list item that this pass identified.
 - `/import` has no navigation entry.
+- The [tech stack](../product/client-profile/tech-stack.md) recorded on an account is
+  readable only by opening that account — no directory column, no filter, no Insights
+  panel, no export, and no contribution to profile completeness. "Which of our accounts run
+  Workday?" is a database query, not a product question, and tool names are free text with
+  no spelling reconciliation.
 
 ---
 

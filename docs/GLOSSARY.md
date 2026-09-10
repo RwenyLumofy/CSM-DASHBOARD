@@ -5,6 +5,9 @@
 The language Signal uses. Where a term is used differently in the UI and the code, both
 are given — the mismatch is the useful part.
 
+*Tech stack* and *Integration notes* were added on 2026-09-09 against `d45a6cd`; no other
+entry was re-read in that pass.
+
 ---
 
 ## Accounts and people
@@ -34,6 +37,15 @@ a synced Contact (`contactId`) or stand alone for someone never in HubSpot. Stor
 
 **Stakeholder role** — the relationship role (Champion, Economic Buyer, …), configurable
 in Settings → Properties → Stakeholder types.
+
+**Tech stack** — the systems an account already runs (HRIS, LMS, performance, ATS, SSO,
+collaboration, BI, other), recorded by hand on the Client Profile's General information
+tab. CSM-entered only; no source system supplies it. Eight `tech_stack_*` lists in
+`clients.properties`. Not the same as **Integrations**, which is Signal's own connection to
+HubSpot, Intercom and Metabase. `lib/tech-stack.ts`.
+
+**Integration notes** — the free-text box beside the tech stack: who owns a system, how it
+can be connected, what blocks a migration. `clients.properties.tech_stack_notes`.
 
 ## Permissions
 

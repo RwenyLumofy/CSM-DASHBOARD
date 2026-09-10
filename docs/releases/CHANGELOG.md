@@ -16,6 +16,90 @@ limitations · commit.
 
 ---
 
+## 2026-09-10
+
+### Tech stack tells a reader they are a reader, and says why a save failed
+**Area:** Client Profile → General information → Tech stack
+**Roles affected:** Guest and any operator on an account they do not own (read) · CSM,
+Admin, Super Admin (write, unchanged)
+**Before:** The section rendered live inputs for everyone. Someone without write access
+could type a tool, watch the chip appear, and watch it disappear a moment later with no
+explanation — their 403 arrived after the chip had been drawn. The same silence hid a
+network failure from a legitimate editor, so a CSM could leave the page believing they had
+recorded a stack that was never written.
+**After:** The section now reads the same server-resolved `canEditClient` the profile page
+already had. A viewer without write access sees the recorded tools as plain chips — no
+text input, no remove buttons, no click-to-edit on the notes, an em dash where a category
+is empty — rather than an editor that would refuse them. For someone who *can* write, a
+failed save still rolls the chip back, but now says why underneath the box: the route's own
+refusal wording, an HTTP status, or "Couldn't reach the server — nothing was saved." when
+the request never left the browser.
+
+**Migration/data:** None. No schema, key or stored value changed.
+**Known limitations:** Only the Tech stack section honours the flag. The admin-defined
+property groups and the Account grid above it still render click-to-edit controls for a
+reader and still roll back silently — the server gate has always been the real permission
+and is unchanged, but the interface is now inconsistent within one tab. No test covers any
+of this.
+**Commit:** the change that carries this entry.
+
+---
+
+## 2026-09-09
+
+### Client Profile records the systems an account already runs
+**Area:** Client Profile → General information
+**Roles affected:** CSM (operator) on owned accounts · Admin and Super Admin on any account
+(write) · everyone who can open a profile (read)
+**Before:** There was nowhere in Signal to write down what an account already runs — the
+HRIS the org chart has to come out of, the LMS Lumofy sits beside, the identity provider
+that gates every login. That answer lived in call notes and left with whoever took them.
+**After:** A **Tech stack** section at the bottom of the General information tab, collapsed
+by default, with a badge showing how many tools are recorded. Eight lists — HRIS / HRMS,
+LMS / LXP, Performance management, ATS / recruiting, SSO / identity, Collaboration,
+BI / analytics, and a catch-all *Other tools* — plus an **Integration notes** free-text box
+for who owns a system, how it can be connected and what blocks a migration.
+
+Each list is a chip box rather than a text field, because recording a stack is
+list-building: known tools are offered as you type, pasting `Workday, BambooHR, Personio`
+files three chips, and a name nobody has heard of (the in-house portal) is accepted exactly
+like a known one. There is **no Save button** — every add and removal is written
+immediately. (A failed write silently removed the chip again; corrected the next day —
+see the 2026-09-10 entry below.)
+
+**Migration/data:** **None.** Each category is its own key in `clients.properties`
+(`tech_stack_hris`, `_lms`, `_performance`, `_ats`, `_sso`, `_collaboration`, `_bi`,
+`_other`, plus `tech_stack_notes`) — no schema change and no backfill. Because the sync
+merges properties rather than replacing them, a HubSpot sync or a re-import cannot clear a
+recorded stack. **Nothing populates these fields automatically**: they are CSM-entered
+only, and every account starts empty.
+
+**Permissions:** unchanged. Writes go through the existing `PATCH /api/clients/[id]` and its
+`canSeeClient` / `canEditClient` gates — an operator can record a stack only on an account
+they own or have been granted.
+
+**Known limitations:**
+- The section is shown with live inputs to people who cannot save (Guests, non-owning
+  operators). Their chip is drawn, the server refuses it, and it vanishes **with no error
+  message**. The same silent rollback covers a genuine network failure.
+- The recorded stack **feeds nothing**: no profile-completeness contribution, no health
+  input, no action item, no notification, no Insights panel, no Clients-directory column,
+  no export. It is readable one account at a time.
+- Tool names are free text with no spelling reconciliation, so aggregating them across the
+  book would need normalisation first.
+- The suggestion lists are code constants, not admin-curated property options.
+- No tests cover any of it.
+
+**Documentation:** [client-profile → tech-stack](../product/client-profile/tech-stack.md)
+**Commit:** `d45a6cd` ([`lib/tech-stack.ts`](../../lib/tech-stack.ts),
+[`components/clients/ToolChipInput.tsx`](../../components/clients/ToolChipInput.tsx))
+
+> **Gap in this changelog.** Entries between 2026-08-01 and 2026-09-08 are missing —
+> notes, notifications and expansion work landed in that window with specifications under
+> `docs/specs/` but no release entry. This entry covers `d45a6cd` only.
+
+---
+
 ## 2026-07-31
 
 ### Use-case names and categories restored to the Definition Library

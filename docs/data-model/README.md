@@ -14,7 +14,7 @@ does not live in a table at all.
 | Tier | What lives there | Why |
 |---|---|---|
 | **Tables** | Accounts, deals, contacts, notes, attachments, actions, projects, usage, ARR events, users | Normal relational data |
-| **`clients.properties` JSONB** | CS Pulse, health snapshot, stakeholder profiles and links, stakeholder mappings, use-case implementations, deal overrides, deal dates | Account-scoped product state that inherits the account's permission scope for free, and can change shape without a migration |
+| **`clients.properties` JSONB** | CS Pulse, health snapshot, stakeholder profiles and links, stakeholder mappings, use-case implementations, deal overrides, deal dates, tech stack | Account-scoped product state that inherits the account's permission scope for free, and can change shape without a migration |
 | **`workspace_config` key–value** | Use-case taxonomy, health formula, assignment config, churn taxonomy, role labels, per-user Today triage | Workspace configuration with no natural table, added without migrations |
 
 **Consequence:** reading `schema.ts` alone gives a misleading picture of the product. The
@@ -138,6 +138,8 @@ the JSONB inventory below.
 | deal override keys | In-app edits layered over synced deal fields | [client-profile](../product/client-profile/README.md) |
 | `deal_dates` (`DEAL_DATES_KEY`) | Seven editable deal dates | [dates-and-periods](../business-rules/dates-and-periods.md) |
 | the churn reason id | Which taxonomy reason this account churned for | [churn](../product/churn/README.md) |
+| `tech_stack_hris`, `tech_stack_lms`, `tech_stack_performance`, `tech_stack_ats`, `tech_stack_sso`, `tech_stack_collaboration`, `tech_stack_bi`, `tech_stack_other` | The systems the account already runs — one `string[]` per category, CSM-entered, never synced | [client-profile → tech-stack](../product/client-profile/tech-stack.md) |
+| `tech_stack_notes` | Free text alongside those lists: system ownership, connection routes, migration blockers | [client-profile → tech-stack](../product/client-profile/tech-stack.md) |
 
 ### On `workspace_config`
 
