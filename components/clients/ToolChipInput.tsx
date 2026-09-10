@@ -48,10 +48,15 @@ export function ToolChipInput({
   const [tools, setTools] = useState<string[]>(value);
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
-  /* null until the user actually arrows/hovers into the list. Enter falls back
-     to the raw text while it's null, so typing "Workday Extra" adds that —
-     not the "Workday" that happens to sit at the top of the matches. */
+  /* Which suggestion is lit up. Set by arrowing AND by hovering, because both
+     should look the same to the eye. */
   const [highlight, setHighlight] = useState<number | null>(null);
+  /* ...but only ARROWING arms Enter. A hover is where the mouse happens to be
+     resting, not a choice: with the pointer left over the list, typing your own
+     tool and pressing Enter used to file whatever sat under the cursor. Enter
+     falls back to the raw text unless you actually picked something, so
+     "Workday Extra" adds that — not the "Workday" the list is offering. */
+  const [pickedByKey, setPickedByKey] = useState(false);
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -81,7 +86,7 @@ export function ToolChipInput({
       .slice(0, 8);
   }, [draft, suggestions, tools]);
 
-  useEffect(() => setHighlight(null), [draft]);
+  useEffect(() => { setHighlight(null); setPickedByKey(false); }, [draft]);
 
   // Close the suggestion list on an outside click, not on blur — blur fires
   // before the click lands on a suggestion and would eat the selection.
@@ -145,7 +150,7 @@ export function ToolChipInput({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    const picked = highlight != null ? matches[highlight] : null;
+    const picked = pickedByKey && highlight != null ? matches[highlight] : null;
 
     if (e.key === "Enter" || e.key === ",") {
       const typed = draft.trim();
@@ -158,13 +163,16 @@ export function ToolChipInput({
       if (matches.length === 0) return;
       e.preventDefault();
       setOpen(true);
-      setHighlight((h) => (h == null ? 0 : Math.min(h + 1, matches.length - 1)));
+      setPickedByKey(true);
+      setHighlight((h) => (h == null || !pickedByKey ? 0 : Math.min(h + 1, matches.length - 1)));
       return;
     }
     if (e.key === "ArrowUp") {
       if (matches.length === 0) return;
       e.preventDefault();
+      // Arrowing back off the top returns to what you typed.
       setHighlight((h) => (h == null || h === 0 ? null : h - 1));
+      setPickedByKey((k) => (highlight === 0 ? false : k));
       return;
     }
     if (e.key === "Escape") {
@@ -257,13 +265,19 @@ export function ToolChipInput({
             role="listbox"
             className="absolute left-0 top-full z-30 mt-1.5 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-xl"
           >
+            {/* The list is a typing aid, not the menu of what may be recorded.
+                Said once, at the top, so an in-house tool with no entry here
+                doesn't read as unsupported. */}
+            <div className="border-b border-border-subtle px-3 pb-1.5 pt-1 font-body text-[11px] text-fg-subtle">
+              Suggestions — or type any tool and press Enter
+            </div>
             {matches.map((s, i) => (
               <button
                 key={s}
                 type="button"
                 role="option"
                 aria-selected={i === highlight}
-                onMouseEnter={() => setHighlight(i)}
+                onMouseEnter={() => setHighlight(i)} /* lights it up; does not arm Enter */
                 onMouseDown={(e) => { cancelBlurCommit(); e.preventDefault(); }}
                 onClick={() => { cancelBlurCommit(); add(s); inputRef.current?.focus(); }}
                 className={cn(
@@ -275,7 +289,7 @@ export function ToolChipInput({
                 <span className="truncate">{s}</span>
               </button>
             ))}
-            {draft.trim() && highlight == null && !matches.some((m) => m.toLowerCase() === draft.trim().toLowerCase()) && (
+            {draft.trim() && !pickedByKey && !matches.some((m) => m.toLowerCase() === draft.trim().toLowerCase()) && (
               <div className="mt-1 border-t border-border-subtle px-3 pb-0.5 pt-1.5 font-body text-[11px] text-fg-subtle">
                 Press Enter to add &ldquo;{draft.trim()}&rdquo;
               </div>

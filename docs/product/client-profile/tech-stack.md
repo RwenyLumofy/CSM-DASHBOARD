@@ -68,8 +68,15 @@ than inputs that would be refused (see [Permissions](#permissions)).
    into; the box shows the recorded chips and nothing else.
 3. **User actions** — type a name and press **Enter**, or pick a suggestion with the arrow
    keys or the mouse. Suggestions appear as you type (substring match, case-insensitive,
-   **at most 8** shown), already-recorded tools are excluded from them, and free text that
-   matches nothing is accepted — the box shows *Press Enter to add "…"*.
+   **at most 8** shown), already-recorded tools are excluded from them, and the list is
+   headed *Suggestions — or type any tool and press Enter*, because it is a typing aid and
+   **not** the set of tools that may be recorded.
+
+   **Enter files what you typed unless you arrowed onto a suggestion.** Hovering the list
+   lights a row up but does not arm Enter — the pointer resting over a dropdown is where
+   the mouse happens to be, not a choice — so an in-house tool whose name merely overlaps
+   a known one is recorded as typed. Arrowing back off the top row returns Enter to the
+   typed text, and while no row is armed the list shows *Press Enter to add "…"*.
 4. **System behaviour** — the chip is added optimistically, then the whole category list is
    `PATCH`ed to `/api/clients/[id]` as `{ properties: { <category key>: [...] } }`. The
    route applies the write gate — the *only* place it is applied on this path — and merges
@@ -172,6 +179,10 @@ Enforced in the interface unless stated otherwise.
 - **R2 — One category, one key, one `string[]`.** Each category is its own top-level
   property key, so one edit `PATCH`es one key. Two people filling in different categories
   on the same account cannot clobber each other.
+- **R2a — The suggestion lists are not a vocabulary.** Any text is accepted, in any
+  category. The lists in `lib/tech-stack.ts` only shorten typing for tools that recur
+  across accounts; an unlisted or in-house system is recorded exactly as written, and
+  nothing downstream validates a name against them.
 - **R3 — A category may not hold the same tool twice**, compared case-insensitively. The
   same tool **may** appear in two different categories; nothing prevents it.
 - **R4 — Every add and every removal is written immediately**, with optimistic rollback on
@@ -334,7 +345,8 @@ document
 
 **Documentation status:** Partially verified — implementation read end to end (component →
 route → `updateClientDetails` → `mergeClientPropertiesDb`); **no test covers any of it**.
-**Last verified:** 2026-09-10
+**Last verified:** 2026-09-10 (suggestion/free-text behaviour re-verified in the dev
+preview after the hover fix)
 **Verified against commit:** `d45a6cd`, plus the read-only / failure-message pass committed
 alongside this revision (the permissions and error-state sections were re-read against it,
 and both states were exercised in the dev preview)
