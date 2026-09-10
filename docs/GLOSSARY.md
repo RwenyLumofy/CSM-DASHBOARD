@@ -38,11 +38,18 @@ a synced Contact (`contactId`) or stand alone for someone never in HubSpot. Stor
 **Stakeholder role** — the relationship role (Champion, Economic Buyer, …), configurable
 in Settings → Properties → Stakeholder types.
 
-**Tech stack** — the systems an account already runs (HRIS, LMS, performance, ATS, SSO,
-collaboration, BI, other), recorded by hand on the Client Profile's General information
-tab. CSM-entered only; no source system supplies it. Eight `tech_stack_*` lists in
-`clients.properties`. Not the same as **Integrations**, which is Signal's own connection to
-HubSpot, Intercom and Metabase. `lib/tech-stack.ts`.
+**Tech stack** — the systems an account already runs, recorded by hand on the Client
+Profile's General information tab. CSM-entered only; no source system supplies it. One
+`tech_stack_*` list in `clients.properties` per category, plus a fixed *Other tools*
+catch-all. **The categories are workspace configuration** (Settings → Properties → Tech
+stack categories, `workspace_config.tech_stack_categories`); they ship as HRIS, LMS,
+performance, ATS, SSO, collaboration and BI. Not the same as **Integrations**, which is
+Signal's own connection to HubSpot, Intercom and Metabase. `lib/tech-stack.ts`.
+
+**Tech stack category** — one configurable box in that section. Carries a **label** (what
+people read, editable) and a **key** (where the tools are stored, generated once and never
+changed). Renaming keeps the recorded tools; removing a category hides them without
+deleting them.
 
 **Integration notes** — the free-text box beside the tech stack: who owns a system, how it
 can be connected, what blocks a migration. `clients.properties.tech_stack_notes`.

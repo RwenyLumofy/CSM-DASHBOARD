@@ -85,7 +85,7 @@ import type { ProjectDetail } from "@/lib/projects/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { FIELD_SEVERITY } from "@/lib/profile-completeness";
-import { TECH_STACK_FIELDS, TECH_STACK_NOTES_KEY, TECH_STACK_OTHER, ALL_TOOL_SUGGESTIONS, normalizeTools } from "@/lib/tech-stack";
+import { TECH_STACK_NOTES_KEY, TECH_STACK_OTHER, allToolSuggestions, normalizeTools, type TechStackField } from "@/lib/tech-stack";
 import { ToolChipInput } from "@/components/clients/ToolChipInput";
 import {
   DEAL_OVERRIDES_KEY,
@@ -176,6 +176,10 @@ interface Props {
   allUseCaseEntries: ResolvedUseCase[];
   /** This account's own use-case associations (client.properties.use_case_implementations). */
   useCaseImplementations: UseCaseImplementation[];
+  /** Workspace-configured Tech stack categories (Settings → Tech stack
+   *  categories), normalized server-side with the shipped defaults as the
+   *  fallback — so this is never empty. */
+  techStackCategories: TechStackField[];
 }
 
 export function ClientProfileTabs(props: Props) {
@@ -272,7 +276,7 @@ export function ClientProfileTabs(props: Props) {
               stakeholders={stakeholderOptions}
               implementations={useCaseImplementations}
             />
-            <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} canEdit={canEditClient} />
+            <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} canEdit={canEditClient} techStackCategories={props.techStackCategories} />
           </>
         )}
         {active === "stakeholders" && (
@@ -405,6 +409,7 @@ function GeneralTab({
   deals,
   propertyDefs,
   canEdit,
+  techStackCategories,
 }: {
   client: Client;
   deals: Deal[];
@@ -412,6 +417,8 @@ function GeneralTab({
   /** Server-resolved write gate, passed on to Tech stack. The older field
    *  groups above it don't read it yet — see the Section comment below. */
   canEdit: boolean;
+  /** Workspace-configured Tech stack categories, read on the server. */
+  techStackCategories: TechStackField[];
 }) {
   const id = client.id;
   const props = client.properties ?? {};
@@ -501,7 +508,7 @@ function GeneralTab({
           write access would otherwise type into a box that 403s. Giving those
           older groups the same treatment is a separate change — the gate is
           server-side either way, this is only what the page offers. */}
-      <TechStackSection clientId={id} props={props} canEdit={canEdit} />
+      <TechStackSection clientId={id} props={props} canEdit={canEdit} categories={techStackCategories} />
     </Panel>
   );
 }
@@ -541,18 +548,23 @@ export function TechStackSection({
   clientId,
   props,
   canEdit,
+  categories: configured,
 }: {
   clientId: string;
   props: Record<string, unknown>;
   /** Server-resolved (canEditClient). The API enforces it again; this only
    *  decides whether to offer an editor or a read-only list. */
   canEdit: boolean;
+  /** Admin-configured category list, already normalized (and already fallen
+   *  back to the shipped defaults if none is saved). */
+  categories: TechStackField[];
 }) {
   /* Chips are written straight through on every add/remove, so the section
      has no Save button and no dirty state to lose. Each category is its own
      property key — one PATCH touches one key. */
-  const categories = TECH_STACK_FIELDS.map((f) => ({ ...f, tools: normalizeTools(props[f.key]) }));
+  const categories = configured.map((f) => ({ ...f, tools: normalizeTools(props[f.key]) }));
   const other = normalizeTools(props[TECH_STACK_OTHER.key]);
+  const otherSuggestions = allToolSuggestions(configured);
 
   /* The header count has to track the chips as they're added, not the server
      props this rendered from — those don't refresh until the page does. */
@@ -593,7 +605,7 @@ export function TechStackSection({
         <ToolChipInput
           label={TECH_STACK_OTHER.label}
           value={other}
-          suggestions={ALL_TOOL_SUGGESTIONS}
+          suggestions={otherSuggestions}
           placeholder={TECH_STACK_OTHER.placeholder}
           canEdit={canEdit}
           onCommit={(next) => saveTools(TECH_STACK_OTHER.key, next)}

@@ -138,7 +138,7 @@ the JSONB inventory below.
 | deal override keys | In-app edits layered over synced deal fields | [client-profile](../product/client-profile/README.md) |
 | `deal_dates` (`DEAL_DATES_KEY`) | Seven editable deal dates | [dates-and-periods](../business-rules/dates-and-periods.md) |
 | the churn reason id | Which taxonomy reason this account churned for | [churn](../product/churn/README.md) |
-| `tech_stack_hris`, `tech_stack_lms`, `tech_stack_performance`, `tech_stack_ats`, `tech_stack_sso`, `tech_stack_collaboration`, `tech_stack_bi`, `tech_stack_other` | The systems the account already runs — one `string[]` per category, CSM-entered, never synced | [client-profile → tech-stack](../product/client-profile/tech-stack.md) |
+| `tech_stack_*` — one key per configured category, plus the fixed `tech_stack_other` | The systems the account already runs — one `string[]` per category, CSM-entered, never synced. The **categories are workspace configuration** (`workspace_config.tech_stack_categories`), so the exact key set is per workspace; the shipped seven are `tech_stack_hris`, `_lms`, `_performance`, `_ats`, `_sso`, `_collaboration`, `_bi`. A key is generated once and never follows a label rename, and removing a category leaves its data in the row, unread | [client-profile → tech-stack](../product/client-profile/tech-stack.md) |
 | `tech_stack_notes` | Free text alongside those lists: system ownership, connection routes, migration blockers | [client-profile → tech-stack](../product/client-profile/tech-stack.md) |
 
 ### On `workspace_config`
@@ -151,6 +151,7 @@ the JSONB inventory below.
 | assignment config keys | CSM and Implementation routing rules, capacity bands |
 | role label overrides | Workspace display names for roles |
 | `today_triage:{email}` | Per-person Today reviewed/snoozed decisions |
+| `tech_stack_categories` | The Tech stack boxes on every client profile: an ordered array of `{ key, label, suggestions }`. Absent means the shipped defaults. The `key` is a `clients.properties` key, so it is data, not a label |
 
 ---
 

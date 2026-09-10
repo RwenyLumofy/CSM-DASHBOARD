@@ -6,6 +6,8 @@ import { SyncManager } from "@/components/settings/SyncManager";
 import { MembersArea } from "@/components/settings/MembersArea";
 import { StakeholderTypesManager } from "@/components/settings/StakeholderTypesManager";
 import { AttachmentCategoriesManager } from "@/components/settings/AttachmentCategoriesManager";
+import { TechStackCategoriesManager } from "@/components/settings/TechStackCategoriesManager";
+import { normalizeTechStackCategories, DEFAULT_TECH_STACK_CATEGORIES, TECH_STACK_CONFIG_KEY, type TechStackField } from "@/lib/tech-stack";
 import { ProjectOptionsManager } from "@/components/settings/ProjectOptionsManager";
 import { ProjectTemplatesManager } from "@/components/settings/ProjectTemplatesManager";
 import { ChurnTaxonomyManager } from "@/components/settings/ChurnTaxonomyManager";
@@ -217,13 +219,15 @@ async function PropertiesTab({ superAdmin }: { superAdmin: boolean }) {
   const defs = await getPropertyDefinitions();
   let stakeholderTypes: string[] = [];
   let attachmentCategories: string[] = [];
+  let techStackCategories: TechStackField[] = DEFAULT_TECH_STACK_CATEGORIES;
   if (hasDatabase() && superAdmin) {
     try {
       const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
-      [stakeholderTypes, attachmentCategories] = await withDbTimeout(
+      [stakeholderTypes, attachmentCategories, techStackCategories] = await withDbTimeout(
         Promise.all([
           getWorkspaceConfigFromDb("stakeholder_types").then((v) => (v as string[]) ?? []),
           getWorkspaceConfigFromDb("attachment_categories").then((v) => (v as string[]) ?? []),
+          getWorkspaceConfigFromDb(TECH_STACK_CONFIG_KEY).then(normalizeTechStackCategories),
         ]),
       );
     } catch (err) {
@@ -258,6 +262,13 @@ async function PropertiesTab({ superAdmin }: { superAdmin: boolean }) {
             description="Define the categories CSMs can tag files with on every account's Attachments tab (e.g. Contract, Invoice, Deck). These appear as filter and picker options there."
           >
             <AttachmentCategoriesManager initialCategories={attachmentCategories} />
+          </SettingsSection>
+
+          <SettingsSection
+            title="Tech stack categories"
+            description="Define the boxes on every account's General information → Tech stack section — the kinds of system worth recording (HRIS, LMS, SSO…) and the tools suggested while typing in each. The suggestions never limit what a CSM can record."
+          >
+            <TechStackCategoriesManager initialCategories={techStackCategories} />
           </SettingsSection>
         </>
       )}

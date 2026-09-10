@@ -35,6 +35,7 @@ import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { getSupabaseProjectUrl } from "@/lib/integrations/supabase-storage";
 import { TAXONOMY_KEY, normalizeOverlay, resolveTaxonomy, resolveGroups } from "@/lib/use-case-overlay";
 import { IMPLEMENTATION_KEY, normalizeImplementations } from "@/lib/use-case-implementation";
+import { normalizeTechStackCategories, TECH_STACK_CONFIG_KEY } from "@/lib/tech-stack";
 
 // Per-request data + auth-gated — never static-generate this route.
 export const dynamic = "force-dynamic";
@@ -78,6 +79,20 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   // Best-effort: a failed read degrades to an empty database rather than
   // blanking the whole profile — the Use Case Portfolio card just shows
   // nothing to pick from.
+  /* Same best-effort contract as the taxonomy read below: a failed or absent
+     config falls back to the shipped categories, so the section renders its
+     defaults rather than disappearing. normalizeTechStackCategories already
+     returns the defaults for null/garbage, so there is nothing to decide here. */
+  const readTechStackCategories = async () => {
+    if (!hasDatabase()) return normalizeTechStackCategories(null);
+    try {
+      const { getWorkspaceConfigFromDb } = await import("@/lib/repo/drizzle");
+      return normalizeTechStackCategories(await getWorkspaceConfigFromDb(TECH_STACK_CONFIG_KEY));
+    } catch {
+      return normalizeTechStackCategories(null);
+    }
+  };
+
   const readUseCaseTaxonomy = async () => {
     if (!hasDatabase()) return normalizeOverlay({});
     try {
@@ -137,7 +152,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       getProjectConfig(),
       listProjectTemplates(),
     ]);
-  const [churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy, expansion] =
+  const [churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy, expansion, techStackCategories] =
     await Promise.all([
       getChurnTaxonomy(),
       isAdminOrSuper(),
@@ -147,6 +162,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       // Scoped through the same board read as /expansion, so a profile can
       // never show expansion for an account the viewer only reached by URL.
       getExpansionForClient(id),
+      readTechStackCategories(),
     ]);
   const useCaseImplementations = normalizeImplementations(
     (client.properties as Record<string, unknown> | undefined)?.[IMPLEMENTATION_KEY],
@@ -350,6 +366,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         allUseCaseEntries={resolveTaxonomy(useCaseTaxonomy, true)}
         useCaseGroups={resolveGroups(useCaseTaxonomy)}
         useCaseImplementations={useCaseImplementations}
+        techStackCategories={techStackCategories}
       />
     </div>
   );

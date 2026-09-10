@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { PreviewSection } from "./preview-client";
+import { PreviewSection, PreviewCategoryManager } from "./preview-client";
+import { normalizeTechStackCategories } from "@/lib/tech-stack";
 
 /* =========================================================================
    Dev preview — Client profile → General information → Tech stack.
@@ -26,6 +27,21 @@ const FILLED = {
     "Workday is the system of record for the org chart; HR ops owns it and will only expose a nightly CSV.\nSSO is Okta — SCIM provisioning is possible but needs IT sign-off.",
 };
 
+/* A workspace that threw out the shipped categories for its own. Proves the
+   section renders whatever Settings saved, not the constants in lib. */
+const CUSTOM_CATEGORIES = normalizeTechStackCategories([
+  { key: "tech_stack_hris", label: "Core HR (renamed)", suggestions: ["Bayzat", "ZenHR", "Darwinbox"] },
+  { key: "tech_stack_payroll", label: "Payroll", suggestions: ["Bayzat", "Gulf HR"] },
+  { key: "tech_stack_ticketing", label: "Ticketing", suggestions: ["Jira Service Management", "Zendesk"] },
+]);
+
+/* Recorded under tech_stack_hris — which the workspace above relabelled. The
+   tools follow the key, so they appear under the new name. */
+const CUSTOM_RECORDED = {
+  tech_stack_hris: ["Bayzat"],
+  tech_stack_payroll: ["Gulf HR"],
+};
+
 export default function Page() {
   if (process.env.NODE_ENV === "production") notFound();
   return (
@@ -44,6 +60,20 @@ export default function Page() {
         <p className="caption mt-1">What a Guest or a non-owning operator sees: the list, no inputs.</p>
       </div>
       <PreviewSection props={FILLED} canEdit={false} />
+
+      <div>
+        <h1 className="font-display text-lg font-bold text-fg">Tech stack — categories an admin configured</h1>
+        <p className="caption mt-1">
+          A saved list replaces the shipped one. Renaming keeps each key, so recorded tools follow the label.
+        </p>
+      </div>
+      <PreviewSection props={CUSTOM_RECORDED} categories={CUSTOM_CATEGORIES} />
+
+      <div>
+        <h1 className="font-display text-lg font-bold text-fg">Settings → Tech stack categories</h1>
+        <p className="caption mt-1">The admin editor. Saving is stubbed; nothing is written.</p>
+      </div>
+      <PreviewCategoryManager initialCategories={normalizeTechStackCategories(null)} />
 
       <div>
         <h1 className="font-display text-lg font-bold text-fg">Tech stack — the write is refused</h1>

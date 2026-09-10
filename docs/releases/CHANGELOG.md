@@ -18,6 +18,43 @@ limitations · commit.
 
 ## 2026-09-10
 
+### A workspace defines its own Tech stack categories
+**Area:** Settings → Properties → Tech stack categories · Client Profile → General
+information → Tech stack
+**Roles affected:** Super Admin (new editor) · everyone who reads or writes a client
+profile (the boxes they see) · Admin (can write the list through the API, but is not shown
+the editor)
+**Before:** The eight Tech stack boxes were hard-coded — HRIS, LMS, performance, ATS, SSO,
+collaboration, BI, plus *Other tools* — and so were the tools each suggested while typing.
+A workspace that files by Payroll or Ticketing had to push those into *Other tools*, and
+adding a category, or a single suggested tool, was a code change and a deploy.
+**After:** A Super Admin defines the categories in Settings → Properties → **Tech stack
+categories**: rename, reorder, add, remove, and edit each category's suggested tools as one
+name per line. Every client profile rendered after the save shows the new boxes, in the new
+order. *Other tools* and Integration notes stay fixed, and the catch-all now suggests the
+union of whatever the configured categories suggest. The shipped seven categories remain
+the default, and are what a workspace sees until someone edits them.
+
+**The rule that matters:** a category's **storage key is generated once and never changes
+when its label is edited**. The key is the `clients.properties` key holding every account's
+recorded tools, so renaming "BI / analytics" to "Reporting" keeps every tool already filed
+under it. **Removing a category deletes nothing** — the tools stay in the database but stop
+being displayed anywhere until a category with that key exists again. The removal confirm
+says exactly that.
+
+**Migration/data:** None. No schema change and no backfill; the configuration is a new
+`workspace_config` key, `tech_stack_categories`, absent until an admin saves. Absent, empty
+or unreadable all mean "use the shipped defaults" — including after an admin removes the
+last category, who gets the seven defaults back rather than a blank section.
+**Known limitations:** Nothing surfaces tools left behind by a removed category — they are
+hidden, not listed, not exportable, not movable into *Other tools*. Configuration changes
+are not audited or versioned, like every other `workspace_config` value. A suggestion
+cannot contain a comma (the one-per-line text is parsed with the comma-splitting
+`normalizeTools`). The editor is Super Admin only but the route behind it accepts any
+Admin — the same mismatch Stakeholder types and Attachment categories already have. **No
+test covers any of this**; the 287-test suite passes and none of it touches this code.
+**Commit:** the change that carries this entry (working tree at `22d85a8`).
+
 ### Tech stack tells a reader they are a reader, and says why a save failed
 **Area:** Client Profile → General information → Tech stack
 **Roles affected:** Guest and any operator on an account they do not own (read) · CSM,
