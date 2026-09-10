@@ -32,7 +32,7 @@ tab's data is fetched.
 | Tab | `?tab=` | Visible to | Contents |
 |---|---|---|---|
 | Members | `members` | Admin, Super Admin | Users, roles, role labels, Lumofy staff directory |
-| Properties | `properties` | Everyone | Client fields, stakeholder types, attachment categories |
+| Properties | `properties` | Everyone | Client fields, stakeholder types, attachment categories, tech stack categories |
 | Projects | `projects` | Everyone | Project options, project templates |
 | Automations | `automations` | Admin, Super Admin | Assignment routing (was "Workflows") |
 | Client health | `health` | Admin, Super Admin | The health formula: metrics, weights, tiers |
@@ -81,6 +81,24 @@ admins cannot touch `super_admin` in either direction — is enforced in
 Profile's General information tab, grouped `contract` / `product`. **Only a Super Admin may
 edit default/system property definitions** (`env.superAdminEmails` and `isSuperAdmin`).
 
+### Define the Tech stack categories
+
+**Super Admin only** — the section is inside the Properties tab's `superAdmin` branch, and
+the stored value is not even read for anyone else.
+
+`TechStackCategoriesManager` defines the boxes on every account's Client Profile → General
+information → **Tech stack** section: rename, reorder, add, remove a category, and edit the
+tools each suggests as one name per line. Every action `PUT`s the whole list to
+`/api/admin/stakeholder-config` under `workspace_config.tech_stack_categories`.
+
+**A category's storage key is generated once and never changes.** The key is the
+`clients.properties` key holding every account's recorded tools, so a rename keeps the
+data, and a removal **hides** the data rather than deleting it. An empty or unreadable list
+falls back to the shipped seven categories. Same class of problem as the churn taxonomy's
+stable slug ids. See
+[client-profile → tech-stack](../client-profile/tech-stack.md#business-rules) and
+[decision 0024](../../decisions/0024-a-tech-stack-category-key-is-generated-once-and-never-follows-the-label.md).
+
 ### Edit the churn taxonomy
 Two-level tree with stable slug ids, so a label rename does not orphan a tagged account.
 
@@ -97,6 +115,9 @@ Almost everything Settings writes lands in `workspace_config` as a keyed JSON bl
 | `client_health_formula` | Metrics, weights, tunables, tiers |
 | `churn_taxonomy` | Categories → reasons |
 | `use_case_taxonomy` | The admin-curated use-case overlay |
+| `stakeholder_types` | Stakeholder mapping row headers |
+| `attachment_categories` | The categories files can be tagged with |
+| `tech_stack_categories` | The Tech stack boxes on every client profile: ordered `{ key, label, suggestions }` |
 | assignment config keys | CSM and Implementation routing |
 | role label overrides | Workspace names for roles |
 | `today_triage:{email}` | Per-person Today triage (written by Today, not Settings) |
@@ -114,6 +135,11 @@ Project statuses and types are themselves configuration (`lib/projects/config.ts
   allowed set.
 - **Within Integrations and Properties**, a second Super Admin gate protects secrets, full
   re-sync, and system field definitions.
+- **Stakeholder types, attachment categories and tech stack categories** are Super Admin in
+  the interface but only `isAdminOrSuper()` on their shared route
+  (`app/api/admin/stakeholder-config/route.ts`, both `GET` and `PUT`) — so a non-super Admin
+  could write any of the three with a direct request. Interface and gate disagree for all
+  three equally.
 - **Server-side enforcement:** `isSuperAdmin()` / `isAdminOrSuper()` in each `*-actions.ts`.
 
 ## Automations and side effects
@@ -162,7 +188,8 @@ Projects, Client Profile, assignment.
    engine has immutable published versions; the live formula does not.)
 4. **`SUPER_ADMIN_EMAILS` has a hardcoded default** in `lib/config.ts`, so an environment
    that does not set it grants a permanent super-admin.
-5. **No tests** on any settings action.
+5. **No tests** on any settings action, including the tech stack category manager and its
+   route.
 
 ## Open questions
 
@@ -180,3 +207,7 @@ Projects, Client Profile, assignment.
 
 **Documentation status:** Partially verified
 **Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+**Partial re-verification 2026-09-10** against `22d85a8` plus the uncommitted working-tree
+change: only the Properties tab's Tech stack categories section, the `workspace_config` key
+table and the `stakeholder-config` route gate were re-read. Nothing else on this page was
+re-verified.

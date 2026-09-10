@@ -8,6 +8,8 @@
 
 import { useEffect } from "react";
 import { TechStackSection } from "@/components/clients/ClientProfileTabs";
+import { DEFAULT_TECH_STACK_CATEGORIES, type TechStackField } from "@/lib/tech-stack";
+import { TechStackCategoriesManager } from "@/components/settings/TechStackCategoriesManager";
 
 const PREVIEW_ID = "preview";
 /** Second preview id whose writes are refused, to exercise the error path. */
@@ -20,6 +22,12 @@ function stubClientPatch() {
   const real = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes("/api/admin/stakeholder-config")) {
+      // Settings needs an admin Clerk session this preview has not got, so the
+      // manager's saves are acknowledged locally. Nothing is written.
+      await new Promise((r) => setTimeout(r, 200));
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
     if (url.includes(`/api/clients/${FAILING_ID}`)) {
       await new Promise((r) => setTimeout(r, 250));
       // The shape the real route returns on a refusal, so the preview shows
@@ -41,14 +49,23 @@ export function PreviewSection({
   props,
   canEdit = true,
   refuseWrites = false,
+  categories = DEFAULT_TECH_STACK_CATEGORIES,
 }: {
   props: Record<string, unknown>;
   canEdit?: boolean;
   refuseWrites?: boolean;
+  /** Defaults here; the real page passes whatever Settings has saved. */
+  categories?: TechStackField[];
 }) {
   // In an effect, not inline: this runs on the server too, where there is no
   // `window` to patch. Nothing fetches until someone adds a chip, so being in
   // place after mount is early enough.
   useEffect(stubClientPatch, []);
-  return <TechStackSection clientId={refuseWrites ? FAILING_ID : PREVIEW_ID} props={props} canEdit={canEdit} />;
+  return <TechStackSection clientId={refuseWrites ? FAILING_ID : PREVIEW_ID} props={props} canEdit={canEdit} categories={categories} />;
+}
+
+/** Settings → Tech stack categories, with its save stubbed the same way. */
+export function PreviewCategoryManager({ initialCategories }: { initialCategories: TechStackField[] }) {
+  useEffect(stubClientPatch, []);
+  return <TechStackCategoriesManager initialCategories={initialCategories} />;
 }

@@ -116,9 +116,11 @@ preserved.
 is no account-executive user role — that scaffolding was removed because nothing wrote to
 it (`lib/roles.ts` header).
 
-**Tech stack** is a fixed, code-defined set of fields at the bottom of the same tab — eight
-lists of tools plus an integration-notes box, CSM-entered and never synced. It is not part
-of `property_definitions` and not part of profile completeness. See
+**Tech stack** is a set of fields at the bottom of the same tab — one list of tools per
+category, plus a catch-all and an integration-notes box, CSM-entered and never synced. The
+categories are **workspace configuration** (Settings → Properties → Tech stack categories),
+not `property_definitions` rows, and none of it counts towards profile completeness. A
+category's storage key is generated once and never follows a rename. See
 [tech-stack](tech-stack.md).
 
 ## States and statuses
@@ -174,8 +176,9 @@ their own components. Attachments require Supabase Storage; without it, uploads 
 
 JSONB-resident product state on `clients.properties`: `cs_pulse` · `cs_health` ·
 `stakeholder_profiles` · `stakeholder_links` · `stakeholder_mappings` ·
-`use_case_implementations` · deal overrides · `deal_dates` · the eight `tech_stack_*` tool
-lists and `tech_stack_notes`.
+`use_case_implementations` · deal overrides · `deal_dates` · one `tech_stack_*` tool list
+per configured category (seven by default) plus `tech_stack_other` and
+`tech_stack_notes`.
 
 See [data-model](../../data-model/README.md).
 
@@ -230,7 +233,7 @@ definitions · project config · property definitions · churn taxonomy.
 
 | Feature | Document | Status |
 |---|---|---|
-| Tech stack (General information) | [tech-stack.md](tech-stack.md) | Partially verified · `d45a6cd` |
+| Tech stack (General information) | [tech-stack.md](tech-stack.md) | Partially verified · `22d85a8` + working-tree change |
 
 ---
 

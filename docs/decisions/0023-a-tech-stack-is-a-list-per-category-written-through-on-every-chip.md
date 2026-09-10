@@ -1,6 +1,7 @@
 # 0023. A tech stack is a list per category, written through on every chip
 
-**Status:** Accepted
+**Status:** Accepted — points 5 and *"Not admin-curatable"* amended 2026-09-10 by
+[0024](0024-a-tech-stack-category-key-is-generated-once-and-never-follows-the-label.md)
 **Date:** 2026-09-09
 **Affected product areas:** Client Profile → General information · `clients.properties` data
 model
@@ -45,6 +46,12 @@ Concretely:
    type; free text is always accepted.
 5. **These are code-defined fields, not `property_definitions` rows** — the categories and
    their suggestion lists live in `lib/tech-stack.ts`.
+   > **Amended 2026-09-10 by
+   > [0024](0024-a-tech-stack-category-key-is-generated-once-and-never-follows-the-label.md).**
+   > The categories and their suggestion lists are now workspace configuration
+   > (`workspace_config.tech_stack_categories`, edited in Settings → Properties);
+   > `lib/tech-stack.ts` holds the shipped **defaults**. They are still not
+   > `property_definitions` rows. Everything else in this record stands.
 
 ## Alternatives considered
 
@@ -75,8 +82,10 @@ Concretely:
 - **Not queryable across accounts.** Eight untyped JSONB keys of free text mean "which
   accounts run Workday?" is a database query with a normalisation problem attached, not a
   product question. Any future aggregation has to reconcile spelling first.
-- **Not admin-curatable.** Adding a category, or a tool to a suggestion list, is a code
-  change.
+- ~~**Not admin-curatable.** Adding a category, or a tool to a suggestion list, is a code
+  change.~~ **Resolved 2026-09-10** — a Super Admin curates both in Settings; see
+  [0024](0024-a-tech-stack-category-key-is-generated-once-and-never-follows-the-label.md),
+  which replaces this with a new cost: a removed category's data is kept but hidden.
 - **Outside the profile-completeness model**, which reads a hard-coded field list — so an
   account with no stack recorded is never flagged for it.
 - **One HTTP write per chip**, each triggering a `recomputeClient` for the account.
