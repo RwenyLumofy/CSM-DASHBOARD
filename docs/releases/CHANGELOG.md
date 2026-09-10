@@ -43,6 +43,23 @@ and is unchanged, but the interface is now inconsistent within one tab. No test 
 of this.
 **Commit:** the change that carries this entry.
 
+### Tech stack accepts any tool, and says so
+**Area:** Client Profile → General information → Tech stack
+**Roles affected:** everyone who can write a stack
+**Before:** Any text was already accepted, but two things hid it. The suggestion list read
+like a menu of permitted tools, and — the real trap — **hovering** a suggestion armed
+Enter. With the pointer resting where the list pops open, typing an in-house tool and
+pressing Enter filed whatever sat under the cursor instead.
+**After:** Only arrowing onto a suggestion arms Enter; hovering still lights a row for
+clicking but no longer overrides what was typed. The list is headed *Suggestions — or type
+any tool and press Enter*, and the *Press Enter to add "…"* hint now appears whenever Enter
+would file the typed text.
+
+**Migration/data:** None.
+**Known limitations:** The categories themselves are still fixed in code — a system that
+fits none of the eight goes in *Other tools*. No test covers the input.
+**Commit:** the change that carries this entry.
+
 ---
 
 ## 2026-09-09
