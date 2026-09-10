@@ -10,6 +10,8 @@ import { useEffect } from "react";
 import { TechStackSection } from "@/components/clients/ClientProfileTabs";
 
 const PREVIEW_ID = "preview";
+/** Second preview id whose writes are refused, to exercise the error path. */
+const FAILING_ID = "preview-refused";
 
 function stubClientPatch() {
   const w = window as typeof window & { __techStackStubbed?: boolean };
@@ -18,6 +20,15 @@ function stubClientPatch() {
   const real = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes(`/api/clients/${FAILING_ID}`)) {
+      await new Promise((r) => setTimeout(r, 250));
+      // The shape the real route returns on a refusal, so the preview shows
+      // the message a Guest or non-owning operator would actually read.
+      return new Response(
+        JSON.stringify({ ok: false, error: "You don't have permission to edit this account." }),
+        { status: 403 },
+      );
+    }
     if (url.includes(`/api/clients/${PREVIEW_ID}`)) {
       await new Promise((r) => setTimeout(r, 250)); // let the saving spinner show
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -26,10 +37,18 @@ function stubClientPatch() {
   };
 }
 
-export function PreviewSection({ props }: { props: Record<string, unknown> }) {
+export function PreviewSection({
+  props,
+  canEdit = true,
+  refuseWrites = false,
+}: {
+  props: Record<string, unknown>;
+  canEdit?: boolean;
+  refuseWrites?: boolean;
+}) {
   // In an effect, not inline: this runs on the server too, where there is no
   // `window` to patch. Nothing fetches until someone adds a chip, so being in
   // place after mount is early enough.
   useEffect(stubClientPatch, []);
-  return <TechStackSection clientId={PREVIEW_ID} props={props} />;
+  return <TechStackSection clientId={refuseWrites ? FAILING_ID : PREVIEW_ID} props={props} canEdit={canEdit} />;
 }

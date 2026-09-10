@@ -11,10 +11,15 @@
 
    Matching known tools surface as you type, but the box never refuses free
    text — an in-house portal is exactly the thing worth writing down.
+
+   Because there is no Save button, a failed write has nothing to fall back
+   on: the chip is rolled out again, and the reason is shown under the box.
+   A viewer who cannot edit the account gets a read-only list rather than
+   inputs that would 403 on the first keystroke.
    ========================================================================= */
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, Loader2, Plus, X } from "lucide-react";
+import { AlertCircle, Check, Loader2, Plus, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 /** How long the "saved" tick lingers after a successful write. */
@@ -25,6 +30,7 @@ export function ToolChipInput({
   value,
   suggestions,
   placeholder,
+  canEdit,
   onCommit,
 }: {
   label: string;
@@ -33,8 +39,11 @@ export function ToolChipInput({
   /** Offered as you type. Not a closed list — free text is always accepted. */
   suggestions: string[];
   placeholder: string;
-  /** Persists the new list. Resolves false to roll the chip back. */
-  onCommit: (next: string[]) => Promise<boolean>;
+  /** Server-resolved write gate. False renders the list, not an editor. */
+  canEdit: boolean;
+  /** Persists the new list. Resolves null on success, or the reason to show
+   *  the user — the chip is rolled back either way. */
+  onCommit: (next: string[]) => Promise<string | null>;
 }) {
   const [tools, setTools] = useState<string[]>(value);
   const [draft, setDraft] = useState("");
@@ -44,6 +53,7 @@ export function ToolChipInput({
      not the "Workday" that happens to sit at the top of the matches. */
   const [highlight, setHighlight] = useState<number | null>(null);
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   /* Leaving the box commits whatever is half-typed, so a name isn't lost to a
@@ -92,10 +102,14 @@ export function ToolChipInput({
 
   async function persist(next: string[], previous: string[]) {
     setStatus("saving");
-    const ok = await onCommit(next);
-    if (!ok) {
-      setTools(previous); // The write failed — don't leave a chip that isn't stored.
+    setError(null);
+    const failure = await onCommit(next);
+    if (failure) {
+      // Roll the chip back — it isn't stored — and say why, or the list just
+      // flickers and the CSM believes a stack they never recorded.
+      setTools(previous);
       setStatus("idle");
+      setError(failure);
       return;
     }
     setStatus("saved");
@@ -175,11 +189,27 @@ export function ToolChipInput({
           <span className="tabular font-body text-[11px] font-semibold text-fg-subtle">{tools.length}</span>
         )}
         <span className="ml-auto flex h-3.5 items-center">
-          {status === "saving" && <Loader2 size={12} className="animate-spin text-fg-subtle" />}
-          {status === "saved" && <Check size={12} className="text-sirius" />}
+          {canEdit && status === "saving" && <Loader2 size={12} className="animate-spin text-fg-subtle" />}
+          {canEdit && status === "saved" && <Check size={12} className="text-sirius" />}
         </span>
       </div>
 
+      {!canEdit ? (
+        tools.length === 0 ? (
+          <span className="font-body text-[13px] text-fg-subtle">—</span>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {tools.map((t) => (
+              <span
+                key={t}
+                className="inline-flex max-w-full items-center rounded-pill bg-bg-muted px-2 py-0.5 font-body text-[12.5px] font-semibold text-fg-muted"
+              >
+                <span className="truncate">{t}</span>
+              </span>
+            ))}
+          </div>
+        )
+      ) : (
       <div
         ref={boxRef}
         onClick={() => inputRef.current?.focus()}
@@ -253,6 +283,14 @@ export function ToolChipInput({
           </div>
         )}
       </div>
+      )}
+
+      {error && (
+        <span className="flex items-start gap-1.5 font-body text-[12px] text-danger-fg">
+          <AlertCircle size={12} className="mt-[2px] shrink-0" />
+          <span>{error}</span>
+        </span>
+      )}
     </div>
   );
 }

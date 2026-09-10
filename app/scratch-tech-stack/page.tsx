@@ -6,7 +6,8 @@ import { PreviewSection } from "./preview-client";
 
    The real client page needs a signed-in owner, so this renders the real
    section against a hand-written properties bag: one card already filled, one
-   empty, so both states are visible side by side. Saving is stubbed (see
+   empty, plus the two states that only appear when something goes wrong: no
+   write access, and a write the server refuses. Saving is stubbed (see
    preview-client.tsx) — chips stick here, but nothing is written anywhere.
 
    Tracked (Tailwind skips gitignored paths) and 404s outside development.
@@ -34,8 +35,21 @@ export default function Page() {
         <p className="caption mt-1">Sections start collapsed; click the header to open. Type in any box to add a tool.</p>
       </div>
       <PreviewSection props={FILLED} />
+
       <h1 className="font-display text-lg font-bold text-fg">Tech stack — nothing recorded</h1>
       <PreviewSection props={{}} />
+
+      <div>
+        <h1 className="font-display text-lg font-bold text-fg">Tech stack — no write access</h1>
+        <p className="caption mt-1">What a Guest or a non-owning operator sees: the list, no inputs.</p>
+      </div>
+      <PreviewSection props={FILLED} canEdit={false} />
+
+      <div>
+        <h1 className="font-display text-lg font-bold text-fg">Tech stack — the write is refused</h1>
+        <p className="caption mt-1">Editable, but every save comes back 403. Add a chip to see the message.</p>
+      </div>
+      <PreviewSection props={FILLED} refuseWrites />
     </div>
   );
 }

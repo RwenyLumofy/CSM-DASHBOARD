@@ -16,6 +16,35 @@ limitations · commit.
 
 ---
 
+## 2026-09-10
+
+### Tech stack tells a reader they are a reader, and says why a save failed
+**Area:** Client Profile → General information → Tech stack
+**Roles affected:** Guest and any operator on an account they do not own (read) · CSM,
+Admin, Super Admin (write, unchanged)
+**Before:** The section rendered live inputs for everyone. Someone without write access
+could type a tool, watch the chip appear, and watch it disappear a moment later with no
+explanation — their 403 arrived after the chip had been drawn. The same silence hid a
+network failure from a legitimate editor, so a CSM could leave the page believing they had
+recorded a stack that was never written.
+**After:** The section now reads the same server-resolved `canEditClient` the profile page
+already had. A viewer without write access sees the recorded tools as plain chips — no
+text input, no remove buttons, no click-to-edit on the notes, an em dash where a category
+is empty — rather than an editor that would refuse them. For someone who *can* write, a
+failed save still rolls the chip back, but now says why underneath the box: the route's own
+refusal wording, an HTTP status, or "Couldn't reach the server — nothing was saved." when
+the request never left the browser.
+
+**Migration/data:** None. No schema, key or stored value changed.
+**Known limitations:** Only the Tech stack section honours the flag. The admin-defined
+property groups and the Account grid above it still render click-to-edit controls for a
+reader and still roll back silently — the server gate has always been the real permission
+and is unchanged, but the interface is now inconsistent within one tab. No test covers any
+of this.
+**Commit:** the change that carries this entry.
+
+---
+
 ## 2026-09-09
 
 ### Client Profile records the systems an account already runs
@@ -35,7 +64,8 @@ Each list is a chip box rather than a text field, because recording a stack is
 list-building: known tools are offered as you type, pasting `Workday, BambooHR, Personio`
 files three chips, and a name nobody has heard of (the in-house portal) is accepted exactly
 like a known one. There is **no Save button** — every add and removal is written
-immediately, and a failed write silently removes the chip again.
+immediately. (A failed write silently removed the chip again; corrected the next day —
+see the 2026-09-10 entry below.)
 
 **Migration/data:** **None.** Each category is its own key in `clients.properties`
 (`tech_stack_hris`, `_lms`, `_performance`, `_ats`, `_sso`, `_collaboration`, `_bi`,

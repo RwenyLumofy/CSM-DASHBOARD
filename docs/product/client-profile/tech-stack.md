@@ -9,7 +9,8 @@ Part of the [Client Profile](README.md) → **General information** tab.
 A section on the account's General information tab recording **the systems the account
 already runs** — HRIS, LMS, performance, ATS, SSO, collaboration, BI, a catch-all, and a
 free-text box for the constraints a tool name cannot carry. Eight lists of chips; each
-add or removal is written immediately.
+add or removal is written immediately. It is an editor only for someone who can write the
+account; everyone else reads the same lists as plain chips.
 
 ## Purpose
 
@@ -27,7 +28,8 @@ It is **reference data**: nothing in Signal calculates anything from it (see
 
 CSM (operator) who owns the account, Admin and Super Admin on any account — these are the
 roles that can write it. Implementation, Support and Revenue as readers. Guest as a reader
-(but see [Permissions](#permissions) — the interface does not stop a Guest typing).
+— and, since the 2026-09-09 read-only pass, a reader is *shown* a reader's interface rather
+than inputs that would be refused (see [Permissions](#permissions)).
 
 ## Entry points
 
@@ -35,11 +37,12 @@ roles that can write it. Implementation, Support and Revenue as readers. Guest a
 - **Navigation path:** Sidebar → Clients → account → **General information** tab → scroll
   to **Tech stack** → click the header to expand. The section is **collapsed by default**
   and sits **below** the admin-defined property groups
-  ([`ClientProfileTabs.tsx:494`](../../../components/clients/ClientProfileTabs.tsx)).
+  ([`ClientProfileTabs.tsx:504`](../../../components/clients/ClientProfileTabs.tsx)).
 - **Links in from:** nothing links directly to the section. It has no anchor and no
   deep-link.
 - **Contextual actions:** none. There is no drawer, no modal and no Save button — every
-  chip is written as it is added.
+  chip is written as it is added. For a user without write access there are no actions at
+  all.
 
 ## Information architecture
 
@@ -48,18 +51,21 @@ roles that can write it. Implementation, Support and Revenue as readers. Guest a
    across all eight lists and updates as chips are added, without a page reload.
 2. **A two-column grid of eight chip boxes**, in fixed order: HRIS / HRMS · LMS / LXP ·
    Performance management · ATS / recruiting · SSO / identity · Collaboration ·
-   BI / analytics · **Other tools**. Each box shows its own tool count and its own
-   saving/saved indicator.
+   BI / analytics · **Other tools**. Each box shows its own tool count and, when the
+   section is editable, its own saving/saved indicator and any failure message. Read-only,
+   a box is just its chips — or an em dash where the category is empty.
 3. **Integration notes** — a free-text box below a divider, edited by click-to-edit with
-   explicit Save / Cancel.
+   explicit Save / Cancel. Read-only it is plain text, or the italic
+   “No notes recorded.”
 
 ## Primary workflows
 
 ### Record a tool
 
 1. **Trigger** — the CSM types into a category box.
-2. **Preconditions** — the account is open and the user passes `canEditClient` **on the
-   server**; nothing in the interface checks first.
+2. **Preconditions** — the account is open **and** the server resolved `canEditClient` to
+   true for this user when the page rendered. If it did not, there is no input to type
+   into; the box shows the recorded chips and nothing else.
 3. **User actions** — type a name and press **Enter**, or pick a suggestion with the arrow
    keys or the mouse. Suggestions appear as you type (substring match, case-insensitive,
    **at most 8** shown), already-recorded tools are excluded from them, and free text that
@@ -71,8 +77,12 @@ roles that can write it. Implementation, Support and Revenue as readers. Guest a
 5. **Result** — the chip stays, a tick shows for ~1.6s, and the section's tool count
    increments.
 6. **Failure** — any non-2xx response, or a network error, **rolls the chip back out of the
-   list**. No message is shown; the chip simply disappears. This is what a Guest or a
-   non-owning operator sees, because their 403 arrives after the chip has been drawn.
+   list** and shows the reason underneath the box. The reason is the API route's own
+   `error` string when it sends one — a refused write reads
+   *"You don't have permission to edit this account."* — otherwise
+   *"Couldn't save (HTTP nnn)."*, or *"Couldn't reach the server — nothing was saved."*
+   when the request never left the browser. The header count is not incremented, because
+   it only moves on a successful write.
 
 ### Paste several tools at once
 
@@ -90,8 +100,8 @@ a stray click. Clicking a suggestion cancels that pending commit, so `gree` + a 
 ### Remove a tool
 
 Click the × on the chip. The chip is removed optimistically and the shortened list is
-`PATCH`ed. A failure restores it. Removing the **last** chip in a category writes JSON
-`null` for that key rather than deleting the key.
+`PATCH`ed. A failure restores it and shows the same reason as a failed add. Removing the
+**last** chip in a category writes JSON `null` for that key rather than deleting the key.
 
 ### Correct a mistyped tool
 
@@ -101,11 +111,13 @@ issues a second write.
 
 ### Write integration notes
 
-1. **Trigger** — click the notes area ("No notes yet — click to add.").
+1. **Trigger** — click the notes area ("No notes yet — click to add."). The area is only
+   clickable for a user who can write the account; otherwise it is plain text.
 2. **User actions** — type prose; **Escape** cancels, **Save** commits, **Cancel** discards.
 3. **System behaviour** — the trimmed text is `PATCH`ed as `tech_stack_notes`; empty text
    is written as `null`.
-4. **Failure** — the previous text is restored silently. No message.
+4. **Failure** — the previous text is restored **and the reason is shown** below the box,
+   from the same wording as a chip failure.
 
 ## Fields and data
 
@@ -139,12 +151,16 @@ trims, drops blanks and de-duplicates case-insensitively on read as well as on w
 |---|---|---|---|---|---|
 | Section: **Not recorded** | No tools in any of the eight lists | Default | Adding the first chip | Anyone who can edit the account | The header badge only |
 | Section: **N tools** | Total chips across all lists | A successful write | Removing chips | Same | The header badge only |
-| Box: **saving** | A write is in flight (spinner) | Add or remove | The response | — | Nothing persisted yet |
-| Box: **saved** | The write succeeded (tick, ~1.6s) | A 2xx response | Timeout | — | — |
-| Notes: **viewing / editing** | Click-to-edit | Clicking the text / Save or Cancel | — | Same | — |
+| Box: **read-only** | The viewer cannot write the account: chips only, no input, no × , no indicator; an em dash where the category is empty | `canEdit` false on render | Nothing — it is fixed for the session | — | Removes every write affordance |
+| Box: **saving** | A write is in flight (spinner). Editable boxes only | Add or remove | The response | — | Nothing persisted yet |
+| Box: **saved** | The write succeeded (tick, ~1.6s). Editable boxes only | A 2xx response | Timeout | — | — |
+| Box: **failed** | The write was refused or never arrived: the chip is rolled back and the reason sits under the box | A non-2xx response or a thrown `fetch` | The next write attempt (which clears it) | — | Nothing persisted; the header count is unchanged |
+| Notes: **viewing / editing** | Click-to-edit. Editing is unreachable when `canEdit` is false, because the control that enters it is not rendered | Clicking the text / Save or Cancel | — | Same | — |
+| Notes: **failed** | The note was not saved: the previous text is restored and the reason is shown | A non-2xx response or a thrown `fetch` | The next Save | — | Nothing persisted |
 
 There is no draft state, no dirty state and no unsaved-changes warning — because there is
-nothing to lose: every change is already written or already rolled back.
+nothing to lose: every change is already written, or already rolled back with the reason on
+screen.
 
 ## Business rules
 
@@ -159,7 +175,7 @@ Enforced in the interface unless stated otherwise.
 - **R3 — A category may not hold the same tool twice**, compared case-insensitively. The
   same tool **may** appear in two different categories; nothing prevents it.
 - **R4 — Every add and every removal is written immediately**, with optimistic rollback on
-  failure. There is no Save button for the chips.
+  failure and the failure reason shown under the box. There is no Save button for the chips.
 - **R5 — The write is a top-level key merge, not a replace.** The route calls
   `updateClientDetails`, which calls `mergeClientPropertiesDb`
   ([`lib/repo/drizzle.ts:1556`](../../../lib/repo/drizzle.ts)) — a single
@@ -191,11 +207,25 @@ Enforced in the interface unless stated otherwise.
   owner-scope gate: an operator can only record a stack on an account they own or have been
   granted.
 
-**The interface does not gate.** `TechStackSection` receives no `canEdit` prop — the whole
-General information tab is rendered without one — so a Guest or a non-owning operator sees
-live inputs, can type a chip, and watches it vanish when the 403 comes back. The permission
-is real and server-side; the affordance is misleading. This follows the existing General-tab
-pattern rather than introducing it.
+**The interface now matches the gate — for this section only.** The profile page resolves
+`canEditClient` on the server (`app/(app)/clients/[id]/page.tsx:55`) and has always passed
+it to `ClientProfileTabs` as `canEditClient`. Since 2026-09-09 that value is also handed to
+`GeneralTab`, and from there to `TechStackSection`, `ToolChipInput` and `TechStackNotes`
+([`ClientProfileTabs.tsx:275`, `:504`](../../../components/clients/ClientProfileTabs.tsx)).
+When it is false the section renders chips as static text: no text input, no × on a chip,
+no click-to-edit on the notes, and no saving/saved indicator. A Guest or a non-owning
+operator is therefore not offered a write they cannot make.
+
+**This is an affordance, not the permission.** The gate is still `PATCH /api/clients/[id]`,
+unchanged by this pass, and it is re-applied on every write regardless of what the page
+rendered.
+
+**The rest of the General information tab is still ungated in the interface.** The
+admin-defined property groups above the section, and the Account grid, render
+`EditableField` without a `canEdit` (its existing `readOnly` prop is passed by no call site
+in `GeneralTab`), so a Guest still gets click-to-edit controls there and still sees a
+silent rollback when the server refuses. Only the Tech stack section honours the flag
+today. Do not read this section as evidence that the tab as a whole is gated.
 
 ## Automations and side effects
 
@@ -297,12 +327,15 @@ product; it requires a database query.
 `lib/tech-stack.ts` · `components/clients/ToolChipInput.tsx` ·
 `components/clients/ClientProfileTabs.tsx` · `app/api/clients/[id]/route.ts` ·
 `lib/data.ts` · `lib/repo/drizzle.ts` · `lib/auth.ts` · `lib/profile-completeness.ts` ·
-`app/scratch-tech-stack/page.tsx` · commit `d45a6cd`
+`app/scratch-tech-stack/page.tsx` · commits `d45a6cd` and the revision carrying this
+document
 
 ---
 
 **Documentation status:** Partially verified — implementation read end to end (component →
 route → `updateClientDetails` → `mergeClientPropertiesDb`); **no test covers any of it**.
-**Last verified:** 2026-09-09
-**Verified against commit:** `d45a6cd`
+**Last verified:** 2026-09-10
+**Verified against commit:** `d45a6cd`, plus the read-only / failure-message pass committed
+alongside this revision (the permissions and error-state sections were re-read against it,
+and both states were exercised in the dev preview)
 **Documentation owner:** Unassigned
