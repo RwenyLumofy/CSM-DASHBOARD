@@ -137,8 +137,10 @@ completing a teammate's task from the account Tasks sheet returns `NOT_YOURS`. T
 rejection is now rendered — it previously sat inside the add-task block and never appeared,
 so the checkbox bounced back in silence.
 
-**Changed 2026-09-13 (working tree at `7c2e39f`).** Three amendments, all
-`Partially verified` (read end to end, no test):
+**Changed 2026-09-13 (working tree at `7c2e39f`, landed as `12b7ce7`; items 2 and 3
+revised and items 4–5 added for the working tree at `4621fc8`, branch
+`feat/task-edit-history`).** Five amendments, all `Partially verified` (read end to end, no
+test of the actions or gates):
 
 1. **Reassigning a task to yourself is written.** `updateTaskAction` used to set the owner
    only when the requested assignee was a *different* person, so an admin taking a
@@ -146,23 +148,43 @@ so the checkbox bounced back in silence.
    writes the caller's own email. This grants nothing: without `mayEditAnyTask()` the
    owner-scoped write matches only a task the caller already owns, so a non-admin cannot
    use it to take someone else's task.
-2. **Reassigning to someone else notifies the new owner** with a `task_assigned`
-   notification carrying a task target (`entityType: "task"`). Only on an actual change of
-   owner away from both the actor and the previous owner; best-effort — the edit stands
-   if the notification fails. The previous owner is not notified. Creation already
-   notified; reassignment was silent. Applies to both callers of `updateTaskAction` — the
-   account Tasks sidebar and the Today board's task drawer.
-3. **The account Tasks sidebar offers done, edit and push only where the server would accept
-   them** — the viewer's own task, or any task when `editsAllClients(role)` **and** scope
-   mode `all` (the page passes this as `canEditAnyTask`, the same predicate as
-   `mayEditAnyTask`). This is interface alignment, not a new gate; the owner-scoped write
-   remains the permission. Note that `updateTaskAction` / `toggleTaskAction` re-apply
-   `denyClientWrite` only when the account link itself changes. See
-   [Account Tasks](../product/client-profile/account-tasks.md#permissions).
+2. **A change of owner notifies both sides.** On an actual change of owner (compared with
+   the stored owner, lower-cased), the new owner gets `task_assigned` (*"Task handed to you
+   by …"*) and the previous owner gets `task_update` (*"… handed your task to …"*), each
+   with a task target (`entityType: "task"`) — except that nobody is notified about their
+   own action. Best-effort: the edit stands if the insert fails. Applies to both callers
+   of `updateTaskAction` — the account Tasks sidebar and the Today board's task drawer.
+   **Creation** of a task for someone else now also carries a task target, so its
+   `task_assigned` notification opens the task rather than only the account.
+3. **The account Tasks sidebar offers done, reopen, edit and push only where the server
+   would accept them** — the viewer's own task, or any task when `editsAllClients(role)`
+   **and** scope mode `all` (the page passes this as `canEditAnyTask`, the same predicate as
+   `mayEditAnyTask`). This is interface alignment, not a new gate; see item 4 for the gate.
+   See [Account Tasks](../product/client-profile/account-tasks.md#permissions).
+4. **Changing or deleting an existing task requires write access to its current
+   account.** `toggleTaskAction`, `updateTaskAction` and `deleteTaskAction` call
+   `denyExistingTask`, which applies `denyClientWrite` to the account the task is already
+   on (a task with no account skips it), before the owner-scoped write. Previously the
+   account was re-checked only when a write *moved* the task to an account, so someone
+   whose scope was narrowed off an account could keep completing, pushing, editing and
+   deleting their own old tasks there — although posting an update on the same task was
+   already refused. This is a **tightening**: a narrowed operator or admin now gets
+   *"You don't have permission to edit this account."* (or the not-found message) for
+   those tasks, on the Today board as well as the profile.
+5. **Task history cannot be removed by anyone.** Due-date, owner and status changes are
+   written as `task_updates` rows in the same transaction as the change; `deleteTaskUpdateDb`
+   returns `forbidden` for any row that is not a comment, **including for an unrestricted
+   admin**, who can otherwise remove anyone's comment. Reading that history uses the
+   thread's read gate, which equals its write gate — Guests see none of it.
 
 **Code.** `app/(app)/today/task-actions.ts` → `createTaskAction`, `updateTaskAction`,
-`mayEditAnyTask`; `components/clients/AccountTasks.tsx` → `mayChange`;
-`app/(app)/clients/[id]/page.tsx` (`canEditAnyTask`).
+`toggleTaskAction`, `deleteTaskAction`, `denyExistingTask`, `mayEditAnyTask`;
+`app/(app)/today/task-update-actions.ts` → `loadWritableTask`, `deleteTaskUpdateAction`;
+`lib/repo/drizzle.ts` → `deleteTaskUpdateDb`; `components/clients/AccountTasks.tsx` →
+`mayChange`; `app/(app)/clients/[id]/page.tsx` (`canEditAnyTask`).
+
+**Tests.** None for the gates. `lib/task-activity.test.ts` (9 tests) pins which changes
+produce history, not who may make them.
 
 ---
 

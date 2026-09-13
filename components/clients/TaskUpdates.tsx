@@ -15,16 +15,22 @@
 
    Flat and chronological. A task thread is three messages, not thirty, so
    nesting, reactions and editing would cost more than they return.
+
+   The thread also carries the task's history — due-date moves, completion and
+   reassignment, written by the server when the task changes. Those render as
+   a quiet one-line entry between the messages, so a pushed date sits in the
+   same timeline as the conversation that explains it. They can't be removed.
    ========================================================================= */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Lock, Trash2 } from "lucide-react";
+import { Loader2, Lock, Trash2, History } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   getTaskUpdatesAction, postTaskUpdateAction, deleteTaskUpdateAction,
   listMentionableForTaskAction,
   type TaskUpdateView, type MentionablePerson,
 } from "@/app/(app)/today/task-update-actions";
+import { decodeActivity, describeActivity } from "@/lib/task-activity";
 
 const initials = (s: string) =>
   s.replace(/[^\p{L}\p{N} ]/gu, "").trim().split(/\s+/).slice(0, 2)
@@ -188,7 +194,21 @@ export function TaskUpdates({ taskId, canPost, preview }: {
         </p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {updates.map((u) => (
+          {updates.map((u) => {
+            const activity = u.kind && u.kind !== "comment" ? decodeActivity(u.kind, u.body) : null;
+            if (u.kind && u.kind !== "comment") {
+              return (
+                <li key={u.id} className="flex items-start gap-2 font-body text-[11.5px] text-fg-muted">
+                  <span className="grid size-6 shrink-0 place-items-center text-fg-subtle"><History size={12} aria-hidden /></span>
+                  <p dir="auto" className="min-w-0 flex-1 pt-1">
+                    <span className="font-semibold text-fg">{u.authorName}</span>{" "}
+                    {activity ? describeActivity(activity, (e) => nameByEmail.get(e) ?? e) : "changed this task"}
+                    <span className="text-fg-subtle"> · {ago(u.createdAt)}</span>
+                  </p>
+                </li>
+              );
+            }
+            return (
             <li key={u.id} className="flex gap-2">
               {/* size-6, not size-7: every pixel here comes off the message
                   itself, and an initials disc does not need to be large. */}
@@ -211,7 +231,8 @@ export function TaskUpdates({ taskId, canPost, preview }: {
                   : <Body text={u.body} nameByEmail={nameByEmail} />}
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

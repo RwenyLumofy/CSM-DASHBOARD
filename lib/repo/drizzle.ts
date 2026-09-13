@@ -29,6 +29,7 @@ import { computeClientStatus, STATUS_OVERRIDE_KEY } from "@/lib/status";
 import { getClientHealthConfig } from "@/lib/metrics/health-config-store";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
+import { activityFor, encodeActivity, type TaskActivity } from "@/lib/task-activity";
 import { normalizeStakeholderProfiles, PROFILES_KEY } from "@/lib/stakeholders/profile";
 import type { UsageMonthRow, UsageSnapshot, UsageSnapshotRecord } from "@/lib/usage/types";
 
@@ -2015,6 +2016,11 @@ export async function deleteTaskUpdateDb(
   const db = getDb();
   const [row] = await db.select().from(schema.taskUpdates).where(eq(schema.taskUpdates.id, updateId)).limit(1);
   if (!row || row.deletedAt) return "missing";
+  /* Activity rows are the record of what happened to the task. Removable,
+     they would let whoever pushed a date erase that they did — which is the
+     one thing the record exists to show. Nobody may remove them, admins
+     included. */
+  if (row.kind !== "comment") return "forbidden";
   if (onlyAuthor != null && row.authorEmail.toLowerCase() !== onlyAuthor.toLowerCase()) return "forbidden";
   await db.update(schema.taskUpdates)
     .set({ deletedAt: new Date() })
@@ -2091,15 +2097,53 @@ export async function findOpenTodayTaskBySourceDb(
   return rows[0]?.id ? { id: rows[0].id, title: rows[0].title } : null;
 }
 
+/* WRITES THAT CHANGE WHETHER A TASK IS ON TRACK LEAVE A TRACE. Status, owner
+   and due date are compared against the row as it stood and every change is
+   written to task_updates in the SAME transaction (see lib/task-activity.ts).
+   Best-effort logging would make the history the one thing that can quietly
+   go missing, and a history with gaps reads as "nothing slipped". The row is
+   read FOR UPDATE, so two simultaneous pushes each record the date they
+   actually moved from. */
+
+type TaskTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+async function lockTaskForWrite(tx: TaskTx, id: string, actorEmail: string, anyOwner: boolean) {
+  const [row] = await tx.select({
+    status: schema.todayTasks.status,
+    ownerEmail: schema.todayTasks.ownerEmail,
+    dueDate: schema.todayTasks.dueDate,
+    accountId: schema.todayTasks.accountId,
+    title: schema.todayTasks.title,
+  }).from(schema.todayTasks)
+    .where(todayTaskScope(id, actorEmail, anyOwner))
+    .for("update");
+  return row ?? null;
+}
+
+async function recordTaskActivity(tx: TaskTx, taskId: string, actorEmail: string, activity: TaskActivity[]) {
+  if (activity.length === 0) return;
+  await tx.insert(schema.taskUpdates).values(activity.map((a) => ({
+    id: `tup-${globalThis.crypto.randomUUID()}`,
+    taskId, kind: a.kind, authorEmail: actorEmail.toLowerCase(), body: encodeActivity(a),
+  })));
+}
+
 export async function setTodayTaskStatusDb(
   id: string, ownerEmail: string, status: "open" | "done", opts?: { anyOwner?: boolean },
 ): Promise<number> {
   const db = getDb();
-  const rows = await db.update(schema.todayTasks)
-    .set({ status, updatedAt: new Date() })
-    .where(todayTaskScope(id, ownerEmail, opts?.anyOwner ?? false))
-    .returning({ id: schema.todayTasks.id });
-  return rows.length;
+  return db.transaction(async (tx) => {
+    const before = await lockTaskForWrite(tx, id, ownerEmail, opts?.anyOwner ?? false);
+    if (!before) return 0;
+    await tx.update(schema.todayTasks)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(schema.todayTasks.id, id));
+    await recordTaskActivity(tx, id, ownerEmail, activityFor(
+      { status: before.status, ownerEmail: before.ownerEmail, dueDate: before.dueDate?.toISOString() ?? null },
+      { status },
+    ));
+    return 1;
+  });
 }
 
 export async function deleteTodayTaskDb(
@@ -2129,7 +2173,7 @@ export async function updateTodayTaskDb(
     priority?: string; accountId?: string | null; ownerEmail?: string;
   },
   opts?: { anyOwner?: boolean },
-): Promise<number> {
+): Promise<{ count: number; before: { ownerEmail: string; accountId: string | null; title: string } | null }> {
   const db = getDb();
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (patch.title !== undefined) set.title = patch.title;
@@ -2139,10 +2183,16 @@ export async function updateTodayTaskDb(
   if (patch.priority !== undefined) set.priority = patch.priority;
   if (patch.accountId !== undefined) set.accountId = patch.accountId;
   if (patch.ownerEmail !== undefined) set.ownerEmail = patch.ownerEmail.toLowerCase();
-  const rows = await db.update(schema.todayTasks).set(set)
-    .where(todayTaskScope(id, ownerEmail, opts?.anyOwner ?? false))
-    .returning({ id: schema.todayTasks.id });
-  return rows.length;
+  return db.transaction(async (tx) => {
+    const before = await lockTaskForWrite(tx, id, ownerEmail, opts?.anyOwner ?? false);
+    if (!before) return { count: 0, before: null };
+    await tx.update(schema.todayTasks).set(set).where(eq(schema.todayTasks.id, id));
+    await recordTaskActivity(tx, id, ownerEmail, activityFor(
+      { status: before.status, ownerEmail: before.ownerEmail, dueDate: before.dueDate?.toISOString() ?? null },
+      { dueDate: patch.dueDate, ownerEmail: patch.ownerEmail },
+    ));
+    return { count: 1, before: { ownerEmail: before.ownerEmail, accountId: before.accountId, title: before.title } };
+  });
 }
 
 /* ----------------------------------------------------------------- */

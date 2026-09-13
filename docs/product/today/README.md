@@ -111,6 +111,12 @@ Lane keys are fixed in [`lib/today/types.ts`](../../../lib/today/types.ts) and l
 - **View:** everyone signed in. Content differs by scope.
 - **Create/complete tasks, triage:** not Guests (Guests create no actions —
   `permissionCapabilities` in `lib/roles.ts`).
+- **Changing an existing task** (complete, reopen, edit, delete) — *amended 2026-09-13,
+  this bullet only re-verified:* the task actions shared with the account Tasks sidebar
+  require write access to the task's current account, when it has one, before the
+  owner-scoped write, and every due-date, owner and status change is recorded in the task's
+  thread. See [Account Tasks — Permissions](../client-profile/account-tasks.md#permissions)
+  and [Task history](../client-profile/account-tasks.md#task-history--verified-derivation-wording--partially-verified-writes-rendering).
 - **Server-side enforcement:** inherited from `getClients()` / `getCurrentUserRole()` in
   [`lib/auth.ts`](../../../lib/auth.ts). `buildTodaySnapshot` also calls `getAppUsers()`,
   which has **no role or scope check of its own** — see Known limitations.

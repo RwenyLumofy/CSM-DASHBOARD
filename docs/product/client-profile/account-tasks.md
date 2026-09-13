@@ -8,8 +8,10 @@ Part of the [Client Profile](README.md), above the tabs.
 
 A **Tasks** button on the client profile that opens a sidebar listing the account's tasks —
 open ones first, missed ones at the top, completed ones behind a disclosure. From it a user
-can add a task, mark one done, edit it in place, move its due date on by a week, and read or
-post updates on it. The rows are `today_tasks`: the same records the Today board reads.
+can add a task, mark one done or reopen it, edit it in place, move its due date on by a
+week, and read or post updates on it. Every due-date move, completion, reopening and
+hand-off is written into the task's update thread as a line of history that nobody can
+remove. The rows are `today_tasks`: the same records the Today board reads.
 
 ## Purpose
 
@@ -19,7 +21,9 @@ of being left overdue or marked done when it was not — both of which misreport
 board. Before 2026-09-13 an existing task could only be marked done or discussed, and
 closing and recreating it lost its update thread
 ([`components/clients/AccountTasks.tsx`](../../../components/clients/AccountTasks.tsx)
-module header).
+module header). Because moving a date became one click, the thread also records the move:
+without that, a task pushed three times looks exactly like one that was always due on its
+current date ([`lib/task-activity.ts`](../../../lib/task-activity.ts) module header).
 
 ## Intended users
 
@@ -27,7 +31,9 @@ module header).
   own tasks.
 - **Admin / Super Admin** — additionally assign tasks to other people, and, with an
   unrestricted scope, change anyone's task.
-- **Guest** — reads the list and the threads; no controls.
+- **Guest** — reads the list; no controls. **Does not see threads or task history** — the
+  thread read is gated like a write and returns nothing to a Guest (see Permissions).
+  Corrected 2026-09-13; this line previously said Guests read the threads.
 
 ## Entry points
 
@@ -50,7 +56,8 @@ module header).
    row: priority dot (non-normal only), title, notes, focus-area pill, due label, **Push a
    week** / **Due in a week**, owner email, edit (pencil), updates (speech bubble). The
    done checkbox sits left of the title.
-6. **"N completed"** disclosure — title struck through and the updates button only.
+6. **"N completed"** disclosure — title struck through, **Reopen** (only on tasks the viewer
+   may change, since 2026-09-13), and the updates button.
 
 ## Primary workflows
 
@@ -78,11 +85,14 @@ module header).
    `updateTaskAction`. If nothing changed, the form closes with no request. Sending only
    the changes means renaming an overdue task does not re-submit its past due date, which
    the server would refuse.
-5. **Result** — the row updates in place.
+5. **Result** — the row updates in place. A changed due date or owner is also recorded in
+   the task's thread (see *Task history*); a changed title, notes, priority or focus area is
+   not.
 6. **Failure** — the form stays open and the server's message is shown: *"That due date is
-   in the past."*, *"Only an admin can reassign a task to someone else."*, or *"That task
-   isn't on your board. Ask its owner, or an admin, to change it."* when the owner-scoped
-   write matched nothing.
+   in the past."*, *"Only an admin can reassign a task to someone else."*, the account write
+   gate's message (*"You don't have permission to edit this account."* or *"Not found, or
+   you don't have access to this account."*), or *"That task isn't on your board. Ask its
+   owner, or an admin, to change it."* when the owner-scoped write matched nothing.
 
 ### Push a week — `Verified` (date arithmetic) / `Partially verified` (write)
 1. **Trigger** — **Push a week** on a dated task, **Due in a week** on an undated one. The
@@ -95,16 +105,74 @@ module header).
    [`lib/task-due.test.ts`](../../../lib/task-due.test.ts).
 4. **Failure** — the date reverts and *"Couldn't move the date."* or the server message is
    shown.
+5. **History** — each push that lands on a different calendar day writes one
+   *"moved the due date from … to …"* line into the thread.
 
 ### Mark done
 Checkbox on a row that offers controls → `toggleTaskAction(id, "done")`, optimistic, reverted
-with the server message on refusal. The task moves to the completed disclosure. There is no
-reopen, edit or push on a completed task in this sidebar.
+with the server message on refusal. The task moves to the completed disclosure and the
+thread gains *"marked this done"*. There is no edit or push on a completed task in this
+sidebar.
+
+### Reopen a completed task — `Partially verified`
+1. **Trigger** — **Reopen** on a task in the completed disclosure (since 2026-09-13).
+   Before this, a completed task could be reopened only from the Today board.
+2. **Preconditions** — the same `mayChange` rule as done, edit and push (see *Who sees the
+   controls*).
+3. **System behaviour** — `toggleTaskAction(id, "open")`. The task moves back to the open
+   list optimistically; the thread gains *"reopened this"*.
+4. **Failure** — the task returns to the completed disclosure and *"Couldn't reopen the
+   task."* or the server message is shown.
 
 ### Read and post updates
 The speech-bubble button expands the task's thread (`TaskUpdates`), one at a time. Available
-on open and completed tasks and to every viewer; posting requires `canEdit`. The thread is
-not described further here — task updates have no feature document yet.
+on open and completed tasks. Reading needs the same permission as posting — see
+Permissions — so a Guest sees *"No updates yet…"* rather than the thread. Comments are not
+described further here; task updates have no feature document yet.
+
+### Task history — `Verified` (derivation, wording) / `Partially verified` (writes, rendering)
+Added 2026-09-13; Step 3 of the
+[task updates spec](../../specs/tasks/task-updates-mentions-and-notifications.md).
+
+1. **Trigger** — any successful change to a task's **due date**, **owner** or **status**
+   through `updateTaskAction` or `toggleTaskAction`. The trigger is the write, not the
+   surface: edit, Push a week, done and Reopen here, and the same actions from the Today
+   board (its task drawer and its completion checkboxes), all record history.
+2. **System behaviour** — the repository write (`updateTodayTaskDb`,
+   `setTodayTaskStatusDb` in `lib/repo/drizzle.ts`) runs in one database transaction: it
+   reads the task row with a row lock (`SELECT … FOR UPDATE`), applies the change, and
+   inserts one `task_updates` row per changed field in the **same transaction**. Either
+   the change and its history both land, or neither does. The lock means two
+   simultaneous pushes each record the date they actually moved from.
+3. **What is recorded** — exactly three kinds (`activityFor` in
+   [`lib/task-activity.ts`](../../../lib/task-activity.ts)):
+
+   | `kind` | Written when | Stored `from` / `to` |
+   |---|---|---|
+   | `due_date_changed` | the due date's **calendar day** changes (set, moved or cleared) | `YYYY-MM-DD` or null |
+   | `reassigned` | the owner changes, compared **case-insensitively** | lower-cased emails |
+   | `status_changed` | status changes (`open` ↔ `done`) | the status values |
+
+   One edit can write several rows (for example a new date and a new owner). The author
+   is the signed-in user who made the change. The body is JSON `{from, to}`, not prose:
+   names are resolved when the thread is read, so renaming a person never rewrites
+   history.
+4. **What is not recorded** — changes to **title, notes, priority or focus area**, a
+   change of linked account, task **creation**, and task **deletion**. Per the module
+   header these describe the work rather than whether it is on track. Setting a field to
+   the value it already has writes nothing: re-saving the same day at a different time,
+   the same owner in different letter case, or completing an already-completed task.
+5. **How it reads** — a one-line entry among the comments, in time order, with a history
+   icon: *"{name} moved the due date from 4 Sep to 20 Sep"*, *"set the due date to 20
+   Sep"*, *"removed the due date (was 4 Sep)"*, *"marked this done"*, *"reopened this"*,
+   *"handed this from {name} to {name}"*. Dates are formatted from the stored day string,
+   so no time zone can shift them. A name falls back to the email when the person is not
+   in the account's visible audience. A row whose body cannot be decoded reads *"changed
+   this task"*.
+6. **Removal** — none. History lines have no remove control, and
+   `deleteTaskUpdateDb` refuses any non-comment row for everyone, admins included
+   (*"You can only remove your own updates, and task history can't be removed."*).
+7. **Side effects** — history rows send **no notifications** and carry no mentions.
 
 ## Fields and data
 
@@ -121,8 +189,10 @@ not described further here — task updates have no feature document yet.
 
 | State | Meaning | Entered by | Exited by | Who can change it |
 |---|---|---|---|---|
-| Open | Work outstanding | creation | Mark done | row with controls |
-| Done | Completed | Mark done | not from this sidebar | — |
+| Open | Work outstanding | creation, Reopen | Mark done | row with controls |
+| Done | Completed | Mark done | Reopen (since 2026-09-13) | row with controls |
+
+Every transition between the two writes a `status_changed` history row.
 
 Due labels on open tasks (`daysUntil` against `today`): **Overdue by N days** (due strictly
 before today) · **Due today** · **Due tomorrow** · **Due in N days** (2–7) · a short calendar
@@ -141,6 +211,13 @@ date (8+ days, formatted in UTC since 2026-09-13) · **No date**.
 - **Edit sends only what changed.** Interface rule (`saveEdit`).
 - **Reassigning to yourself is written.** Server rule, see
   [permissions R6a](../../business-rules/permissions-and-scoping.md#r6a--assigning-a-task-to-someone-else-is-admin-only-and-refused-rather-than-downgraded).
+- **A change to due date, owner or status leaves a history row; nothing else does.** Only
+  a real change counts — same calendar day, same owner ignoring case, same status write
+  nothing. The derivation is tested (`lib/task-activity.test.ts`, 9 tests); that the
+  writers call it is read, not tested.
+- **History is written with the change or not at all.** Same transaction, row locked.
+  Server rule, not tested.
+- **History cannot be removed by anyone.** Server rule (`deleteTaskUpdateDb`), not tested.
 
 ## Permissions
 
@@ -148,40 +225,63 @@ date (8+ days, formatted in UTC since 2026-09-13) · **No date**.
   whoever owns it (`getTodayTasksVisibleDb` filtered to the account).
 - **Create:** `createTaskAction` — refused for Guests (`denyTaskWrite`) and for anyone who
   cannot write the account (`denyClientWrite`).
-- **Change (done, edit, push):** the server gate is in
-  [`app/(app)/today/task-actions.ts`](../../../app/%28app%29/today/task-actions.ts) —
-  `denyTaskWrite` (no Guests), then an **owner-scoped** write (`todayTaskScope` in
-  `lib/repo/drizzle.ts`) that matches only the caller's own task unless `mayEditAnyTask()`
-  (role `editsAllClients` **and** scope mode `all`). A zero-row write returns the
-  "isn't on your board" refusal.
+- **Change (done, reopen, edit, push) and delete:** the server gate is in
+  [`app/(app)/today/task-actions.ts`](../../../app/%28app%29/today/task-actions.ts), applied
+  in order:
+  1. `denyTaskWrite` — no Guests.
+  2. `denyExistingTask` (since 2026-09-13) — `denyClientWrite` on the account the task is
+     **currently** linked to, so the caller must be able to write that account. A task
+     with no account skips this step. Applies to `toggleTaskAction`, `updateTaskAction`
+     and `deleteTaskAction`, whichever surface calls them.
+  3. For `updateTaskAction` only: `denyTaskTarget` on a **new** account link, if one is
+     being set.
+  4. An **owner-scoped** write (`todayTaskScope` in `lib/repo/drizzle.ts`) that matches
+     only the caller's own task unless `mayEditAnyTask()` (role `editsAllClients` **and**
+     scope mode `all`). A zero-row write returns the "isn't on your board" refusal.
+
+  Before 2026-09-13 step 2 did not exist: someone whose scope was narrowed off an account
+  could keep completing, pushing, editing and deleting their own old tasks on it, although
+  posting an update on the same task was already refused.
 - **Reassign:** to someone else requires `editsAllClients(role)`; an Admin with a
   narrowed scope can hand off their **own** tasks only, because the owner-scoped write
   still applies.
-- **Who sees the controls (interface).** Done, edit and push appear on a row only when
+- **Read the thread (including history):** `getTaskUpdatesAction` applies the same gate
+  as posting (`loadWritableTask` in `app/(app)/today/task-update-actions.ts`) — no Guests,
+  and write access to the task's account (or, for a task with no account, its owner or an
+  unrestricted admin). A caller who fails it gets an empty thread, not an error.
+- **Remove a thread entry:** a comment by its author, or any comment by an unrestricted
+  admin. A history entry by nobody.
+- **Who sees the controls (interface).** Done, reopen, edit and push appear on a row only when
   `canEdit` (the page's `canEditClient` result) **and** either the viewer owns the task or
   `canEditAnyTask` — which the page computes with the same predicate as `mayEditAnyTask`.
   Before 2026-09-13 the done checkbox appeared on every row for anyone with `canEdit`, and
   a teammate's task was refused after the click. The assignee picker is shown when
   `canAssignOthers` (`editsAllClients(role)`).
-- **Note — the interface is stricter than the server here.** `updateTaskAction` and
-  `toggleTaskAction` re-apply the account write gate only when the account link itself is
-  being changed, which this sidebar never sends. The owner-scoped write is the effective
-  server gate for changing an existing task.
+- **Interface and server now agree.** Until 2026-09-13 the interface was stricter than
+  the server: the sidebar required `canEdit` on the account, while the actions re-checked
+  the account only when the account link was changing. Step 2 above closed that gap.
 
 ## Automations and side effects
 
-- **Reassignment notifies the new owner** (since 2026-09-13). When `updateTaskAction`
-  changes the owner to someone other than the actor **and** other than the previous owner,
-  it writes one `task_assigned` notification: title *"Task handed to you by
-  {actor email}"*, body the task title, the task's account, and a task target
-  (`entityType: "task"`), so it deep-links to the task. Re-saving the same owner does not
-  notify; handing a task back to someone a second time does (the id carries a timestamp).
-  **Best-effort** — a failed insert is logged (`[task-actions] task reassigned but new
-  owner not notified`) and the edit still succeeds. The previous owner is not notified.
-- **Creation** of a task for someone else notifies them (unchanged).
-- **No history is written.** Edits, due-date moves, reassignment and completion are not
-  recorded in the task's update thread or anywhere else; `today_tasks.updated_at` is the
-  only trace. See Known limitations.
+- **Reassignment notifies both owners** (both since 2026-09-13). When `updateTaskAction` actually changes the owner (compared
+  against the stored owner, lower-cased), it writes up to two notifications in one insert,
+  each with the task title as body, the task's account, and a task target
+  (`entityType: "task"`, `entityId`):
+  - to the **new owner**, unless they are the actor: `task_assigned`, *"Task handed to you
+    by {actor email}"*;
+  - to the **previous owner**, unless they are the actor: `task_update`, *"{actor email}
+    handed your task to {new owner email}"*.
+
+  Re-saving the same owner notifies nobody; handing a task back a second time notifies
+  again (the ids carry a timestamp). **Best-effort** — a failed insert is logged
+  (`[task-actions] task reassigned but owners not notified`) and the edit still succeeds.
+- **Creation** of a task for someone else notifies them with `task_assigned`, *"New task
+  from {actor email}"*. Since 2026-09-13 it carries a task target (`entityType: "task"`,
+  `entityId`), so it opens the task — the account's Tasks sidebar for an account task,
+  `/today?task=<id>` for a task with no account. Before, it carried only the account and
+  opened the profile without selecting the task.
+- **History is written into the task's thread** for due-date, owner and status changes —
+  see *Task history* under Primary workflows. History rows notify nobody.
 
 ## Empty, loading and error states
 
@@ -196,29 +296,38 @@ date (8+ days, formatted in UTC since 2026-09-13) · **No date**.
 
 `today_tasks` — `id`, `owner_email`, `category`, `title`, `account_id`, `due_date`,
 `priority`, `notes`, `status`, `created_by_email`, `updated_at`, and more
-([`lib/db/schema.ts`](../../../lib/db/schema.ts)). Threads are `task_updates`. Notifications
-are `notifications` with `entity_type` / `entity_id`. No change to any table in the
-2026-09-13 change. See [data-model](../../data-model/README.md).
+([`lib/db/schema.ts`](../../../lib/db/schema.ts)). Threads are `task_updates`: comments
+(`kind = 'comment'`, plain text with mention tokens) and, since 2026-09-13, history rows
+(`kind` = `due_date_changed`, `reassigned` or `status_changed`, body JSON `{from, to}`,
+`author_email` = the actor). The three history kinds were reserved in the table's
+migration (`drizzle/0005_add_task_updates.sql`) and are now written. `task_updates.task_id`
+has no foreign key, so deleting a task does not remove its thread rows. Notifications are
+`notifications` with `entity_type` / `entity_id`. **No schema change or migration** in
+either 2026-09-13 change. See [data-model](../../data-model/README.md).
 
 ## Technical implementation
 
 | Concern | File |
 |---|---|
-| Sidebar, add/edit form, push, done | [`components/clients/AccountTasks.tsx`](../../../components/clients/AccountTasks.tsx) |
+| Sidebar, add/edit form, push, done, reopen | [`components/clients/AccountTasks.tsx`](../../../components/clients/AccountTasks.tsx) |
 | Due-date arithmetic | [`lib/task-due.ts`](../../../lib/task-due.ts) — `daysUntil`, `isOverdue`, `pushedAWeek` |
-| Tests | [`lib/task-due.test.ts`](../../../lib/task-due.test.ts) — 6 tests |
-| Server actions | [`app/(app)/today/task-actions.ts`](../../../app/%28app%29/today/task-actions.ts) — `createTaskAction`, `toggleTaskAction`, `updateTaskAction`, `mayEditAnyTask` |
-| Writes | `lib/repo/drizzle.ts` — `updateTodayTaskDb`, `setTodayTaskStatusDb`, `getTodayTaskDb`, `insertNotificationsDb` |
+| History rules and wording | [`lib/task-activity.ts`](../../../lib/task-activity.ts) — `activityFor`, `encodeActivity`, `decodeActivity`, `describeActivity` |
+| Tests | [`lib/task-due.test.ts`](../../../lib/task-due.test.ts) — 6 tests · [`lib/task-activity.test.ts`](../../../lib/task-activity.test.ts) — 9 tests |
+| Server actions | [`app/(app)/today/task-actions.ts`](../../../app/%28app%29/today/task-actions.ts) — `createTaskAction`, `toggleTaskAction`, `updateTaskAction`, `deleteTaskAction`, `denyExistingTask`, `mayEditAnyTask` · [`app/(app)/today/task-update-actions.ts`](../../../app/%28app%29/today/task-update-actions.ts) — `getTaskUpdatesAction` (returns `kind`), `deleteTaskUpdateAction` |
+| Writes | `lib/repo/drizzle.ts` — `updateTodayTaskDb` (returns `{count, before}`), `setTodayTaskStatusDb`, both via `lockTaskForWrite` + `recordTaskActivity` in one transaction; `deleteTaskUpdateDb`; `getTodayTaskDb`; `insertNotificationsDb` |
 | Page wiring | [`app/(app)/clients/[id]/page.tsx`](../../../app/%28app%29/clients/[id]/page.tsx) — passes `canEdit`, `canAssignOthers`, `viewerEmail`, `canEditAnyTask`, `today` |
-| Thread | `components/clients/TaskUpdates.tsx` |
+| Thread, including history lines | `components/clients/TaskUpdates.tsx` |
 | Notification link | `lib/notifications/link.ts` |
 
-`updateTaskAction` is also used by the Today board's task drawer
-(`components/today/TaskDrawer.tsx`), so the reassignment fixes apply there too.
+`updateTaskAction`, `toggleTaskAction` and `deleteTaskAction` are shared with the Today
+board (`components/today/TaskDrawer.tsx`, `TodayBoard.tsx`, `FocusAreaBoxes.tsx`), and the
+drawer renders the same `TaskUpdates` thread — so the account gate, the history rows and the
+reassignment notifications apply there too.
 
 ## Analytics and observability
 
 No product analytics events. One server log line when a reassignment notification fails.
+The `task_updates` history rows are a product-visible record, not telemetry.
 
 ## Dependencies
 
@@ -227,45 +336,64 @@ scope) · the CSM and implementation team directories that feed the assignee pic
 
 ## Known limitations
 
-- **Edits leave no history.** Changing a task — including pushing its due date — is not
-  recorded in its update thread or in any audit table. A pushed date overwrites the old
-  one, so a task that slipped three times looks exactly like one that was always due
-  then. `task_updates.kind` reserves `due_date_changed`, `reassigned` and `status_changed`,
-  but nothing writes them (reserved as Step 3 of the
-  [task updates spec](../../specs/tasks/task-updates-mentions-and-notifications.md), which
-  is `Proposed`).
-- **A completed task cannot be reopened, edited or re-dated from this sidebar.**
-- **The previous owner is not told** when their task is handed to someone else.
+- **Only due date, owner and status leave history.** Title, notes, priority, focus-area
+  and account-link edits still overwrite the row with no trace beyond
+  `today_tasks.updated_at` — a task can be rewritten into different work without the
+  thread showing it. Deliberate, per the `lib/task-activity.ts` header.
+- **History starts when this change is deployed.** Changes made before it were never
+  recorded and cannot be reconstructed; an older task's thread shows no history for them.
+- **Deleting a task is not recorded, and takes its history out of reach.** The thread rows
+  remain in `task_updates` (no foreign key, no cascade) but nothing can open them.
+- **Guests cannot see history.** The thread read is gated like a write, so the audience
+  that can only watch an account is the one that cannot see how its tasks slipped.
+- **A completed task cannot be edited or re-dated from this sidebar** — reopen it first.
 - **"Today" is the UTC date** at server render, so near midnight a viewer far from UTC can
   see "Due today" / "overdue" a day early or late relative to their own calendar.
-- **The two `task_assigned` notifications route differently.** A reassignment carries a task
-  target and opens the task's thread; a creation notification carries only the account, so
-  it opens the profile without selecting the task (`createTaskAction` sets no
-  `entityType`).
-- **No test covers the server actions, the permission gate or the component.** Only the
-  date arithmetic is tested.
+- **Notifications name people by email**, not display name, in both reassignment titles.
+- **The previous-owner notification for a task with no account may be a dead click.** It
+  links to `/today?task=<id>`, and the Today board opens a task only if it is in the
+  viewer's scoped snapshot — which a task just handed away usually is not
+  (`components/today/TodayWorkspace.tsx`). Read, not run: `Partially verified`.
+- **No test covers the server actions, the permission gates, the transactional write or
+  the component.** Only the date arithmetic and the history derivation and wording are
+  tested. The repository writers were exercised by hand against the test database (see
+  Verification metadata); the actions and UI were not run with a signed-in session.
 
 ## Open questions
 
-- Should due-date changes be recorded in the thread, so slips are visible? *Product.*
-- Should a creation notification deep-link to the task the way a reassignment now does?
-  *Product / Engineering.*
-- Should the account write gate be re-applied on every task change, not only when the
-  account link changes? *Engineering.*
+- Should Guests (and other read-only viewers) be able to read a task's thread and history?
+  Today the read gate equals the write gate by design (`getTaskUpdatesAction` header).
+  *Product.*
+- Should title and notes changes be recorded too, at least when a task's meaning changes?
+  The module header says no; confirm that is the product decision. *Product.*
+- Should deleting a task leave a trace, or be replaced by an archive? *Product /
+  Engineering.*
 
 ## Source references
 
-`components/clients/AccountTasks.tsx` · `lib/task-due.ts` · `lib/task-due.test.ts` ·
-`app/(app)/today/task-actions.ts` · `app/(app)/clients/[id]/page.tsx` ·
+`components/clients/AccountTasks.tsx` · `components/clients/TaskUpdates.tsx` ·
+`lib/task-due.ts` · `lib/task-due.test.ts` · `lib/task-activity.ts` ·
+`lib/task-activity.test.ts` · `app/(app)/today/task-actions.ts` ·
+`app/(app)/today/task-update-actions.ts` · `app/(app)/clients/[id]/page.tsx` ·
 `lib/repo/drizzle.ts` · `lib/notifications/link.ts` · `lib/db/schema.ts` ·
-`components/today/TaskDrawer.tsx`
+`drizzle/0005_add_task_updates.sql` · `components/today/TaskDrawer.tsx` ·
+`components/today/TodayWorkspace.tsx`
 
 ---
 
-**Documentation status:** Partially verified — sidebar component, page wiring, server
-actions and repository writes read end to end; the due-date helpers are covered by 6 passing
-tests; nothing else is tested and the flows were not run against a signed-in session.
+**Documentation status:** Partially verified — sidebar component, thread component, page
+wiring, server actions and repository writes read end to end. Passing tests: 6 for the
+due-date helpers, 9 for history derivation, encoding and wording (15 run 2026-09-13). The
+repository writers `updateTodayTaskDb`, `setTodayTaskStatusDb` and `deleteTaskUpdateDb`
+were exercised manually against the **test** database on 2026-09-13 with a throwaway task —
+a push, a same-day re-save, done then open, an admin reassignment, and removal attempts on
+history rows — and behaved as documented (reported by the engineer who ran it; not
+repo-reproducible). The server actions, permission gates and components were not run with
+a signed-in session.
 **Last verified:** 2026-09-13
-**Verified against commit:** `7c2e39f` plus the uncommitted working-tree change adding edit,
-push a week, the separate overdue count and the reassignment notification.
+**Verified against commit:** `4621fc8` (branch `feat/task-edit-history`) plus the
+uncommitted working-tree change adding task history, the existing-task account gate, the
+creation notification target, the previous-owner notification and Reopen. Earlier
+2026-09-13 content (edit, push a week, overdue count) was verified at `7c2e39f` plus its
+working-tree change, which has since landed as `12b7ce7`.
 **Documentation owner:** Unassigned

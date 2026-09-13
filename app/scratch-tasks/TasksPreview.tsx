@@ -27,6 +27,7 @@ const ACCOUNT_TASKS: AccountTask[] = [
   { id: "at3", title: "Confirm SSO cut-over date with IT", category: "Onboarding", dueDate: day(-1), notes: null, status: "open", ownerEmail: "zainab@lumofy.com", priority: "urgent" },
   { id: "at4", title: "Executive follow-up after steering committee", category: "reminder", dueDate: day(3), notes: null, status: "open", ownerEmail: "viewer@lumofy.com", priority: "low" },
   { id: "at5", title: "Share the adoption playbook", category: "reminder", dueDate: day(20), notes: null, status: "open", ownerEmail: "viewer@lumofy.com", priority: "normal" },
+  { id: "at7", title: "Send the renewal quote", category: "reminder", dueDate: day(-4), notes: null, status: "done", ownerEmail: "viewer@lumofy.com", priority: "normal" },
   { id: "at6", title: "Book the admin training session", category: "reminder", dueDate: null, notes: null, status: "open", ownerEmail: "viewer@lumofy.com", priority: "normal" },
 ];
 
@@ -39,6 +40,11 @@ const THREAD = [
     createdAt: t(260), editedAt: null, deleted: false, mine: false,
   },
   {
+    id: "a1", kind: "due_date_changed", authorEmail: "aelsagher@lumofy.com", authorName: "Ahmed Elsagher",
+    body: JSON.stringify({ from: "2026-09-04", to: "2026-09-11" }),
+    createdAt: t(200), editedAt: null, deleted: false, mine: true,
+  },
+  {
     id: "u2", authorEmail: "zainab@lumofy.com", authorName: "Zainab Hussain",
     body: "@[qalshakhoori@lumofy.com] can you confirm before Thursday? If the pilot is excluded we're still ahead of target, just by less.",
     createdAt: t(95), editedAt: null, deleted: false, mine: false,
@@ -47,6 +53,16 @@ const THREAD = [
     id: "u3", authorEmail: "qalshakhoori@lumofy.com", authorName: "Qasim Alshakhoori",
     body: "Confirmed — pilot excluded. Corrected figures are in the shared sheet. @[aelsagher@lumofy.com] the adoption slide needs the new number.",
     createdAt: t(12), editedAt: null, deleted: false, mine: false,
+  },
+  {
+    id: "a2", kind: "reassigned", authorEmail: "qalshakhoori@lumofy.com", authorName: "Qasim Alshakhoori",
+    body: JSON.stringify({ from: "aelsagher@lumofy.com", to: "zainab@lumofy.com" }),
+    createdAt: t(8), editedAt: null, deleted: false, mine: false,
+  },
+  {
+    id: "a3", kind: "due_date_changed", authorEmail: "zainab@lumofy.com", authorName: "Zainab Hussain",
+    body: JSON.stringify({ from: "2026-09-11", to: "2026-09-18" }),
+    createdAt: t(5), editedAt: null, deleted: false, mine: false,
   },
 ];
 
