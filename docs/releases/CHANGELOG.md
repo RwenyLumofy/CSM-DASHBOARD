@@ -18,6 +18,66 @@ limitations · commit.
 
 ## 2026-09-13
 
+### Task history: date moves, completion and hand-offs are recorded in the task's thread
+**Area:** Client Profile → Tasks sidebar · Today board (task drawer, completion checkboxes)
+· Notifications · Permissions
+**Roles affected:** CSM (operator) — their date moves, completions and reopenings are now
+visible to everyone who can read the thread; can reopen from the sidebar; loses the ability
+to change tasks on accounts no longer in their scope · Admin / Super Admin — same, plus
+reassignments are recorded and both owners are told; cannot remove history · Guest — no
+change (still sees no thread)
+**Before:** Pushing a task's due date overwrote the old date, so a task that slipped three
+times looked exactly like one that was always due on its current date — the Today board
+reported it on time and nobody could see it had moved. Completion and reassignment left no
+trace either. A completed task could be reopened only from the Today board. When a task was
+handed to someone else, the person it was taken from was not told. A notification for a
+newly created task opened the account, not the task. And the server checked only that you
+owned a task before letting you complete, push, edit or delete it — not that you could
+still write the account it was on — so someone moved off an account could keep changing
+their old tasks there.
+**After:**
+- **The thread records history.** Every change to a task's **due date**, **owner** or
+  **status** adds a one-line entry among the comments — *"{name} moved the due date from
+  4 Sep to 20 Sep"*, *"marked this done"*, *"reopened this"*, *"handed this from {name} to
+  {name}"*. Written by the server in the same transaction as the change, so a change cannot
+  land without its entry. Applies wherever the change is made: the account sidebar and the
+  Today board.
+- **Only real changes count.** Re-saving the same day, the same owner or the same status
+  writes nothing.
+- **History cannot be removed** — it has no remove control, and the server refuses for
+  everyone, admins included. Comments are removable as before.
+- **Not recorded:** title, notes, priority and focus-area edits (deliberately — they
+  describe the work, not whether it is on track), task creation and task deletion.
+- **Reopen** on completed tasks in the account sidebar, for tasks you may change.
+- **Both owners are told about a hand-off.** The new owner still gets *"Task handed to
+  you by …"*; the previous owner now gets *"… handed your task to …"*. Nobody is notified
+  about their own action.
+- **A "New task from …" notification opens the task**, not just the account.
+
+**Permission changes:** **Tightened.** Completing, reopening, pushing, editing or deleting an
+existing task now requires write access to the account the task is on, checked on the
+server before the owner check — on the Today board as well as the profile. A user whose
+scope no longer covers an account gets *"You don't have permission to edit this account."*
+(or the not-found message) for their tasks there. Tasks with no account are unaffected.
+Separately, **no one can remove a history entry**, although an unrestricted admin can still
+remove anyone's comment.
+**Migration/data:** No schema change or migration — the three history kinds were reserved in
+`task_updates.kind` when the table was created. History starts accumulating on deploy;
+earlier changes cannot be reconstructed.
+**Known limitations:** Title, notes, priority and focus-area edits still leave no trace.
+Deleting a task is not recorded and leaves its history rows orphaned and unreachable. Guests
+cannot see the thread, so cannot see history. The previous-owner notification for a task
+with no account links to the Today board, which will usually not open a task the recipient
+no longer owns. Notifications name people by email. Tests cover which changes produce
+history and how it reads (`lib/task-activity.test.ts`, 9 tests); the repository writers were
+checked by hand against the test database; the server actions, gates and UI were not run
+with a signed-in session.
+**Docs:** [Account Tasks](../product/client-profile/account-tasks.md) ·
+[permissions R6a](../business-rules/permissions-and-scoping.md#r6a--assigning-a-task-to-someone-else-is-admin-only-and-refused-rather-than-downgraded)
+· [known limitations](../known-limitations/README.md#auditability)
+**Commit:** the change that carries this entry (working tree at `4621fc8`, branch
+`feat/task-edit-history`).
+
 ### Account tasks can be edited, pushed a week, and the overdue count says what it means
 **Area:** Client Profile → Tasks sidebar · Today board → task drawer (reassignment only) ·
 Notifications
@@ -56,13 +116,16 @@ matches your own task otherwise.
 **Migration/data:** None. No schema change.
 **Known limitations:** **Edits leave no history** — a pushed or changed due date overwrites
 the old one and nothing is written to the task's update thread, so a slip leaves no trace.
+*(Superseded in part by the task history entry above: due-date, owner and status changes,
+reopening from the sidebar, the previous-owner notification and the creation notification
+target were addressed the same day.)*
 A completed task cannot be reopened or edited from the sidebar. The reassignment
 notification is best-effort. A *creation* notification still links only to the account,
 not to the task. "Today" for overdue is the server's UTC date. Only the due-date arithmetic
 is tested (`lib/task-due.test.ts`, 6 tests); the server actions, gates and component are not.
 **Docs:** [Account Tasks](../product/client-profile/account-tasks.md) (new) ·
 [permissions R6a](../business-rules/permissions-and-scoping.md#r6a--assigning-a-task-to-someone-else-is-admin-only-and-refused-rather-than-downgraded)
-**Commit:** the change that carries this entry (working tree at `7c2e39f`).
+**Commit:** `12b7ce7` (merged in `4621fc8`).
 
 ---
 

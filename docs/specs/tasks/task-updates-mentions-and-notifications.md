@@ -15,16 +15,36 @@ Users and permissions
 **Verified against commit:** `7b0fa94`
 
 > **Documenter note, 2026-09-13** (not part of the specification; the spec text below is
-> unchanged). Against `7c2e39f` plus the working-tree change: live defect 3 in §2 —
-> *reassignment notifies nobody* — is closed. `updateTaskAction` now writes a
-> `task_assigned` notification with a task target on an actual change of owner (Step 1
-> item 6, Flow D, `FR-016`); the previous owner is not notified, matching §21. The account
-> Tasks sidebar also gained in-place edit and *Push a week*, which this spec did not
-> propose. **Step 3 (activity rows for status, reassignment and due-date changes) is still
-> not built** — editing a task writes nothing to `task_updates`. Current behaviour is
-> documented in [Account Tasks](../../product/client-profile/account-tasks.md); the §2
-> "current behaviour" table is a 2026-08-02 snapshot and several of its rows are no longer
+> unchanged). Revised the same day against `4621fc8` plus the working-tree change on branch
+> `feat/task-edit-history`; the first version of this note, written against `7c2e39f`,
+> said Step 3 was not built and the previous owner was not notified — both are no longer
 > true.
+>
+> - **Live defect 3 in §2 — reassignment notifies nobody — is closed** (Step 1 item 6,
+>   Flow D, `FR-016`).
+> - **The previous owner is now notified on reassignment** (`task_update`, *"… handed
+>   your task to …"*). This **departs from the recommendation in §21**, which chose (a)
+>   "no" for the foundation. Product should confirm the departure.
+> - **A creation notification now carries a task target** (`FR-015`), so it opens the
+>   task rather than the account.
+> - **Step 3 is built for all three reserved kinds.** `updateTodayTaskDb` and
+>   `setTodayTaskStatusDb` write `due_date_changed`, `reassigned` and `status_changed` rows
+>   to `task_updates` in the same transaction as the change, body JSON `{from, to}`; the
+>   thread renders them as one-line entries; no one, admins included, can remove them
+>   (`lib/task-activity.ts`, 9 tests in `lib/task-activity.test.ts`). Title, notes,
+>   priority and focus-area edits are deliberately not recorded. Consistent with the
+>   *Another timeline* row of the Coherence check: nothing account-level is replicated into task threads.
+> - **Still not met, in the spec's own terms:** `FR-011` (a Guest sees the thread) — the
+>   implementation gates reading on the write rule and returns an empty thread to a Guest;
+>   `FR-018` (deleting a task removes its updates) — `deleteTodayTaskDb` deletes only the
+>   task row, leaving its thread rows, now including history, orphaned.
+> - The account Tasks sidebar also gained in-place edit, *Push a week* and *Reopen*, which
+>   this spec did not propose, and changing or deleting an existing task now re-checks
+>   write access to its account.
+>
+> Current behaviour is documented in
+> [Account Tasks](../../product/client-profile/account-tasks.md); the §2 "current
+> behaviour" table is a 2026-08-02 snapshot and several of its rows are no longer true.
 
 ---
 

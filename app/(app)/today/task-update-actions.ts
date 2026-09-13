@@ -60,6 +60,9 @@ async function loadWritableTask(taskId: string): Promise<
 
 export interface TaskUpdateView {
   id: string;
+  /** "comment", or an activity kind (lib/task-activity.ts) whose body is JSON.
+   *  Optional so the dev preview's sample data can omit it. */
+  kind?: string;
   authorEmail: string;
   authorName: string;
   body: string;
@@ -93,6 +96,7 @@ export async function getTaskUpdatesAction(taskId: string): Promise<TaskUpdateVi
 
   return rows.map((r) => ({
     id: r.id,
+    kind: r.kind,
     authorEmail: r.authorEmail,
     authorName: nameByEmail.get(r.authorEmail) ?? r.authorEmail,
     body: r.body,
@@ -189,7 +193,7 @@ export async function deleteTaskUpdateAction(updateId: string): Promise<UpdateRe
        the time this refused — the update was gone and the caller was told it
        was not allowed. */
     const outcome = await deleteTaskUpdateDb(updateId, mayAny ? null : email);
-    if (outcome === "forbidden") return { ok: false, error: "You can only remove your own updates." };
+    if (outcome === "forbidden") return { ok: false, error: "You can only remove your own updates, and task history can't be removed." };
     if (outcome === "missing") return { ok: true }; // already gone — nothing to undo
     if (gate.task.accountId) revalidatePath(`/clients/${gate.task.accountId}`);
     revalidatePath("/today");

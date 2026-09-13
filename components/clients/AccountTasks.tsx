@@ -382,6 +382,23 @@ export function AccountTasks({
     if (!r.ok) { setDue(prev); setError(r.error ?? "Couldn't move the date."); }
   }
 
+  /* Undo for a task marked done by mistake, or work that came back. Until this
+     a completed task could only be reopened from the Today board. Optimistic
+     and reverted on failure, like complete(). */
+  async function reopen(id: string) {
+    const setStatus = (status: string) =>
+      setItems((items) => items.map((x) => x.id === id ? { ...x, status } : x));
+    setDone((d) => ({ ...d, [id]: false }));
+    setStatus("open");
+    setError(null);
+    const r = await toggleTaskAction(id, "open");
+    if (!r.ok) {
+      setDone((d) => ({ ...d, [id]: true }));
+      setStatus("done");
+      setError(r.error ?? "Couldn't reopen the task.");
+    }
+  }
+
   async function complete(id: string) {
     setDone((d) => ({ ...d, [id]: true })); // optimistic
     setError(null);
@@ -582,6 +599,12 @@ export function AccountTasks({
                 <div className="flex items-start gap-2">
                   <Check size={12} className="mt-0.5 shrink-0 text-[#2F7D52]" aria-hidden />
                   <p dir="auto" className="min-w-0 flex-1 font-body text-[12.5px] text-fg-muted line-through">{t.title}</p>
+                  {mayChange(t) && (
+                    <button onClick={() => reopen(t.id)} aria-label={`Reopen "${t.title}"`}
+                      className="shrink-0 rounded-full border border-border px-2 py-0.5 font-body text-[10.5px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius">
+                      Reopen
+                    </button>
+                  )}
                   <button onClick={() => setOpenTaskId((id) => id === t.id ? null : t.id)}
                     aria-expanded={openTaskId === t.id}
                     aria-label={`${openTaskId === t.id ? "Hide" : "Show"} updates on "${t.title}"`}

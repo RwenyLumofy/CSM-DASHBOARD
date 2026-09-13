@@ -36,6 +36,23 @@ async function denyTaskTarget(accountId?: string | null, projectId?: string | nu
   return null;
 }
 
+/** The account gate for a task that already exists.
+ *
+ *  Changing a task used to check only that the caller owned it. Account write
+ *  access was re-checked when a write MOVED the task to an account, never for
+ *  the account it was already on — so someone whose scope was narrowed off an
+ *  account could keep completing, pushing and editing their old tasks there.
+ *  Posting an update on the same task was already refused (loadWritableTask in
+ *  task-update-actions.ts); the task itself now follows the same rule.
+ *
+ *  A task that can't be read falls through: the owner-scoped write that follows
+ *  matches nothing and reports it. */
+async function denyExistingTask(id: string): Promise<string | null> {
+  const { getTodayTaskDb } = await import("@/lib/repo/drizzle");
+  const task = await getTodayTaskDb(id);
+  return task?.accountId ? denyClientWrite(task.accountId) : null;
+}
+
 /** Rejects a due date in the past — a task that is overdue the moment it is
  *  created is always a mistake, and it pollutes every overdue count.
  *
@@ -142,6 +159,10 @@ export async function createTaskAction(input: {
           title: `New task from ${email}`,
           body: title,
           clientId: input.accountId ?? null,
+          // Opens the task itself, as a reassignment notification does —
+          // without a target this landed on the account page, or nowhere.
+          entityType: "task",
+          entityId: row.id,
           dueDate: input.dueDate ? new Date(input.dueDate) : null,
           createdByEmail: email,
         }]);
@@ -162,7 +183,7 @@ export async function createTaskAction(input: {
 export async function toggleTaskAction(id: string, status: "open" | "done"): Promise<TaskResult> {
   const email = await getCurrentUserEmail();
   if (!email || !hasDatabase()) return { ok: false, error: "Unavailable." };
-  const denied = await denyTaskWrite();
+  const denied = (await denyTaskWrite()) ?? (await denyExistingTask(id));
   if (denied) return { ok: false, error: denied };
   try {
     const { setTodayTaskStatusDb } = await import("@/lib/repo/drizzle");
@@ -202,6 +223,7 @@ export async function updateTaskAction(id: string, patch: {
   if (patch.accountId !== undefined) clean.accountId = patch.accountId || null;
 
   const blocked = (await denyTaskWrite())
+    ?? (await denyExistingTask(id))
     ?? (await denyTaskTarget(patch.accountId, null))
     ?? (patch.dueDate !== undefined ? badDueDate(patch.dueDate) : null);
   if (blocked) return { ok: false, error: blocked };
@@ -221,33 +243,42 @@ export async function updateTaskAction(id: string, patch: {
   }
 
   try {
-    const { updateTodayTaskDb, getTodayTaskDb, insertNotificationsDb } = await import("@/lib/repo/drizzle");
+    const { updateTodayTaskDb, insertNotificationsDb } = await import("@/lib/repo/drizzle");
     const anyOwner = await mayEditAnyTask();
-    const before = clean.ownerEmail ? await getTodayTaskDb(id) : null;
-    const n = await updateTodayTaskDb(id, email, clean, { anyOwner });
-    if (n === 0) return { ok: false, error: NOT_YOURS };
+    const { count, before } = await updateTodayTaskDb(id, email, clean, { anyOwner });
+    if (count === 0 || !before) return { ok: false, error: NOT_YOURS };
 
-    /* Handing a task to someone else notifies them, as creating one for them
-       does. Without it a reassignment was silent: the task moved onto a board
-       its new owner had no reason to look at. Only on an actual change of
-       owner, so re-saving the same owner does not notify again; the id carries
-       a timestamp because a task handed back to someone a second time is a
+    /* A change of owner tells both sides. The new owner, as creating a task
+       for them does — without it the task moved onto a board they had no
+       reason to look at. The previous owner, because work vanishing from your
+       board with no word reads as it having been done or dropped. Nobody is
+       told about their own action; re-saving the same owner is not a change.
+       The ids carry a timestamp because a task handed back a second time is a
        new event, not a duplicate. Best-effort — the edit has landed. */
-    if (before && clean.ownerEmail && clean.ownerEmail !== email && clean.ownerEmail !== before.ownerEmail.toLowerCase()) {
+    const prevOwner = before.ownerEmail.toLowerCase();
+    if (clean.ownerEmail && clean.ownerEmail !== prevOwner) {
+      const title = clean.title ?? before.title;
+      const at = Date.now();
+      const notices = [];
+      if (clean.ownerEmail !== email) notices.push({
+        id: `nt-task-${id}-to-${clean.ownerEmail}-${at}`,
+        recipientEmail: clean.ownerEmail,
+        type: "task_assigned",
+        title: `Task handed to you by ${email}`,
+      });
+      if (prevOwner !== email) notices.push({
+        id: `nt-task-${id}-from-${prevOwner}-${at}`,
+        recipientEmail: prevOwner,
+        type: "task_update",
+        title: `${email} handed your task to ${clean.ownerEmail}`,
+      });
       try {
-        await insertNotificationsDb([{
-          id: `nt-task-${id}-to-${clean.ownerEmail}-${Date.now()}`,
-          recipientEmail: clean.ownerEmail,
-          type: "task_assigned",
-          title: `Task handed to you by ${email}`,
-          body: clean.title ?? before.title,
-          clientId: before.accountId,
-          entityType: "task",
-          entityId: id,
-          createdByEmail: email,
-        }]);
+        await insertNotificationsDb(notices.map((n) => ({
+          ...n, body: title, clientId: before.accountId,
+          entityType: "task" as const, entityId: id, createdByEmail: email,
+        })));
       } catch (err) {
-        console.error("[task-actions] task reassigned but new owner not notified", { taskId: id, err });
+        console.error("[task-actions] task reassigned but owners not notified", { taskId: id, err });
       }
     }
     return { ok: true };
@@ -259,7 +290,7 @@ export async function updateTaskAction(id: string, patch: {
 export async function deleteTaskAction(id: string): Promise<TaskResult> {
   const email = await getCurrentUserEmail();
   if (!email || !hasDatabase()) return { ok: false, error: "Unavailable." };
-  const denied = await denyTaskWrite();
+  const denied = (await denyTaskWrite()) ?? (await denyExistingTask(id));
   if (denied) return { ok: false, error: denied };
   try {
     const { deleteTodayTaskDb } = await import("@/lib/repo/drizzle");
