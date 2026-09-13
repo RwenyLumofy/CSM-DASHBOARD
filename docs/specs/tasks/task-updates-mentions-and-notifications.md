@@ -14,6 +14,18 @@ Users and permissions
 **Author:** `signal-product-manager`
 **Verified against commit:** `7b0fa94`
 
+> **Documenter note, 2026-09-13** (not part of the specification; the spec text below is
+> unchanged). Against `7c2e39f` plus the working-tree change: live defect 3 in §2 —
+> *reassignment notifies nobody* — is closed. `updateTaskAction` now writes a
+> `task_assigned` notification with a task target on an actual change of owner (Step 1
+> item 6, Flow D, `FR-016`); the previous owner is not notified, matching §21. The account
+> Tasks sidebar also gained in-place edit and *Push a week*, which this spec did not
+> propose. **Step 3 (activity rows for status, reassignment and due-date changes) is still
+> not built** — editing a task writes nothing to `task_updates`. Current behaviour is
+> documented in [Account Tasks](../../product/client-profile/account-tasks.md); the §2
+> "current behaviour" table is a 2026-08-02 snapshot and several of its rows are no longer
+> true.
+
 ---
 
 ## 1. Executive decision

@@ -17,17 +17,25 @@
    account, matching the same categories the Today board organises around.
 
    Overdue is stated in words as well as colour, and sorted first, because the
-   entire value of a short list like this is knowing what's already missed. */
+   entire value of a short list like this is knowing what's already missed.
+
+   Tasks are editable in place. The sidebar used to offer only "done" and the
+   thread, so a slipped task could either sit there overdue or be marked done
+   when it wasn't — both of which misreport the Today board — and the
+   workaround of closing and recreating it threw away its thread. Push a week
+   is its own button because moving the date is what an edit is nearly always
+   for. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ListChecks, Loader2, Plus, Check, X, ChevronDown, MessageSquare } from "lucide-react";
+import { ListChecks, Loader2, Plus, Check, X, ChevronDown, MessageSquare, Pencil } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { createTaskAction, toggleTaskAction } from "@/app/(app)/today/task-actions";
+import { createTaskAction, toggleTaskAction, updateTaskAction } from "@/app/(app)/today/task-actions";
 import { DEFAULT_CATEGORIES } from "@/lib/today/format";
 import { TASK_PARAM } from "@/lib/notifications/link";
 import { TaskUpdates } from "./TaskUpdates";
+import { daysUntil, isOverdue, pushedAWeek } from "@/lib/task-due";
 
 const TASK_CATEGORIES: { id: string; label: string }[] = [
   { id: "reminder", label: "Reminder" },
@@ -64,15 +72,10 @@ const inputCls =
 
 const categoryLabel = (id: string): string => TASK_CATEGORIES.find((c) => c.id === id)?.label ?? id;
 
-/** Whole-day difference, computed from date strings only — a task due "today"
- *  must not flip to overdue because of the viewer's clock time. */
-function daysUntil(due: string | null, today: string): number | null {
-  if (!due) return null;
-  const a = Date.parse(`${due.slice(0, 10)}T00:00:00Z`);
-  const b = Date.parse(`${today.slice(0, 10)}T00:00:00Z`);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
-  return Math.round((a - b) / 86_400_000);
-}
+/* Pinned to UTC: the value is a calendar date, and formatting it in the
+   viewer's zone shows the day before for anyone west of UTC. */
+const shortDate = (iso: string) =>
+  new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
 
 function dueLabel(due: string | null, today: string): { text: string; tone: "overdue" | "today" | "soon" | "later" | "none" } {
   const d = daysUntil(due, today);
@@ -81,7 +84,7 @@ function dueLabel(due: string | null, today: string): { text: string; tone: "ove
   if (d === 0) return { text: "Due today", tone: "today" };
   if (d === 1) return { text: "Due tomorrow", tone: "soon" };
   if (d <= 7) return { text: `Due in ${d} days`, tone: "soon" };
-  return { text: new Date(`${due!.slice(0, 10)}T00:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short" }), tone: "later" };
+  return { text: shortDate(due!), tone: "later" };
 }
 
 const TONE: Record<string, string> = {
@@ -92,10 +95,124 @@ const TONE: Record<string, string> = {
   none: "text-fg-subtle",
 };
 
-const blankForm = () => ({
+type TaskForm = {
+  title: string; category: string; customCategory: string; dueDate: string;
+  notes: string; priority: TaskPriority;
+  /** "" means the viewer ("Me"); otherwise the owner's email. */
+  assignee: string;
+};
+
+const blankForm = (): TaskForm => ({
   title: "", category: "reminder", customCategory: "", dueDate: "",
-  notes: "", priority: "normal" as TaskPriority, assignee: "",
+  notes: "", priority: "normal", assignee: "",
 });
+
+/** An existing task as the form edits it. A category outside the preset list
+ *  opens as Custom with its name filled in, rather than silently snapping to
+ *  the first option and moving the task on save. */
+function formFor(t: AccountTask, viewerEmail: string | null): TaskForm {
+  const known = TASK_CATEGORIES.some((c) => c.id === t.category);
+  const owner = t.ownerEmail?.toLowerCase() ?? "";
+  return {
+    title: t.title,
+    category: known ? t.category : CUSTOM_CATEGORY,
+    customCategory: known ? "" : t.category,
+    dueDate: t.dueDate?.slice(0, 10) ?? "",
+    notes: t.notes ?? "",
+    priority: PRIORITIES.includes(t.priority as TaskPriority) ? (t.priority as TaskPriority) : "normal",
+    assignee: owner && owner !== viewerEmail?.toLowerCase() ? owner : "",
+  };
+}
+
+const fieldLabel = "font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle";
+
+/* The fields of a task, shared by Add and Edit so the two cannot drift into
+   different vocabularies for the same today_tasks row. */
+function TaskFields({ form, setForm, clientName, teamEmails, canAssignOthers, extraOwner }: {
+  form: TaskForm;
+  setForm: (fn: (f: TaskForm) => TaskForm) => void;
+  clientName: string;
+  teamEmails: { email: string; name: string | null }[];
+  canAssignOthers: boolean;
+  /** The task's current owner when they are not in the assignable list — kept
+   *  as an option so opening Edit doesn't quietly propose a reassignment. */
+  extraOwner?: string | null;
+}) {
+  const owners = extraOwner && !teamEmails.some((m) => m.email.toLowerCase() === extraOwner)
+    ? [...teamEmails, { email: extraOwner, name: null }]
+    : teamEmails;
+  return (
+    <>
+      <label className="flex flex-col gap-1">
+        <span className={fieldLabel}>Task</span>
+        <input autoFocus className={inputCls} value={form.title} placeholder={`e.g. Prepare the QBR deck for ${clientName}`}
+          onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabel}>Focus area</span>
+          <div className="relative">
+            <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+              className={cn(inputCls, "appearance-none pr-7")}>
+              {TASK_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              <option value={CUSTOM_CATEGORY}>Custom…</option>
+            </select>
+            <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-subtle" />
+          </div>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabel}>When</span>
+          <input type="date" className={inputCls} value={form.dueDate}
+            onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))} />
+        </label>
+      </div>
+      {form.category === CUSTOM_CATEGORY && (
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabel}>Focus area name</span>
+          <input className={inputCls} value={form.customCategory} placeholder="e.g. Onboarding"
+            onChange={(e) => setForm((f) => ({ ...f, customCategory: e.target.value }))} />
+        </label>
+      )}
+
+      <fieldset className="flex flex-col gap-1">
+        <legend className={fieldLabel}>Priority</legend>
+        <div className="mt-0.5 flex flex-wrap gap-1.5">
+          {PRIORITIES.map((p) => {
+            const on = form.priority === p;
+            return (
+              <button key={p} type="button" aria-pressed={on} title={PRIORITY_META[p].hint}
+                onClick={() => setForm((f) => ({ ...f, priority: p }))}
+                className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-body text-[12px] font-medium transition-colors",
+                  on ? "border-sirius bg-accent-soft text-sirius" : "border-border text-fg-muted hover:border-sirius hover:text-sirius")}>
+                <span className={cn("size-1.5 rounded-full", PRIORITY_META[p].dot)} aria-hidden />
+                {PRIORITY_META[p].label}
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
+
+      {canAssignOthers && owners.length > 0 && (
+        <label className="flex flex-col gap-1">
+          <span className={fieldLabel}>Assignee</span>
+          <div className="relative">
+            <select value={form.assignee} onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))}
+              className={cn(inputCls, "appearance-none pr-7")}>
+              <option value="">Me</option>
+              {owners.map((m) => <option key={m.email} value={m.email.toLowerCase()}>{m.name ?? m.email}</option>)}
+            </select>
+            <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-subtle" />
+          </div>
+        </label>
+      )}
+
+      <label className="flex flex-col gap-1">
+        <span className={fieldLabel}>Notes (optional)</span>
+        <textarea rows={2} className={inputCls} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+      </label>
+    </>
+  );
+}
 
 /* NO PROJECT FIELD, deliberately. today_tasks has a project_id column and
    createTaskAction accepts it, but NOTHING reads it: Project Management is
@@ -106,6 +223,7 @@ const blankForm = () => ({
    actually renders linked tasks. */
 export function AccountTasks({
   clientId, clientName, initial, canEdit, today, teamEmails = [], canAssignOthers = false,
+  viewerEmail = null, canEditAnyTask = false,
 }: {
   clientId: string;
   clientName: string;
@@ -120,6 +238,12 @@ export function AccountTasks({
    *  predicate the server uses — editsAllClients(role) — passed from the page,
    *  matching how AddTaskModal on /today already hides it. */
   canAssignOthers?: boolean;
+  /** Who is looking. Task writes are owner-scoped on the server. */
+  viewerEmail?: string | null;
+  /** May change tasks owned by someone else — the same predicate the task
+   *  actions use (admin role AND unrestricted scope). Without it, a write to a
+   *  teammate's task is refused, so the controls aren't offered on their rows. */
+  canEditAnyTask?: boolean;
 }) {
   const [items, setItems] = useState(initial);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -131,6 +255,15 @@ export function AccountTasks({
   /* Which task's thread is open. One at a time: several expanded threads turn a
      scannable list into a wall, and the sidebar is meant to be glanced at. */
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  /* The task being edited, one at a time for the same reason as the thread. */
+  const [editing, setEditing] = useState<{ id: string; form: TaskForm } | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  /* Whether the server will accept a change to this task. Done, edit and push
+     all go through owner-scoped writes; offering them on a teammate's task
+     only produced a refusal after the click. */
+  const mayChange = (t: AccountTask) =>
+    canEdit && (canEditAnyTask || (!!viewerEmail && t.ownerEmail?.toLowerCase() === viewerEmail.toLowerCase()));
 
   /* Arriving from a notification. The bell links to ?task=<id> (see
      lib/notifications/link.ts) — open the sidebar on that task's thread rather
@@ -192,12 +325,71 @@ export function AccountTasks({
     setAdding(false);
   }
 
+  function startEdit(t: AccountTask) {
+    setError(null);
+    setOpenTaskId(null);
+    setEditing({ id: t.id, form: formFor(t, viewerEmail) });
+  }
+
+  /* Only what changed is sent. The action validates each field it is given,
+     so re-sending an unchanged past due date would refuse a simple rename of
+     an overdue task with "That due date is in the past." */
+  async function saveEdit(t: AccountTask) {
+    if (!editing) return;
+    const f = editing.form;
+    const title = f.title.trim();
+    if (!title) { setError("What needs to happen?"); return; }
+    const category = f.category === CUSTOM_CATEGORY ? f.customCategory.trim() : f.category;
+    if (!category) { setError("Name the focus area."); return; }
+    const notes = f.notes.trim() || null;
+    const dueDate = f.dueDate || null;
+    const owner = (f.assignee || viewerEmail || "").toLowerCase();
+
+    const patch: Parameters<typeof updateTaskAction>[1] = {};
+    if (title !== t.title) patch.title = title;
+    if (category !== t.category) patch.category = category;
+    if (notes !== (t.notes ?? null)) patch.notes = notes;
+    if (dueDate !== (t.dueDate?.slice(0, 10) ?? null)) patch.dueDate = dueDate;
+    if (f.priority !== (t.priority ?? "normal")) patch.priority = f.priority;
+    if (canAssignOthers && owner && owner !== (t.ownerEmail ?? "").toLowerCase()) patch.assigneeEmail = owner;
+    if (Object.keys(patch).length === 0) { setEditing(null); return; }
+
+    setSavingId(t.id); setError(null);
+    const r = await updateTaskAction(t.id, patch);
+    setSavingId(null);
+    if (!r.ok) { setError(r.error ?? "Couldn't save the change."); return; }
+    setItems((prev) => prev.map((x) => x.id !== t.id ? x : {
+      ...x,
+      title: patch.title ?? x.title,
+      category: patch.category ?? x.category,
+      notes: patch.notes !== undefined ? patch.notes : x.notes,
+      dueDate: patch.dueDate !== undefined ? patch.dueDate : x.dueDate,
+      priority: patch.priority ?? x.priority,
+      ownerEmail: patch.assigneeEmail ?? x.ownerEmail,
+    }));
+    setEditing(null);
+  }
+
+  /* Optimistic, reverted on failure — same contract as complete(). */
+  async function pushWeek(t: AccountTask) {
+    const next = pushedAWeek(t.dueDate, today);
+    const prev = t.dueDate;
+    const setDue = (due: string | null) =>
+      setItems((items) => items.map((x) => x.id === t.id ? { ...x, dueDate: due } : x));
+    setDue(next); setError(null); setSavingId(t.id);
+    const r = await updateTaskAction(t.id, { dueDate: next });
+    setSavingId(null);
+    if (!r.ok) { setDue(prev); setError(r.error ?? "Couldn't move the date."); }
+  }
+
   async function complete(id: string) {
     setDone((d) => ({ ...d, [id]: true })); // optimistic
     setError(null);
     const r = await toggleTaskAction(id, "done");
     if (!r.ok) { setDone((d) => ({ ...d, [id]: false })); setError(r.error ?? "Couldn't complete."); }
   }
+
+  const overdueCount = open.filter((t) => isOverdue(t.dueDate, today)).length;
 
   if (!sheetOpen) {
     return (
@@ -206,12 +398,15 @@ export function AccountTasks({
         <span className="grid size-6 place-items-center rounded-lg bg-accent-soft text-sirius"><ListChecks size={13} /></span>
         Tasks
         <span className="tabular inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-bg-muted px-1.5 font-body text-[11px] font-semibold text-fg-muted">
-          {open.length}
+          {open.length} open
         </span>
         {/* Overdue is the one thing worth escalating onto the closed trigger —
-            the whole point of a task list is knowing what you've already missed. */}
-        {open.some((t) => dueLabel(t.dueDate, today).tone === "overdue") && (
-          <span className="font-body text-[11.5px] font-medium text-[#B23A57]">overdue</span>
+            the whole point of a task list is knowing what you've already missed.
+            With its OWN count. This was a bare "overdue" beside the open count,
+            so an account with 17 open tasks and 3 missed read "17 overdue" and
+            looked far worse at a glance than it was. */}
+        {overdueCount > 0 && (
+          <span className="tabular font-body text-[11.5px] font-semibold text-[#B23A57]">{overdueCount} overdue</span>
         )}
       </button>
     );
@@ -249,73 +444,8 @@ export function AccountTasks({
 
       {adding && (
         <div className="mt-3 flex flex-col gap-2 rounded-lg border border-border p-3">
-          <label className="flex flex-col gap-1">
-            <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Task</span>
-            <input autoFocus className={inputCls} value={form.title} placeholder={`e.g. Prepare the QBR deck for ${clientName}`}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <label className="flex flex-col gap-1">
-              <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Focus area</span>
-              <div className="relative">
-                <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                  className={cn(inputCls, "appearance-none pr-7")}>
-                  {TASK_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                  <option value={CUSTOM_CATEGORY}>Custom…</option>
-                </select>
-                <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-subtle" />
-              </div>
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">When</span>
-              <input type="date" className={inputCls} value={form.dueDate}
-                onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))} />
-            </label>
-          </div>
-          {form.category === CUSTOM_CATEGORY && (
-            <label className="flex flex-col gap-1">
-              <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Focus area name</span>
-              <input className={inputCls} value={form.customCategory} placeholder="e.g. Onboarding"
-                onChange={(e) => setForm((f) => ({ ...f, customCategory: e.target.value }))} />
-            </label>
-          )}
-
-          <fieldset className="flex flex-col gap-1">
-            <legend className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Priority</legend>
-            <div className="mt-0.5 flex flex-wrap gap-1.5">
-              {PRIORITIES.map((p) => {
-                const on = form.priority === p;
-                return (
-                  <button key={p} type="button" aria-pressed={on} title={PRIORITY_META[p].hint}
-                    onClick={() => setForm((f) => ({ ...f, priority: p }))}
-                    className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-body text-[12px] font-medium transition-colors",
-                      on ? "border-sirius bg-accent-soft text-sirius" : "border-border text-fg-muted hover:border-sirius hover:text-sirius")}>
-                    <span className={cn("size-1.5 rounded-full", PRIORITY_META[p].dot)} aria-hidden />
-                    {PRIORITY_META[p].label}
-                  </button>
-                );
-              })}
-            </div>
-          </fieldset>
-
-          {canAssignOthers && teamEmails.length > 0 && (
-            <label className="flex flex-col gap-1">
-              <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Assignee</span>
-              <div className="relative">
-                <select value={form.assignee} onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))}
-                  className={cn(inputCls, "appearance-none pr-7")}>
-                  <option value="">Me</option>
-                  {teamEmails.map((m) => <option key={m.email} value={m.email}>{m.name ?? m.email}</option>)}
-                </select>
-                <ChevronDown size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-subtle" />
-              </div>
-            </label>
-          )}
-
-          <label className="flex flex-col gap-1">
-            <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Notes (optional)</span>
-            <textarea rows={2} className={inputCls} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
-          </label>
+          <TaskFields form={form} setForm={setForm} clientName={clientName}
+            teamEmails={teamEmails} canAssignOthers={canAssignOthers} />
           <div className="flex items-center gap-2">
             <button onClick={add} disabled={busy}
               className="inline-flex items-center gap-1.5 rounded-lg bg-sirius px-3 py-1.5 font-body text-[12.5px] font-semibold text-white disabled:opacity-50">
@@ -327,11 +457,11 @@ export function AccountTasks({
         </div>
       )}
 
-      {/* OUTSIDE the add form. This sheet lists the account's tasks across all
-          owners, so completing one can be rejected (toggleTaskAction is
-          owner-scoped and returns NOT_YOURS for a teammate's task). While this
-          lived inside {adding} the checkbox just bounced back in silence,
-          which defeats the rows-affected hardening in the action. */}
+      {/* OUTSIDE the add and edit forms. Completing, pushing or editing a task
+          can still be refused server-side (ownership can change under an open
+          sheet, a past date is rejected), and while this lived inside {adding}
+          the checkbox just bounced back in silence, which defeats the
+          rows-affected hardening in the actions. */}
       {error && (
         <p role="alert" className="mt-3 rounded-lg border border-[#B23A57]/30 bg-[#B23A57]/5 px-3 py-2 font-body text-[11.5px] text-[#B23A57]">
           {error}
@@ -347,14 +477,39 @@ export function AccountTasks({
         <ul className="mt-3 flex flex-col gap-1">
           {open.map((t) => {
             const d = dueLabel(t.dueDate, today);
+            const changeable = mayChange(t);
+            const saving = savingId === t.id;
+            if (editing?.id === t.id) {
+              return (
+                <li key={t.id} className="flex flex-col gap-2 rounded-lg border border-sirius/40 p-3">
+                  <TaskFields form={editing.form} clientName={clientName}
+                    setForm={(fn) => setEditing((e) => e && { ...e, form: fn(e.form) })}
+                    teamEmails={teamEmails} canAssignOthers={canAssignOthers}
+                    extraOwner={t.ownerEmail?.toLowerCase() !== viewerEmail?.toLowerCase() ? t.ownerEmail?.toLowerCase() : null} />
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => saveEdit(t)} disabled={saving}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-sirius px-3 py-1.5 font-body text-[12.5px] font-semibold text-white disabled:opacity-50">
+                      {saving && <Loader2 size={12} className="animate-spin" />} Save changes
+                    </button>
+                    <button onClick={() => { setEditing(null); setError(null); }} disabled={saving}
+                      className="rounded-lg border border-border px-2.5 py-1.5 font-body text-[12px] font-semibold text-fg-muted hover:text-fg">
+                      Cancel
+                    </button>
+                  </div>
+                </li>
+              );
+            }
             return (
               <li key={t.id} className="flex flex-col rounded-lg border border-border-subtle px-3 py-2">
                 <div className="flex items-start gap-2">
-                  {canEdit && (
+                  {changeable ? (
                     <button onClick={() => complete(t.id)} aria-label={`Mark "${t.title}" done`}
                       className="mt-0.5 grid size-4 shrink-0 place-items-center rounded border border-border text-transparent transition-colors hover:border-sirius hover:text-sirius">
                       <Check size={10} strokeWidth={3} />
                     </button>
+                  ) : canEdit && (
+                    // Keeps a teammate's task aligned with the rows around it.
+                    <span className="size-4 shrink-0" aria-hidden />
                   )}
                   {/* Title first and full width; the metadata goes underneath.
                       The sidebar is a 540px drawer — about 464px of row — and
@@ -383,9 +538,25 @@ export function AccountTasks({
                       </span>
                       {/* Text, not just colour — WCAG 1.4.1. */}
                       <span className={cn("font-body text-[11.5px]", TONE[d.tone])}>{d.text}</span>
+                      {/* Says where it lands, because for a missed task that is
+                          a week from today, not a week from the missed date. */}
+                      {changeable && (
+                        <button onClick={() => pushWeek(t)} disabled={saving}
+                          title={`Move the due date to ${shortDate(pushedAWeek(t.dueDate, today))}`}
+                          className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 font-body text-[10.5px] font-semibold text-fg-muted transition-colors hover:border-sirius hover:text-sirius disabled:opacity-50">
+                          {saving && <Loader2 size={10} className="animate-spin" />}
+                          {t.dueDate ? "Push a week" : "Due in a week"}
+                        </button>
+                      )}
                       {t.ownerEmail && <span className="truncate font-body text-[11px] text-fg-subtle">{t.ownerEmail}</span>}
                     </div>
                   </div>
+                  {changeable && (
+                    <button onClick={() => startEdit(t)} aria-label={`Edit "${t.title}"`} title="Edit"
+                      className="shrink-0 text-fg-subtle transition-colors hover:text-sirius">
+                      <Pencil size={13} />
+                    </button>
+                  )}
                   <button onClick={() => setOpenTaskId((id) => id === t.id ? null : t.id)}
                     aria-expanded={openTaskId === t.id}
                     aria-label={`${openTaskId === t.id ? "Hide" : "Show"} updates on "${t.title}"`}

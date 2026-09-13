@@ -33,7 +33,9 @@ Guest (read-only), and Support / Implementation / Revenue as readers.
 3. **`ChurnReasonBanner`** — shown when the account is churned and tagged.
 4. **`CsPulsePanel`** — the CSM's qualitative read, with a capture drawer.
 5. **`AccountTasks`** — `today_tasks` filtered to this account. The *same rows* the Today
-   board reads: one dataset, two views.
+   board reads: one dataset, two views. A **Tasks** button ("N open", plus "M overdue"
+   when any are missed) opens a sidebar where tasks are added, completed, edited in place
+   and pushed a week. See [Account Tasks](account-tasks.md).
 6. **Ten tabs** ([`ClientProfileTabs.tsx:212-223`](../../../components/clients/ClientProfileTabs.tsx)):
 
 | Tab | Contents |
@@ -234,6 +236,7 @@ definitions · project config · property definitions · churn taxonomy.
 | Feature | Document | Status |
 |---|---|---|
 | Tech stack (General information) | [tech-stack.md](tech-stack.md) | Partially verified · `22d85a8` + working-tree change |
+| Account Tasks (sidebar above the tabs) | [account-tasks.md](account-tasks.md) | Partially verified · `7c2e39f` + working-tree change |
 
 ---
 
@@ -242,3 +245,7 @@ definitions · project config · property definitions · churn taxonomy.
 
 **Tech stack section added 2026-09-09, verified against `d45a6cd`.** The rest of this
 document was not re-read in that pass and keeps its earlier verification date.
+
+**Information architecture item 5 (`AccountTasks`) revised 2026-09-13 against `7c2e39f` plus
+the working-tree change that makes tasks editable.** Nothing else in this document was
+re-read in that pass.

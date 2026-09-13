@@ -69,6 +69,7 @@ What is untested is everything between the button and the pure function.
 | **`health_audit_logs` is defined and unwritten** | |
 | **The ARR ledger is the only reconstructible history** | Because it is modelled as events. Nothing else is |
 | **No import audit and no undo** | A bad import is corrected by hand or by script |
+| **Task edits leave no history** | Since 2026-09-13 a task can be edited and its due date pushed from the account Tasks sidebar, but `updateTaskAction` overwrites `today_tasks` in place and writes nothing to the task's update thread or anywhere else. A task that slipped three times is indistinguishable from one that was always due on its current date; a reassignment leaves only the new owner's notification. `task_updates.kind` reserves `status_changed`, `reassigned` and `due_date_changed`, and nothing writes them. See [Account Tasks](../product/client-profile/account-tasks.md#known-limitations). Added 2026-09-13 |
 
 ## Data quality and modelling
 

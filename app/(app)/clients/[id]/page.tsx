@@ -24,7 +24,7 @@ import {
 } from "@/lib/data";
 import { getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
 import { normalizePulse } from "@/lib/health/pulse";
-import { getCurrentUserRole, isSuperAdmin, isAdminOrSuper, canEditClient, getCurrentUserEmail } from "@/lib/auth";
+import { getCurrentUserRole, isSuperAdmin, isAdminOrSuper, canEditClient, getCurrentUserEmail, getCurrentUserScope } from "@/lib/auth";
 import { permissionRole, editsAllClients } from "@/lib/roles";
 import { getProjectBoard, getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getNotesForClient } from "@/lib/notes/data";
@@ -304,6 +304,9 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
           // The same predicate createTaskAction enforces, so the picker is
           // shown exactly when the server would accept the assignment.
           canAssignOthers={editsAllClients(role)}
+          viewerEmail={viewerEmail}
+          // mayEditAnyTask in task-actions.ts: role AND unrestricted scope.
+          canEditAnyTask={editsAllClients(role) && (await getCurrentUserScope()).mode === "all"}
         />
       </div>
 

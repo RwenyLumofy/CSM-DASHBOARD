@@ -16,6 +16,56 @@ limitations · commit.
 
 ---
 
+## 2026-09-13
+
+### Account tasks can be edited, pushed a week, and the overdue count says what it means
+**Area:** Client Profile → Tasks sidebar · Today board → task drawer (reassignment only) ·
+Notifications
+**Roles affected:** CSM (operator) — edits and pushes their own tasks · Admin / Super Admin
+— with an unrestricted scope, edit anyone's task; reassignment now notifies · Guest — no
+change (read-only)
+**Before:** Once a task existed on an account, the sidebar offered only *Mark done* and
+*Show updates*. A task that slipped could either sit there overdue, or be marked done when
+it was not — both misreport the Today board — and closing it and creating a new one threw
+away its update thread. The done checkbox appeared on every task, including teammates'
+tasks the server would refuse. The closed Tasks button showed the open count beside a bare
+word "overdue", so an account with 17 open tasks and 3 missed read "17 overdue". Separately,
+in both the sidebar and the Today task drawer: an admin reassigning a teammate's task to
+themselves got a success and the owner never changed; and reassigning a task to someone
+else told them nothing, although creating a task for them did.
+**After:**
+- **Edit in place.** A pencil on each task opens the same fields as Add task — title, focus
+  area, due date, priority, notes, and assignee for Admin / Super Admin. Only changed fields
+  are sent, so renaming an overdue task is not refused for its past date.
+- **Push a week** (**Due in a week** on an undated task) moves the due date a week from the
+  later of the current due date and today. A task already missed lands a week from
+  *today*, not a week from the missed date; the tooltip names the new date.
+- **Controls only where they work.** Done, edit and push appear on your own tasks, or on
+  every task for an Admin / Super Admin with unrestricted scope — the same rule the server
+  applies. Everyone still sees every task on the account and its thread.
+- **The closed button reads "N open" and, separately, "M overdue".**
+- **Reassigning to yourself is saved**, and **reassigning to someone else sends them a
+  "Task handed to you" notification** that opens the task. Not sent when the owner did
+  not actually change. The previous owner is not notified.
+- Calendar dates more than a week out are formatted in UTC, so viewers west of UTC no longer
+  see the day before.
+
+**Permission changes:** none to the server gates. Reassigning to yourself still cannot take
+someone else's task without admin role and unrestricted scope — the owner-scoped write only
+matches your own task otherwise.
+**Migration/data:** None. No schema change.
+**Known limitations:** **Edits leave no history** — a pushed or changed due date overwrites
+the old one and nothing is written to the task's update thread, so a slip leaves no trace.
+A completed task cannot be reopened or edited from the sidebar. The reassignment
+notification is best-effort. A *creation* notification still links only to the account,
+not to the task. "Today" for overdue is the server's UTC date. Only the due-date arithmetic
+is tested (`lib/task-due.test.ts`, 6 tests); the server actions, gates and component are not.
+**Docs:** [Account Tasks](../product/client-profile/account-tasks.md) (new) ·
+[permissions R6a](../business-rules/permissions-and-scoping.md#r6a--assigning-a-task-to-someone-else-is-admin-only-and-refused-rather-than-downgraded)
+**Commit:** the change that carries this entry (working tree at `7c2e39f`).
+
+---
+
 ## 2026-09-10
 
 ### A workspace defines its own Tech stack categories

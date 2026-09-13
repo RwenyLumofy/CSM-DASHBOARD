@@ -206,18 +206,50 @@ export async function updateTaskAction(id: string, patch: {
     ?? (patch.dueDate !== undefined ? badDueDate(patch.dueDate) : null);
   if (blocked) return { ok: false, error: blocked };
 
+  /* Taking a task onto yourself is written too. This used to apply only when
+     the requested owner was someone else, so an admin reassigning a teammate's
+     task to themselves got {ok:true} and the owner never changed. Claiming is
+     not a privilege: without anyOwner the write below only matches a task you
+     already own, so a non-admin cannot use it to take someone else's. */
   const requested = patch.assigneeEmail?.trim().toLowerCase();
   if (requested && requested !== email) {
     const role = await getCurrentUserRole();
     if (!editsAllClients(role)) return { ok: false, error: "Only an admin can reassign a task to someone else." };
     clean.ownerEmail = requested;
+  } else if (requested) {
+    clean.ownerEmail = email;
   }
 
   try {
-    const { updateTodayTaskDb } = await import("@/lib/repo/drizzle");
+    const { updateTodayTaskDb, getTodayTaskDb, insertNotificationsDb } = await import("@/lib/repo/drizzle");
     const anyOwner = await mayEditAnyTask();
+    const before = clean.ownerEmail ? await getTodayTaskDb(id) : null;
     const n = await updateTodayTaskDb(id, email, clean, { anyOwner });
     if (n === 0) return { ok: false, error: NOT_YOURS };
+
+    /* Handing a task to someone else notifies them, as creating one for them
+       does. Without it a reassignment was silent: the task moved onto a board
+       its new owner had no reason to look at. Only on an actual change of
+       owner, so re-saving the same owner does not notify again; the id carries
+       a timestamp because a task handed back to someone a second time is a
+       new event, not a duplicate. Best-effort — the edit has landed. */
+    if (before && clean.ownerEmail && clean.ownerEmail !== email && clean.ownerEmail !== before.ownerEmail.toLowerCase()) {
+      try {
+        await insertNotificationsDb([{
+          id: `nt-task-${id}-to-${clean.ownerEmail}-${Date.now()}`,
+          recipientEmail: clean.ownerEmail,
+          type: "task_assigned",
+          title: `Task handed to you by ${email}`,
+          body: clean.title ?? before.title,
+          clientId: before.accountId,
+          entityType: "task",
+          entityId: id,
+          createdByEmail: email,
+        }]);
+      } catch (err) {
+        console.error("[task-actions] task reassigned but new owner not notified", { taskId: id, err });
+      }
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
