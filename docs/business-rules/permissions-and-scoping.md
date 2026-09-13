@@ -137,8 +137,32 @@ completing a teammate's task from the account Tasks sheet returns `NOT_YOURS`. T
 rejection is now rendered — it previously sat inside the add-task block and never appeared,
 so the checkbox bounced back in silence.
 
+**Changed 2026-09-13 (working tree at `7c2e39f`).** Three amendments, all
+`Partially verified` (read end to end, no test):
+
+1. **Reassigning a task to yourself is written.** `updateTaskAction` used to set the owner
+   only when the requested assignee was a *different* person, so an admin taking a
+   teammate's task onto themselves got `{ok: true}` and the owner never changed. It now
+   writes the caller's own email. This grants nothing: without `mayEditAnyTask()` the
+   owner-scoped write matches only a task the caller already owns, so a non-admin cannot
+   use it to take someone else's task.
+2. **Reassigning to someone else notifies the new owner** with a `task_assigned`
+   notification carrying a task target (`entityType: "task"`). Only on an actual change of
+   owner away from both the actor and the previous owner; best-effort — the edit stands
+   if the notification fails. The previous owner is not notified. Creation already
+   notified; reassignment was silent. Applies to both callers of `updateTaskAction` — the
+   account Tasks sidebar and the Today board's task drawer.
+3. **The account Tasks sidebar offers done, edit and push only where the server would accept
+   them** — the viewer's own task, or any task when `editsAllClients(role)` **and** scope
+   mode `all` (the page passes this as `canEditAnyTask`, the same predicate as
+   `mayEditAnyTask`). This is interface alignment, not a new gate; the owner-scoped write
+   remains the permission. Note that `updateTaskAction` / `toggleTaskAction` re-apply
+   `denyClientWrite` only when the account link itself changes. See
+   [Account Tasks](../product/client-profile/account-tasks.md#permissions).
+
 **Code.** `app/(app)/today/task-actions.ts` → `createTaskAction`, `updateTaskAction`,
-`mayEditAnyTask`; `components/clients/AccountTasks.tsx`.
+`mayEditAnyTask`; `components/clients/AccountTasks.tsx` → `mayChange`;
+`app/(app)/clients/[id]/page.tsx` (`canEditAnyTask`).
 
 ---
 

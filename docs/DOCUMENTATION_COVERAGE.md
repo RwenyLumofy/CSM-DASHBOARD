@@ -8,9 +8,10 @@ a document.
 `Deprecated`
 
 **Baseline established:** 2026-07-31 against commit `4214349` (branch `exec-dashboard`).
-**Last change pass:** 2026-09-10 against commit `22d85a8` plus the uncommitted working-tree
-change that makes the **Tech stack categories workspace-configurable** — covering that
-change only. The previous passes were 2026-09-09 against `d45a6cd` and 2026-07-31 against
+**Last change pass:** 2026-09-13 against commit `7c2e39f` plus the uncommitted working-tree
+change that makes **account tasks editable** (edit in place, Push a week, the separate
+overdue count, reassignment fixes) — covering that change only. The previous passes were
+2026-09-10 against `22d85a8`, 2026-09-09 against `d45a6cd` and 2026-07-31 against
 `15329e3`.
 
 > **Coverage debt, recorded 2026-09-09.** Roughly 40 commits between 2026-08-05 and
@@ -32,6 +33,7 @@ implication — it simply has not been read again. Only rows the change touched 
 | Clients | `/clients` | [product/clients](product/clients/README.md) | Partially verified | 2026-07-31 | `4214349` | `ClientsTable` filter/sort behaviour not traced | Unassigned |
 | Client Profile | `/clients/[id]` | [product/client-profile](product/client-profile/README.md) | Partially verified | 2026-07-31 | `4214349` | Per-tab workflows not individually documented. Only the Tech stack section was re-verified at `d45a6cd` | Unassigned |
 | Client Profile → Tech stack | `/clients/[id]` → General information · configured at `/settings?tab=properties` | [product/client-profile/tech-stack](product/client-profile/tech-stack.md) | Partially verified | 2026-09-10 | `22d85a8` + working-tree change | No test covers the module, the component, the write path **or** the new configuration code (`normalizeTechStackCategories`, `techStackKeyFor`, the Settings manager, the config route). Configurable categories re-verified 2026-09-10 in the dev preview, including key stability across a rename; the chip-entry workflows and states were not re-read in this pass. Nothing surfaces tools orphaned by a removed category | Unassigned |
+| Client Profile → Account Tasks | `/clients/[id]` → Tasks button | [product/client-profile/account-tasks](product/client-profile/account-tasks.md) | Partially verified | 2026-09-13 | `7c2e39f` + working-tree change | Only `lib/task-due.ts` is tested (6 tests). Server actions, the owner-scoped gate, the reassignment notification and the component are untested and were not run against a signed-in session. The update thread (`TaskUpdates`) is referenced, not documented. Edits leave no history | Unassigned |
 | Action list | `/inbox` | [product/action-list](product/action-list/README.md) | Partially verified | 2026-07-31 | `4214349` | Un-dismiss path unconfirmed; `enrich.ts` prompt not reviewed | Unassigned |
 | Users & permissions | `/settings?tab=members` | [product/users-and-permissions](product/users-and-permissions/README.md) | Partially verified | 2026-07-31 | `15329e3` | No tests exist to raise this to Verified. Only the crown-only action list re-verified at this commit | Unassigned |
 | Health & CS Pulse | `/reports/health`, profile | [product/health](product/health/README.md) | **Contradictory** | 2026-07-31 | `4214349` | Two systems; override behaviour in the live path unverified | Unassigned |
@@ -61,9 +63,9 @@ implication — it simply has not been read again. Only rows the change touched 
 | [GLOSSARY.md](GLOSSARY.md) | Partially verified | 2026-07-31 | `4214349` | Usage and support vocabulary thin. *Tech stack* and *Integration notes* added 2026-09-09 at `d45a6cd`; *Tech stack* revised and *Tech stack category* added 2026-09-10; nothing else re-read |
 | [data-model](data-model/README.md) | Partially verified | 2026-07-31 | `4214349` | Per-entity field lists incomplete; health tables not individually documented. The `tech_stack_*` keys were added to the JSONB inventory at `d45a6cd` and revised 2026-09-10 (the key set is now per workspace); `workspace_config.tech_stack_categories` added the same day |
 | [architecture](architecture/README.md) | Partially verified | 2026-07-31 | `4214349` | `instrumentation.ts` unverified |
-| [known-limitations](known-limitations/README.md) | Partially verified | 2026-09-09 | `15329e3` | Carries outstanding-work and never-browser-tested sections. The `scratch-*` row was re-counted at `d45a6cd` (26 tracked routes, 8 unguarded in production); the Testing section's "seven test files, 124 tests" is **stale** — 24 test files exist |
+| [known-limitations](known-limitations/README.md) | Partially verified | 2026-09-09 | `15329e3` | Carries outstanding-work and never-browser-tested sections. *Task edits leave no history* added to Auditability 2026-09-13 at `7c2e39f` + working-tree change; nothing else re-read. The `scratch-*` row was re-counted at `d45a6cd` (26 tracked routes, 8 unguarded in production); the Testing section's "seven test files, 124 tests" is **stale** — 24 test files exist |
 | [contradictions](known-limitations/contradictions.md) | Verified | 2026-07-31 | `15329e3` | — |
-| [releases/CHANGELOG.md](releases/CHANGELOG.md) | Partially verified | 2026-09-10 | `22d85a8` + working-tree change | Covers 2026-07-26 to 2026-07-31 plus the 2026-09-09 and 2026-09-10 Tech stack entries. **2026-08-01 → 2026-09-08 is a gap** — roughly 40 commits with no entry. Backfill run figures are reported from an execution, not repo-verifiable |
+| [releases/CHANGELOG.md](releases/CHANGELOG.md) | Partially verified | 2026-09-13 | `7c2e39f` + working-tree change | Covers 2026-07-26 to 2026-07-31 plus the 2026-09-09 and 2026-09-10 Tech stack entries and the 2026-09-13 account tasks entry. **2026-08-01 → 2026-09-08 is a gap** — roughly 40 commits with no entry. Backfill run figures are reported from an execution, not repo-verifiable |
 | [BACKLOG.md](BACKLOG.md) | Verified | 2026-07-31 | `4214349` | — |
 
 ## Business rules
@@ -77,7 +79,7 @@ implication — it simply has not been read again. Only rows the change touched 
 | Profile completeness | [profile-completeness](business-rules/profile-completeness.md) | Partially verified | 2026-07-31 | `4214349` | Full field list not enumerated |
 | Assignment and routing | [assignment](business-rules/assignment.md) | Partially verified | 2026-07-31 | `4214349` | No tests |
 | Use-case associations | [use-case-associations](business-rules/use-case-associations.md) | Partially verified | 2026-07-31 | `15329e3` | Two taxonomies unresolved. **R2, R2a and R7a are now `Verified`** (tested); R1's four invariants and every server action remain untested |
-| Task assignment and ownership | [permissions-and-scoping R6a](business-rules/permissions-and-scoping.md#r6a--assigning-a-task-to-someone-else-is-admin-only-and-refused-rather-than-downgraded) | Partially verified | 2026-07-31 | `15329e3` | Documented as a rule within permissions; `today_tasks` priority semantics still `Missing` |
+| Task assignment and ownership | [permissions-and-scoping R6a](business-rules/permissions-and-scoping.md#r6a--assigning-a-task-to-someone-else-is-admin-only-and-refused-rather-than-downgraded) | Partially verified | 2026-09-13 | `7c2e39f` + working-tree change | Documented as a rule within permissions. Self-reassignment, reassignment notification and sidebar control gating added 2026-09-13; no tests. `today_tasks` priority semantics still `Missing` |
 | Dates and periods | [dates-and-periods](business-rules/dates-and-periods.md) | Partially verified | 2026-07-31 | `4214349` | No tests |
 | Archiving, deletion, audit | [archiving-and-audit](business-rules/archiving-and-audit.md) | Partially verified | 2026-07-31 | `4214349` | — |
 | Attention prioritisation | — | **Missing** | — | — | Today's ranking function |
@@ -114,7 +116,7 @@ implication — it simply has not been read again. Only rows the change touched 
 
 ## Coverage summary
 
-- **16 product areas documented**, 6 `Missing`.
+- **16 product areas documented** (plus two Client Profile sub-features: Tech stack, Account Tasks), 6 `Missing`.
 - **9 business-rule families documented**, 4 `Missing`. Three individual rules
   (use-case-associations R2, R2a, R7a) reached `Verified` on 2026-07-31 — the first rules in
   Signal pinned by tests written specifically for the invariant rather than for the module.

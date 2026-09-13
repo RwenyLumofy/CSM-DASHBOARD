@@ -2,10 +2,11 @@
 
 /* Dev preview. See page.tsx for why this exists and why it is tracked. */
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Check, MessageSquare, CheckCheck, Inbox } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { TaskUpdates } from "@/components/clients/TaskUpdates";
+import { AccountTasks, type AccountTask } from "@/components/clients/AccountTasks";
 import { TYPE_META } from "@/components/layout/NotificationsBell";
 import { notificationHref } from "@/lib/notifications/link";
 
@@ -14,6 +15,19 @@ const PEOPLE = [
   { email: "qalshakhoori@lumofy.com", name: "Qasim Alshakhoori" },
   { email: "zainab@lumofy.com", name: "Zainab Hussain" },
   { email: "maryam@lumofy.com", name: "Maryam Al Bastaki" },
+];
+
+/* Dates relative to the real today, so the overdue/soon/later tones render as
+   they would on the day you open this. */
+const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+
+const ACCOUNT_TASKS: AccountTask[] = [
+  { id: "at1", title: "Chase the signed renewal order form", category: "reminder", dueDate: day(-9), notes: null, status: "open", ownerEmail: "viewer@lumofy.com", priority: "high" },
+  { id: "at2", title: "Prepare the Q3 QBR deck and circulate to the exec sponsor", category: "reminder", dueDate: day(-2), notes: "Pilot workspace excluded from usage figures.", status: "open", ownerEmail: "viewer@lumofy.com", priority: "normal" },
+  { id: "at3", title: "Confirm SSO cut-over date with IT", category: "Onboarding", dueDate: day(-1), notes: null, status: "open", ownerEmail: "zainab@lumofy.com", priority: "urgent" },
+  { id: "at4", title: "Executive follow-up after steering committee", category: "reminder", dueDate: day(3), notes: null, status: "open", ownerEmail: "viewer@lumofy.com", priority: "low" },
+  { id: "at5", title: "Share the adoption playbook", category: "reminder", dueDate: day(20), notes: null, status: "open", ownerEmail: "viewer@lumofy.com", priority: "normal" },
+  { id: "at6", title: "Book the admin training session", category: "reminder", dueDate: null, notes: null, status: "open", ownerEmail: "viewer@lumofy.com", priority: "normal" },
 ];
 
 const t = (minsAgo: number) => new Date(Date.now() - minsAgo * 60_000).toISOString();
@@ -79,6 +93,17 @@ export function TasksPreview() {
           to open the picker, post, and the mention renders as a chip.
         </p>
       </header>
+
+      <Panel
+        title="Account Tasks — edit, push a week, overdue count"
+        note="The shipping AccountTasks component. Six open tasks, three overdue; the closed trigger must say so rather than “6 overdue”. You are viewer@lumofy.com and not an admin-with-all-scope, so Zainab’s task has no done/edit/push controls. Saves call the real server action and are refused here (no session) — which also exercises the revert and the error line."
+      >
+        <Suspense>
+          <AccountTasks clientId="preview" clientName="Awqaf" initial={ACCOUNT_TASKS} canEdit
+            today={day(0)} viewerEmail="viewer@lumofy.com" canAssignOthers
+            teamEmails={PEOPLE} />
+        </Suspense>
+      </Panel>
 
       <Panel
         title="The thread, in the account Tasks sidebar"
