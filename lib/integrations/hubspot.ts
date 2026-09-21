@@ -512,7 +512,8 @@ export class HubSpotClient {
    * qualifying deal wasn't itself modified inside a normal incremental sync's
    * window — e.g. a reactivation that only changed the company's lifecycle
    * stage, not its deal. Never force-adds a non-qualifying company (skips +
-   * warns instead, same as fetchAcquisition). Not used by the recurring sync.
+   * warns instead, same as fetchAcquisition). The recurring sync also uses it
+   * for companies found by fetchQualifiedCompanyIdsModifiedSince.
    */
   async fetchAcquisitionByCompanyIds(companyIds: string[]): Promise<HubspotAcquisition> {
     const warnings: string[] = [];
@@ -582,6 +583,44 @@ export class HubSpotClient {
     }
 
     return { companies: [...byCompany.values()], warnings };
+  }
+
+  /**
+   * Ids of companies modified at/after `sinceDate` that currently pass the
+   * qualification rule (customer_type ~ "arr" AND lifecyclestage = "customer").
+   * The deal-side incremental search only re-discovers a company when one of
+   * its DEALS is modified — so a company whose deal went Closed Won before its
+   * customer_type / lifecycle stage were set is skipped once and then never
+   * seen again. The recurring sync uses this to catch those companies when the
+   * company record itself is fixed. Qualification on deals is still enforced
+   * downstream by fetchAcquisitionByCompanyIds.
+   */
+  async fetchQualifiedCompanyIdsModifiedSince(sinceDate: string): Promise<string[]> {
+    const sinceMs = String(new Date(sinceDate).getTime());
+    const out: string[] = [];
+    let after: string | undefined;
+    do {
+      type SearchResponse = {
+        results: { id: string; properties: Record<string, string | null> }[];
+        paging?: { next?: { after?: string } };
+      };
+      const data = await this.post<SearchResponse>("/crm/v3/objects/companies/search", {
+        filterGroups: [{
+          filters: [
+            { propertyName: "lifecyclestage", operator: "EQ", value: "customer" },
+            { propertyName: "hs_lastmodifieddate", operator: "GTE", value: sinceMs },
+          ],
+        }],
+        properties: ["customer_type", "lifecyclestage"],
+        limit: 100,
+        ...(after ? { after } : {}),
+      });
+      for (const r of data.results) {
+        if ((r.properties.customer_type ?? "").toLowerCase().includes("arr")) out.push(r.id);
+      }
+      after = data.paging?.next?.after;
+    } while (after);
+    return out;
   }
 
   /**

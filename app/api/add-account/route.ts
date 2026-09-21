@@ -26,9 +26,12 @@ function authorized(req: Request): boolean {
 /**
  * POST /api/add-account — one-off backfill for a single (or a few) HubSpot
  * company id(s) whose qualifying deal wasn't itself touched inside a normal
- * incremental sync's window, so the regular "Sync now" never re-discovers it
- * (e.g. a reactivation that only flips the company's lifecycle stage, not its
- * deal). Reuses the exact same assembly + persistence path as the recurring
+ * incremental sync's window, so the regular "Sync now" doesn't re-discover it.
+ * The recurring sync now also catches NEW companies whose company record is
+ * modified inside its window (buildUnifiedData's company-side discovery), so
+ * this remains for accounts already tracked (e.g. a reactivation that only
+ * flips the company's lifecycle stage, not its deal) and companies not
+ * touched since. Reuses the exact same assembly + persistence path as the recurring
  * sync (buildUnifiedData → persistSync) — this
  * does NOT change how the recurring sync itself discovers companies.
  *

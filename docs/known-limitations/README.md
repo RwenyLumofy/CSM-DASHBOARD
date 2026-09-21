@@ -86,6 +86,7 @@ What is untested is everything between the button and the pure function.
 | **Unresolved use-case values** | Qiwa Disclosure (8 deals) and others have no canonical home — correctly surfaced, still unresolved |
 | **`delivers` holds content that is never rendered** | Imported from the written Notion pages; kept so a layout change does not destroy real content |
 | **`previousArr` is a legacy field** superseded by the ledger and still on the row |
+| **The recurring HubSpot sync does not re-discover existing accounts** | Since 2026-09-21 the incremental sync also finds qualifying companies from a change to the **company** record, not only from a change to a Closed Won deal — closing the gap where a deal won before the company's `customer_type`/lifecycle stage qualified left the account permanently missing. It adds **new accounts only**: a reactivated account that already has a Signal row still needs `POST /api/add-account` or a deal edit. A company corrected before the fix deployed, and not modified since, is not caught either; nor is anything on the first, checkpoint-initialising run (`lib/integrations/sync.ts` → `buildUnifiedData`). See [Integrations and sync](../product/integrations/README.md#how-the-recurring-sync-discovers-new-accounts). Added 2026-09-21 |
 
 ## Observability
 
