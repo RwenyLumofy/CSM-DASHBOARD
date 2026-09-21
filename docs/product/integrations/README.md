@@ -82,10 +82,66 @@ middleware for the same reason and gated by `SYNC_SECRET`/`CRON_SECRET` bearer c
 - **In-app edits become overrides**, layered on read (`lib/deal-overrides.ts`), so a synced
   value is never destroyed by a CSM's correction — and equally, a CSM's correction never
   reaches HubSpot.
-- **New logos trigger assignment** — `persistSync` → `runAssignment(newClientIds)`, so a
-  brand-new company gets an owner without a human step.
+- **New logos arrive unowned.** The auto-assignment engine was removed in `07db772`; a
+  brand-new client is inserted with no CSM or Implementation owner, and the sync adds a
+  warning with the count that need one (`lib/integrations/sync.ts` → `runSync`). Owners
+  are then set deliberately in-app. *(Corrected 2026-09-21 — this line previously said new
+  logos triggered `runAssignment`, which no longer exists.)*
 - **Malformed numbers are not silently discarded** (commit `86e5e4f`).
 - `sync_checkpoints` records how far the last run got.
+
+### How the recurring sync discovers new accounts
+
+**Status:** Partially verified — implementation read end to end
+(`app/api/cron/sync` → `runSync` → `buildUnifiedData` → `HubSpotClient`); no test covers
+it. Re-verified 2026-09-21 against uncommitted changes on top of `580e0b7`.
+
+**Qualification rule** (unchanged). A HubSpot company becomes a Signal account only if its
+`customer_type` contains "arr" (case-insensitive) **and** its `lifecyclestage` is
+`customer`, and it has at least one Closed Won deal in the Direct or Indirect pipeline.
+A company that fails the rule is skipped with a sync warning, never force-added
+(`lib/integrations/hubspot.ts` → `fetchAcquisition`, `fetchAcquisitionByCompanyIds`).
+
+**Window.** Each run after the first searches from the last checkpoint minus a one-hour
+safety buffer (HubSpot's search index is eventually consistent). The **first run** only
+initialises the checkpoint — it imports no historical accounts
+(`lib/integrations/sync.ts` → `runSync`).
+
+**Two discovery paths on every incremental run:**
+
+1. **Deal side** — Closed Won deals in Direct/Indirect whose deal `hs_lastmodifieddate`
+   falls in the window; each deal's company is then checked against the rule
+   (`fetchAcquisition`).
+2. **Company side** (added 2026-09-21) — companies whose **company** `hs_lastmodifieddate`
+   falls in the window, with `lifecyclestage = customer` and `customer_type` containing
+   "arr" (`fetchQualifiedCompanyIdsModifiedSince`). Companies already found by path 1 in
+   this run, or already present in Signal (any `clients` row with that HubSpot id,
+   churned rows included), are dropped. The rest go through the same by-company
+   assembly used by `/api/add-account` (`fetchAcquisitionByCompanyIds`), and only those
+   with at least one qualifying Closed Won deal are added. A warning line reports how many
+   were picked up this way. If this step fails, the failure is reported as a sync warning
+   and the rest of the sync completes (`buildUnifiedData`).
+
+**Why path 2 exists.** Path 1 only re-examines a company when one of its *deals* changes.
+If a deal was marked Closed Won *before* the company's `customer_type` or lifecycle stage
+qualified, the company was skipped on that run and — because fixing the company record
+does not modify the deal — never examined again. Before 2026-09-21 the only remedy was a
+manual `POST /api/add-account`. Newly discovered companies flow into `persistSync` like any
+other new logo, so they get `new_business` ARR events and arrive unowned, counted in the
+"need a CSM and an Implementation owner" warning.
+
+**Limits of path 2:**
+
+- **New accounts only.** It never re-processes a company that already has a Signal row. A
+  reactivated existing account still needs `/api/add-account` or an edit to its deal.
+- **The company record must change inside a sync window after deployment.** A company
+  corrected before the fix shipped, and not touched since, is not caught — use
+  `/api/add-account` once.
+- **Not on the first run**, which only initialises the checkpoint.
+- **Any company edit counts.** The window is the company's last-modified date, so an
+  unrelated edit to a long-qualified company that was never imported will also bring it in
+  — consistent with the qualification rule, since such a company meets it. Whether this
+  catch-up is desired has not been confirmed with the team.
 
 ## Known data caveats (from README and code)
 
@@ -110,7 +166,7 @@ middleware for the same reason and gated by `SYNC_SECRET`/`CRON_SECRET` bearer c
 
 ## Automations and side effects
 
-Sync → assignment → notifications. Usage sync → health inputs. Survey sync → satisfaction
+Sync → new-client "needs an owner" warning (no automatic assignment since `07db772`). Usage sync → health inputs. Survey sync → satisfaction
 inputs. Profile completeness → notifications and Action list items.
 
 ## Data model
@@ -158,6 +214,11 @@ staleness badge outside the Usage tab, and no dashboard of run history.
 6. **Secrets handling** — `.env.clone`, `.env.local` and `.env.local.bak` exist in the
    working directory. **Verified 2026-07-31: all three are gitignored**
    (`.gitignore:24,86,87`). A local-machine concern, not a repository leak.
+7. **Existing accounts are not re-discovered by the recurring sync.** Company-side
+   discovery (2026-09-21) catches only companies not yet in Signal, and only when their
+   company record changes after deployment. Reactivations of existing rows, and companies
+   fixed before deployment, still need a one-off `POST /api/add-account`. See
+   [How the recurring sync discovers new accounts](#how-the-recurring-sync-discovers-new-accounts).
 
 ## Open questions
 

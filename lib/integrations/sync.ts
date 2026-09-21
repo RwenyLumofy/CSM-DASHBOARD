@@ -75,6 +75,34 @@ export async function buildUnifiedData(
   warnings.push(...acquisition.warnings);
   const companies = acquisition.companies;
 
+  // --- Company-side discovery (incremental runs only) ----------------------
+  // The deal search above only finds a company when one of its deals changed.
+  // A deal marked Closed Won BEFORE the company's customer_type / lifecycle
+  // stage were set gets skipped on that run and never re-examined — fixing the
+  // company record doesn't touch the deal. So also look for companies modified
+  // in this window that now qualify, aren't in this run's results, and aren't
+  // tracked yet, and pull them via the same by-company assembly path.
+  if (opts?.sinceDate && !(opts.companyIds && opts.companyIds.length > 0)) {
+    try {
+      const seen = new Set(companies.map((c) => c.id));
+      if (hasDatabase()) {
+        const { getClientsFromDb } = await import("@/lib/repo/drizzle");
+        for (const c of await getClientsFromDb()) if (c.hubspotId) seen.add(c.hubspotId);
+      }
+      const candidates = (await hs.fetchQualifiedCompanyIdsModifiedSince(opts.sinceDate)).filter((id) => !seen.has(id));
+      if (candidates.length > 0) {
+        const late = await hs.fetchAcquisitionByCompanyIds(candidates);
+        warnings.push(...late.warnings);
+        const added = late.companies.filter((c) => c.wonDeals.length > 0);
+        companies.push(...added);
+        if (added.length > 0)
+          warnings.push(`${added.length} company/companies picked up from a company-record update (their won deal predates qualifying).`);
+      }
+    } catch (e) {
+      warnings.push(`HubSpot company-side discovery failed: ${e}`);
+    }
+  }
+
   // --- Intercom support/SLA data is no longer fetched here. It's a
   // dedicated daily job (lib/support/sync.ts, /api/cron/intercom-sync) —
   // Intercom's full-export endpoints are too heavy to re-pull every 4 hours,

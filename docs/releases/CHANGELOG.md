@@ -16,6 +16,44 @@ limitations · commit.
 
 ---
 
+## 2026-09-21
+
+### HubSpot sync: accounts whose deal was won before the company qualified now appear
+**Area:** Integrations and sync (recurring HubSpot sync, `/api/cron/sync`) · Clients
+directory
+**Roles affected:** Everyone who reads the account book — missing accounts now arrive on
+their own · Super Admin / operators — fewer manual `/api/add-account` backfills · Super Admin
+— may see new unowned accounts appear that previously never arrived, needing an owner
+**Before:** The 4-hourly sync discovered new accounts only through Closed Won deals
+(Direct/Indirect) modified since the last run. A company qualifies only when its
+`customer_type` contains "arr" and its lifecycle stage is Customer. If the deal was marked
+Closed Won *before* the company's fields were set, the company was skipped once and never
+looked at again — correcting the company in HubSpot does not modify the deal. The account
+stayed missing from Signal until someone ran `POST /api/add-account` by hand.
+**After:** On every incremental run the sync also looks for companies whose **company
+record** changed in the window and now qualify. Any that are not already in Signal and
+have at least one Closed Won Direct/Indirect deal are added through the same path as
+`/api/add-account` — same qualification rules and the same handling as any new logo: ARR
+events are written and the account arrives unowned, counted in the sync's "need a CSM and
+an Implementation owner" warning. The sync result also carries a warning line with the
+count picked up this way. If this extra lookup fails, it is reported as a sync warning and the rest of the sync
+completes.
+**Migration or data impact:** None — no schema change. Newly caught accounts get their
+`new_business` ARR events on the run that finds them, and need an owner set by hand.
+**Known limitations:**
+- Adds **new accounts only**. An existing account that was reactivated still needs
+  `/api/add-account` or an edit to its deal.
+- The company record must be modified **after this change deploys**, inside a sync
+  window. A company corrected earlier and untouched since needs one `/api/add-account`.
+- Does not run on the first sync, which only initialises the checkpoint.
+- No test covers this path.
+
+**Commit:** Uncommitted at time of writing (`lib/integrations/hubspot.ts`,
+`lib/integrations/sync.ts`, on top of `580e0b7`).
+[Details](../product/integrations/README.md#how-the-recurring-sync-discovers-new-accounts)
+
+---
+
 ## 2026-09-13
 
 ### Task history: date moves, completion and hand-offs are recorded in the task's thread
