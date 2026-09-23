@@ -21,6 +21,10 @@ const isPublic = createRouteMatcher([
   // Force-refresh one client's Metabase usage snapshot (same secret check).
   "/api/usage-refresh(.*)",
   "/api/cron(.*)",
+  // The Clients book as a CSV feed for the Lumofy CEO deck — a server caller
+  // with no Clerk session, authenticated by its own EXPORT_FEED_SECRET bearer
+  // check (app/api/export/clients/route.ts). Read only.
+  "/api/export/clients(.*)",
   // NOTHING UNDER /scratch-* BELONGS HERE. /scratch-wf was public and shipped
   // for longer than the rest, on the assumption it was safe because
   // getClients() is role-scoped. It wasn't: buildTodaySnapshot() also calls
