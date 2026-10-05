@@ -1,7 +1,9 @@
 # Business rule — Roles, permissions, ownership and scoping
 
-**Status:** Verified against implementation · **No tests exist**
-**Last verified:** 2026-07-31 · **Commit:** `15329e3`
+**Status:** Verified against implementation · **No tests exist** — except R6b, which is
+pinned by `lib/roles.test.ts`
+**Last verified:** 2026-07-31 · **Commit:** `15329e3` · **R6b added 2026-10-04** against
+the working tree on `d0d2362`; no other rule was re-read in that pass
 
 Full narrative: [users-and-permissions](../product/users-and-permissions/README.md). This
 document states the rules as rules.
@@ -111,6 +113,107 @@ diverge.
 
 **Enforcement.** On **every** path, not just in the UI (commit `13d0772`).
 `app/(app)/clients/[id]/owner-actions.ts`.
+
+**This rule is about who may *perform* an assignment.** Who may *be* the owner is a
+separate rule with a separate predicate — see R6b. The two are independent, and a Super
+Admin assigning themselves exercises both.
+
+---
+
+## R6b — Who may *be* an owner: everyone except a Guest
+
+**Status: Verified** — the predicate is pinned by five tests
+([`lib/roles.test.ts`](../../lib/roles.test.ts)). The roster function and the two
+assignment validators that consume it were read end to end and are untested.
+
+**Definition.** Any role **except `guest`** may be named as an account's CSM owner or
+Implementation owner — **including `admin` and `super_admin`**. A signed-out or unresolved
+role is also refused.
+
+**Condition.** `canOwnAccounts(role)` = `permissionTier(role) !== "guest"`, with `null`
+→ false. `canOwnAccounts` in `lib/roles.ts`.
+
+**Why Guest is the one exclusion.** A Guest may edit **nothing** (R3), so a Guest owner
+would be an owner who cannot act on their own account — and the work that follows an owner
+(tasks, action-list rows) would land with someone unable to action it. That is what makes
+the exclusion a rule rather than a preference.
+
+**Why Admins and Super Admins are *not* excluded.** Team leads and founders own accounts
+too. The `super_admin` exclusion that used to sit here was justified as "they belong to no
+team", which conflates *which slot* someone may fill with *whether they may own an account
+at all*.
+
+**Inputs.** `app_users.role`, resolved through `getAppUsers()`.
+
+**Where the rule is applied — and why it reaches further than a dropdown.**
+`getTeamMembers(team?)` (`lib/data.ts`) filters the staff list with `canOwnAccounts`. That
+single roster is **three things at once**:
+
+1. the **option list** in the owner pickers (the profile's owner card, and the clients-list
+   inline picker via `getCsms()` / `getImplementationOwners()`, `lib/data.ts`);
+2. the **filter options** for CSM owner and Implementation owner on the clients list — same
+   two functions;
+3. the **validation list** for `assignCsmOwner` / `assignImplementationOwner`
+   (`lib/data.ts`). An email absent from the roster is refused with
+   `CSM not found: <email>` or `Implementation owner not found: <email>`.
+
+Because (1) and (3) share a source, a role missing from the roster cannot be assigned **by
+any route** — not through the picker, not by an admin, not by the person themselves — and
+the refusal reads like a missing user rather than a role rule. **That coupling is the
+reason this rule exists as a named predicate**, and it is what the super-admin exclusion
+fell foul of.
+
+**Which slot.** Eligibility does not choose the slot. A legacy granular role keeps its
+fixed team (`teamForRole`) and appears only in that team's slot; a flat `operator`, `admin`
+or `super_admin` belongs to **no** team, so each is eligible for whichever slot is being
+filled (`csm` when nothing is specified).
+
+**This grants no new access.** A `super_admin` already saw and could edit every account
+(R2, R3, R4) and is never narrowed (R4). Being eligible as an owner only puts them in the
+pickers and the filters; it changes nothing about scope.
+
+**Worked examples.**
+
+| Person's role | In the owner pickers? | Assignable to the Implementation slot? |
+|---|---|---|
+| `super_admin` | Yes | Yes — no fixed team |
+| `admin` | Yes | Yes — no fixed team |
+| `operator` (flat) | Yes | Yes — no fixed team |
+| `senior_csm` (legacy) | Yes, CSM slot only | No — fixed to the `csm` team |
+| `implementation_manager` (legacy) | Yes, Implementation slot only | Yes |
+| `guest` | No | No |
+| Nobody signed in / unresolved role | No | No |
+
+**Changed 2026-10-04.** `getTeamMembers` previously admitted only the `operator` and
+`admin` permission tiers. Switching an account owner to `super_admin` therefore dropped
+them from both owner pickers, from the clients-list owner filters **and** from the
+validation list — so nobody could assign them, they could not assign themselves, and the
+attempt failed with `CSM not found: <email>`.
+
+The rule settled over three steps on that one day: super-admins added; then briefly
+**every** role, guests included, on the reading that ownership names a relationship rather
+than granting a permission; then reverted to **everyone except a guest** on the product
+owner's follow-up, because a guest owner could not act on their own account. The end state
+is the rule stated above, and the tests assert it.
+
+**Expansion excludes guests too, for its own reason.** Expansion opportunity owners come
+from `assignablePeople` in [`lib/expansion/read.ts`](../../lib/expansion/read.ts), which
+excludes guests — but not because of this rule. A guest has **no access to Expansion at
+all**, by a product decision dated 2026-08-16 that
+[`lib/expansion/access.ts`](../../lib/expansion/access.ts) records in its own header
+(`canSeeExpansion`). The two rules agree on guests today by coincidence of outcome, not by
+sharing a cause, so neither should be changed by reference to the other.
+
+**Code.** `lib/roles.ts` → `canOwnAccounts` · `lib/data.ts` → `getTeamMembers`,
+`assignCsmOwner`, `assignImplementationOwner`, `getCsms`, `getImplementationOwners` ·
+`app/(app)/clients/[id]/owner-actions.ts` → the R6 gate on performing the assignment ·
+`lib/expansion/access.ts`, `lib/expansion/read.ts` → the separate expansion rule.
+
+**Tests.** [`lib/roles.test.ts`](../../lib/roles.test.ts) — five tests on
+`canOwnAccounts`: a super-admin may own, an admin and every operator tier may own, a guest
+may **not**, nobody signed out may, and one asserting **`guest` is the only excluded
+role**, so no future role can be dropped from ownership by accident. Nothing tests
+`getTeamMembers`, the pickers, the clients-list filters or the two validators.
 
 ---
 
@@ -286,7 +389,9 @@ revisited, `applyImportAction` and `resetTaxonomyAction` are the two call sites.
 
 ## Known inconsistencies across this family
 
-1. **No permission tests**, for the most security-sensitive code in the product.
+1. **Almost no permission tests**, for the most security-sensitive code in the product.
+   `canOwnAccounts` (R6b) is the only predicate in this family with any, and they cover the
+   predicate, not the roster or the server actions that read it.
 2. **No audit trail** on role, scope or owner changes.
 3. **Auth-disabled mode makes everyone a Super Admin** — correct locally, catastrophic if a
    deployment ever loses its Clerk keys. Nothing prevents that configuration booting.

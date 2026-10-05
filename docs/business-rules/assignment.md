@@ -7,6 +7,22 @@ testable)
 Signal fills an account's empty owner slots automatically, from configured rules. Two
 independent workflows run: **CSM** and **Implementation**.
 
+> **Two notes added 2026-10-04, neither of them a correction to the rules below.**
+>
+> 1. **Who may be a candidate is now its own rule.** The candidate pool every rule here
+>    draws on is `getTeamMembers()` in `lib/data.ts`, which is also the owner pickers'
+>    option list and the validator for manual assignment. Its membership rule changed on
+>    2026-10-04: it is now everyone except a `guest`, Super Admins and Admins **included**,
+>    where it previously admitted only the `operator` and `admin` tiers. See
+>    [permissions-and-scoping R6b](permissions-and-scoping.md#r6b--who-may-be-an-owner-everyone-except-a-guest).
+>    Nothing in this document ever claimed super-admins were unassignable, so no rule below
+>    is wrong because of that change — but the pool each rule selects from is larger.
+> 2. **This document is unverified against the current tree.** No `lib/assignment/`
+>    directory exists at `d0d2362`; every path this document cites under it is gone, which
+>    is why `docs-check` reports it. Whether the engine moved, was removed, or was never
+>    merged was **not** investigated in this pass, and nothing below was re-read. Treat the
+>    whole document as `Unverified` until someone audits it.
+
 ---
 
 ## R1 — Only an empty slot is filled
