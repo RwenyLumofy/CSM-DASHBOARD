@@ -52,7 +52,7 @@ import {
 } from "@/lib/metrics/exec";
 import { env, hasDatabase } from "@/lib/config";
 import { canSeeClient, getCurrentUserEmail, getCurrentUserRole, scopeClientsToUser } from "@/lib/auth";
-import { DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, permissionTier, teamForRole, type Role, type Team } from "@/lib/roles";
+import { canOwnAccounts, DEFAULT_ROLE, DEFAULT_ROLE_LABELS, isRole, teamForRole, type Role, type Team } from "@/lib/roles";
 import { dbHealthy, markDbHealthy, markDbUnhealthy } from "@/lib/db/health";
 import { withDbTimeout } from "@/lib/db/client";
 import { RECOMPUTED_PROPERTY_FIELDS } from "@/lib/client-overrides";
@@ -969,22 +969,25 @@ function initialsFromName(s: string): string {
 /**
  * Members of a team (or both teams when `team` is omitted), resolved from
  * app_users by role. These are the candidates the assignment workflow picks
- * from and the options shown in the manual owner pickers. super_admins are
- * excluded (they belong to no team).
+ * from and the options shown in the manual owner pickers.
+ *
+ * Everyone except a guest — super-admins, admins and every operator tier
+ * (product owner, 2026-10-04). Super-admins used to be excluded here, which
+ * silently dropped them from the owner pickers AND from this roster, the very
+ * thing `assignCsmOwner` / `assignImplementationOwner` validate against — so
+ * assigning them failed with "CSM not found". See canOwnAccounts in
+ * lib/roles.ts for the rule and the reasoning.
  */
 export async function getTeamMembers(team?: Team): Promise<TeamMember[]> {
   const users = await getAppUsers();
   const out: TeamMember[] = [];
   for (const u of users) {
-    // Operators are the CSM/implementation roster. Admins are included too:
-    // some admins (team leads) also own accounts and act as CSMs, so they must
-    // appear in the owner/CSM lists — otherwise an admin-CSM silently vanishes
-    // from the clients-page CSM filter and owner pickers. Super-admins and
-    // guests stay out of the assignable roster.
-    const tier = permissionTier(u.role);
-    if (tier !== "operator" && tier !== "admin") continue;
-    // Legacy granular roles keep their fixed team; a flat operator/admin has no
-    // team, so they're eligible for whichever slot is being filled (defaults to csm).
+    // Everyone but a guest — see canOwnAccounts (lib/roles.ts) for why the
+    // super-admin exclusion that used to live here was a bug.
+    if (!canOwnAccounts(u.role)) continue;
+    // Legacy granular roles keep their fixed team; a flat operator/admin/super-
+    // admin has no team, so they're eligible for whichever slot is being filled
+    // (defaults to csm).
     const fixed = teamForRole(u.role);
     if (team && fixed && fixed !== team) continue;
     const t: Team = fixed ?? team ?? "csm";

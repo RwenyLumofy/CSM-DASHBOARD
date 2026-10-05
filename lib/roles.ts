@@ -106,6 +106,33 @@ export function editsAllClients(role: Role | null): boolean {
   return t === "super_admin" || t === "admin";
 }
 
+/**
+ * May this role be an account owner — the CSM owner or the Implementation
+ * owner of a client?
+ *
+ * Everyone EXCEPT a guest (product owner, 2026-10-04). A guest is read-only, so
+ * a guest owner would be an owner who cannot act on their own account — and the
+ * work that follows an owner (tasks, action-list rows) would land with someone
+ * unable to action it.
+ *
+ * Admins AND super-admins qualify: team leads and founders own accounts too.
+ * Super-admins were once excluded here "because they belong to no team", but
+ * team membership answers which SLOT someone may fill, not whether they may own
+ * an account at all. That exclusion was a real bug: this roster is ALSO what
+ * `assignCsmOwner` / `assignImplementationOwner` validate the submitted email
+ * against (see getTeamMembers in lib/data.ts), so promoting an owner to
+ * super-admin silently dropped them from both owner pickers AND the
+ * clients-list filters, and assigning them — by anyone, including themselves —
+ * failed with "CSM not found", which reads as a missing user rather than a role
+ * rule.
+ *
+ * Kept as a named predicate so "who may be an owner" has exactly one answer.
+ */
+export function canOwnAccounts(role: Role | null): boolean {
+  if (!role) return false;
+  return permissionTier(role) !== "guest";
+}
+
 /** UI grouping for the role picker — flat, the four permission categories only. */
 export const ROLE_GROUPS: { label: string | null; roles: Role[] }[] = [
   { label: null, roles: PERMISSION_ROLES },

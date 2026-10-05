@@ -16,6 +16,60 @@ limitations · commit.
 
 ---
 
+## 2026-10-04
+
+### Owner assignment: a Super Admin can now be — and assign themselves as — an account owner
+**Area:** Client Profile (owner card) · Clients directory (inline owner picker, CSM and
+Implementation owner filters) · Users & permissions
+**Roles affected:** **Super Admin** — can now be named as a CSM owner or Implementation
+owner, including by themselves · **Admin / Operator** — no change, already eligible ·
+**Guest** — no change, still cannot be an owner · Everyone reading the clients list — a
+super-admin owner now appears in the CSM and Implementation owner filters instead of being
+missing from them
+**Before:** The eligible-owner roster admitted only the `operator` and `admin` permission
+tiers. Switching someone to `super_admin` silently removed them from the roster, which is
+simultaneously the owner pickers' option list, the clients-list owner filters, and the list
+`assignCsmOwner` / `assignImplementationOwner` validate a submitted email against. The
+consequence, reported by the product owner on 2026-10-04: after a promotion, **nobody could
+assign that person as a client's CSM owner or Implementation owner and they could not assign
+themselves**, and the attempt failed with `CSM not found: <email>` — which reads like a
+missing user rather than a role rule. The exclusion was justified in the code as
+"super-admins belong to no team".
+**After:** A named predicate, `canOwnAccounts(role)`, decides eligibility: **everyone except
+a `guest`**. Super Admins and Admins are in the roster — team leads and founders own
+accounts too — and because they belong to no fixed team they are offered for **whichever**
+slot is being filled, CSM or Implementation, exactly like a flat operator. A Guest stays out
+because a Guest edits nothing: a guest owner could not act on their own account, and work
+that follows an owner (tasks, action-list rows) would land with someone unable to action it.
+Owner pickers, the clients-list owner filters and the assignment validators all change
+together, because all three read the one roster.
+**Unchanged:** Who may **perform** an assignment — still Super Admin only, on every path
+(`owner-actions.ts`). This change is about who may **be** an owner. Scoping and the write
+gate are untouched: a Super Admin already saw and could edit every account, so eligibility
+grants no new access. Expansion is unaffected — its opportunity owners already excluded only
+guests, for their own reason (a guest has no access to Expansion at all).
+**Migration or data impact:** None. No schema change, no backfill. Existing owner records
+are untouched; a previously blocked assignment simply succeeds now.
+**Known limitations:**
+- Nothing tests `getTeamMembers`, the owner pickers, the clients-list filters or the two
+  assignment validators. The predicate itself has 5 unit tests (`lib/roles.test.ts`), one of
+  which asserts `guest` is the **only** excluded role, so no future role can be dropped from
+  ownership by accident.
+- Still no audit trail of role changes, so the promotion that triggered this bug leaves no
+  record of itself.
+- Eligibility is role-based only. There is no way to mark an individual person as "not
+  taking accounts" short of changing their role.
+
+**Note on how this landed.** Three steps in one day: super-admins added to the roster; then
+briefly **every** role including guests; then reverted to everyone-except-a-guest on the
+product owner's follow-up. Only the end state above is in the tree, and its tests assert it.
+
+**Commit:** Uncommitted at time of writing (`lib/roles.ts`, `lib/data.ts`, new
+`lib/roles.test.ts`, on top of `d0d2362`).
+[Details](../business-rules/permissions-and-scoping.md#r6b--who-may-be-an-owner-everyone-except-a-guest)
+
+---
+
 ## 2026-09-21
 
 ### HubSpot sync: accounts whose deal was won before the company qualified now appear

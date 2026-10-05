@@ -41,6 +41,7 @@ Derived gates:
 
 - `seesAllClients(role)` → `super_admin`, `admin`, `guest`
 - `editsAllClients(role)` → `super_admin`, `admin`
+- `canOwnAccounts(role)` → everyone **except** `guest` — who may *be* an account owner
 - `permissionTier(role)` collapses any role to one of the four
 
 ### Legacy granular roles
@@ -85,6 +86,47 @@ the account when their email matches **either** slot
 Permission no longer branches on team — a flat operator sees and edits whatever they are
 named on. `ownsClient` is the single source of truth for both the list filter and the
 single-account gate, so the two cannot diverge.
+
+### Who may be an owner — separate from who may assign one
+
+Two different questions, two different gates:
+
+| Question | Gate | Answer |
+|---|---|---|
+| Who may **perform** an assignment? | `isSuperAdmin()` in `app/(app)/clients/[id]/owner-actions.ts` | Super Admin only, on every path |
+| Who may **be** an owner? | `canOwnAccounts(role)` in [`lib/roles.ts`](../../../lib/roles.ts) | Every role **except Guest** — Super Admins and Admins included |
+
+A Guest is the only exclusion: a Guest edits nothing, so a Guest owner could not act on
+their own account, and work that follows an owner (tasks, action-list rows) would land with
+someone unable to action it. Admins and Super Admins are **not** excluded — team leads and
+founders own accounts too.
+
+Being eligible grants nothing. A Super Admin already saw and could edit every account, and
+their scope can never be narrowed; the owner slot is read by `ownsClient` only to *widen* a
+scoped operator's book.
+
+The eligible list is built once, by `getTeamMembers()` in
+[`lib/data.ts`](../../../lib/data.ts), and is used for three things: the options in the
+owner pickers (profile and clients list), the CSM / Implementation owner **filters** on the
+clients list (`getCsms()` / `getImplementationOwners()`), and the **validation** inside
+`assignCsmOwner` / `assignImplementationOwner`. Because the picker and the validator read
+the same roster, anyone missing from it cannot be assigned by any route — and the refusal
+surfaces as `CSM not found: <email>`, which looks like a missing user rather than a role
+rule. That is exactly what happened to Super Admins until 2026-10-04: the roster admitted
+only the operator and admin tiers, so promoting an account owner silently made them
+unassignable, by anyone including themselves. See
+[permissions-and-scoping R6b](../../business-rules/permissions-and-scoping.md#r6b--who-may-be-an-owner-everyone-except-a-guest)
+for the full rule and the steps the change took.
+
+Eligibility does not pick the slot. A legacy granular role keeps its fixed team and appears
+only in that team's slot; a flat `operator`, `admin` or `super_admin` has no team and is
+therefore eligible for whichever slot is being filled.
+
+**Expansion excludes guests too, but for its own reason.** Expansion opportunity owners come
+from `assignablePeople` in `lib/expansion/read.ts`, and a guest is left out because a guest
+has **no access to Expansion at all** — a product decision of 2026-08-16 recorded in
+`lib/expansion/access.ts`. Same outcome as this rule, different cause; neither should be
+changed by reference to the other.
 
 ## The gates
 
@@ -174,6 +216,7 @@ absence of membership, not a tier.
 - **Create / edit members:** Admin (not admins), Super Admin (anyone).
 - **Change a role to/from Super Admin:** Super Admin only.
 - **Assign account owners:** Super Admin only, every path.
+- **Be an account owner:** any role except Guest, in either slot (grants nothing).
 - **Edit system property definitions:** Super Admin.
 - **Integration secrets, full re-sync:** Super Admin.
 
@@ -216,8 +259,10 @@ No audit log of role or scope changes. No alerting on privilege escalation attem
    prevents that configuration from booting.
 5. **`SUPER_ADMIN_EMAILS` has a hardcoded default** in `lib/config.ts`. That address is a
    permanent super-admin in any environment that does not set the variable.
-6. Teams (`csm` / `implementation`) only apply to legacy granular roles; flat operators
-   belong to no team, so team-based assignment routing does not apply to them.
+6. Teams (`csm` / `implementation`) only apply to legacy granular roles; flat operators,
+   Admins and Super Admins belong to no team, so team-based assignment routing does not
+   apply to them — and, for the owner pickers, a team-less person is offered for **either**
+   slot rather than being filtered out of both.
 
 ## Open questions
 
@@ -227,12 +272,18 @@ No audit log of role or scope changes. No alerting on privilege escalation attem
 
 ## Source references
 
-`lib/roles.ts` · `lib/auth.ts` · `middleware.ts` · `lib/config.ts` ·
-`app/(app)/settings/user-actions.ts` · `app/(app)/settings/page.tsx` · `lib/db/schema.ts`
+`lib/roles.ts` · `lib/roles.test.ts` · `lib/auth.ts` · `middleware.ts` · `lib/config.ts` ·
+`app/(app)/settings/user-actions.ts` · `app/(app)/settings/page.tsx` · `lib/db/schema.ts` ·
+`lib/data.ts` (`getTeamMembers`, `getCsms`, `getImplementationOwners`, `assignCsmOwner`,
+`assignImplementationOwner`) · `app/(app)/clients/[id]/owner-actions.ts` ·
+`lib/expansion/access.ts` (the separate expansion guest rule)
 
 ---
 
 **Documentation status:** Verified against implementation; **no tests exist**
 **Last verified:** 2026-07-31 · **Commit:** `15329e3` — only the crown-only action list and
 the task-assignment rule were re-verified at this commit; the rest of the document was last
-read end to end at `4214349` · **Owner:** Unassigned
+read end to end at `4214349`. **Owner eligibility (`canOwnAccounts`, the roster and both
+assignment validators) was read end to end on 2026-10-04** against the working tree on
+`d0d2362`, and its predicate is the only thing in this document covered by a test
+(`lib/roles.test.ts`); nothing else was re-read in that pass · **Owner:** Unassigned
