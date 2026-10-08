@@ -114,6 +114,38 @@ Deal fields and deal dates are fixed and listed in
 *overrides* and applied on read (`lib/deal-overrides.ts`). The stored HubSpot value is
 preserved.
 
+### Contracts & deals card
+
+**Status:** Verified (implementation read; Expansion tab also checked locally on the test DB,
+2026-10-08)
+
+The General information tab's **Contracts & deals** card (`DealsTabs` in
+[`ClientProfileTabs.tsx`](../../../components/clients/ClientProfileTabs.tsx)) splits the
+account's deals into five tabs: **Sales** (any non-CS pipeline), **Renewal**, **Expansion**,
+**Confirmed Churn** and **Downgrade** (CS-pipeline deals by category). Each tab's count is its
+row count. The card is shown when the account has at least one HubSpot deal **or** at least
+one Won Expansion-page opportunity.
+
+**Expansion tab.** Since 2026-10-08 it lists two kinds of row:
+
+1. **Won opportunities from the [Expansion page](../expansion/README.md)**, listed first.
+   Built on the server in
+   [`app/(app)/clients/[id]/page.tsx`](../../../app/(app)/clients/[id]/page.tsx) from the
+   same scoped read as the profile's Expansion card (`getExpansionForClient`), filtered to
+   `outcome = "won"`, and passed only when `canSeeExpansion(role)` — a guest gets an empty
+   list. Each row shows the opportunity name, a **Won on the Expansion page** badge, the Won
+   date, **Counted in ARR** or **Not added to ARR yet** (from `arrRecorded`), the final ARR,
+   and **Open on Expansion →** (`/expansion?opportunity=<id>`). These rows have **no tracked
+   checkbox**: their ARR reaches the account through the ARR ledger when "ARR recorded" is
+   ticked on the Expansion page (see [Expansion](../expansion/README.md)). They count in the
+   tab's number.
+2. **HubSpot CS-pipeline expansion deals**, listed below, while that sync still runs.
+
+With neither, the empty state reads "Expansions are recorded on the Expansion page. Once one
+is won, it appears here." This follows the 2026-10-04/08 product decision that only Closed
+Won sales come from HubSpot; renewals, expansions and churn are recorded in Signal, and
+expansions are recorded on the Expansion page.
+
 "Account Executive" is a **deal-level field only** (HubSpot's `account_executive`). There
 is no account-executive user role — that scaffolding was removed because nothing wrote to
 it (`lib/roles.ts` header).

@@ -6,7 +6,8 @@
 -- needing to reach a laptop.
 --
 -- Strictly additive and idempotent: re-running it changes nothing. Nothing here
--- touches arr_events — closing an opportunity never writes to the ARR ledger.
+-- touches arr_events. (Since 2026-10-08 the app adds a Won opportunity's ARR to
+-- arr_events when "ARR recorded" is ticked — lib/expansion/ledger-sync.ts.)
 --
 -- Spec: docs/specs/revenue/expansion-opportunities-specification.md
 

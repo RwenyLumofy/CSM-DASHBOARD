@@ -220,7 +220,10 @@ a fact.
 
 **Client profile** — an Expansion card shows the account's opportunities, the open count and
 the open ARR total, with each row's attention state. A summary and links, never a second
-board; both directions link.
+board; both directions link. Since 2026-10-08 the profile's **Contracts & deals → Expansion**
+tab also lists the account's **Won** opportunities (badge "Won on the Expansion page", Won
+date, Counted in ARR / Not added to ARR yet, final ARR, **Open on Expansion →**), hidden from
+guests — see [Client Profile → Contracts & deals card](../client-profile/README.md#contracts--deals-card).
 
 **Action list (`/inbox`)** — opportunities that need attention appear above the AI feed.
 Shown to the **owner**, and to **everyone who can see the account when nobody owns it** — an
