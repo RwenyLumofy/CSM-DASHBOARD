@@ -18,6 +18,65 @@ limitations · commit.
 
 ## 2026-10-08
 
+### Expansion: "ARR recorded" now adds a Won opportunity's ARR to the account's ARR
+**Area:** Expansion (`/expansion`) — close dialog and the Won record; the account's ARR as
+read by the Clients directory, Client Profile and Insights.
+**Roles affected:** Everyone who can write to Expansion for that account. No permission
+change — still `guardOpportunity` → `canEditExpansion` + `denyClientWrite`, the same gate as
+recording ARR on the client profile.
+**Before:** "ARR recorded" was a check-off only. Closing an opportunity as Won, or ticking the
+flag, wrote nothing to the ARR ledger. A Won $20,000 expansion was marked "ARR recorded" but
+never reached the account's ARR.
+**After:**
+- The close dialog's checkbox reads **Add this to the account's ARR now** (unticked by
+  default). The Won record shows **Add $X to ARR** / **Remove from ARR**.
+- Ticking adds the final ARR to the account's ARR ledger as an expansion, effective on the
+  Won date, and recomputes the account's ARR. Ticking twice never counts it twice.
+- Unticking, reopening the opportunity, or deleting it removes that entry and recomputes ARR.
+- **Refused** when the account has a ticked HubSpot CS-pipeline expansion deal closed within
+  60 days of the Won date — the same expansion would be counted twice. The reason is shown;
+  from the close dialog the opportunity still closes as Won, unticked: *Closed as Won, but its
+  ARR was not added.*
+**Migration or data impact:** No schema change. New `arr_events` rows (type `expansion`,
+source `manual`, id `exp-won-<opportunityId>`) are created only when someone ticks the flag
+from now on. Opportunities already marked "ARR recorded" before this change were **not**
+backfilled — they have no ledger entry until unticked and ticked again.
+**Known limitations:** The ledger has no currency column; the amount is added as-is (all
+accounts are USD today).
+**Decision:** Reverses spec §7.1 ("the ARR ledger remains the source of truth; this flag
+records whether the two have been reconciled"); approved by the product owner 2026-10-08.
+Dated note added to [the spec](../specs/revenue/expansion-opportunities-specification.md).
+**Evidence:** `lib/expansion/ledger-sync.ts`, `lib/expansion/same-expansion.ts`,
+`app/(app)/expansion/actions.ts`; `lib/expansion/same-expansion.test.ts` (4 tests). Verified
+by hand against the local test database (ARR 17,608 → 69,584 on Won; back to 17,608 on
+reopen, row removed). Documented in [product/expansion](../product/expansion/README.md) →
+Business rules.
+**Commit:** this change.
+
+### Account status: a renewal no longer sends a launched account back to Onboarding
+**Area:** Account lifecycle status — Clients directory, Client Profile, and everything that
+reads `clients.status` (retention, at-risk and concentration analysis).
+**Roles affected:** Everyone who sees account status. No permission change.
+**Before:** An account was **Active** only when a **tracked** deal had a launch date. When a
+HubSpot CS-pipeline renewal deal arrived and CS unticked the original sale — the deal that
+carries the launch date — the account fell back to **Onboarding** on every renewal. Observed
+in production for an account whose renewal arrived.
+**After:** An account is **Active** when **any** of its deals, tracked or unticked, has a
+launch date. Unchanged: a manual **Churned** mark wins over everything; **Renewal** (a
+tracked deal's contract start or close date + 1 year falling within the next 90 days) beats
+Active; an account with no tracked deals is Active when its ARR is above zero.
+**Migration or data impact:** None. Status is recomputed by `recomputeClient` on every sync
+and edit, so affected accounts correct themselves on the next sync. A read-only production
+check found one account currently affected.
+**Known limitations:** An account whose launch date was never entered on any deal still
+shows Onboarding — intentionally, so the label prompts the CSM to record it.
+**Evidence:** `lib/status.ts` (`computeClientStatus`); `lib/status.test.ts` — 6 tests, the
+first status tests in the repository. Documented in
+[product/clients](../product/clients/README.md) → "How account status is derived".
+**Commit:** this change.
+
+---
+
 ### Expansion: links can open one opportunity, one account, or a pre-filled search
 **Area:** Expansion (`/expansion`) · Client Profile → Expansion card
 **Roles affected:** Everyone with Expansion access (all roles except Guest) — no change to

@@ -389,6 +389,8 @@ export function CloseSheet({ o, onCancel, onDone, onError }: {
         : { outcome, closeReason: reason, closeNote: note.trim() || null });
       if (!res.ok) { onError(res.error ?? "That didn't save."); return; }
       onDone(`${o.accountName} · ${OUTCOME_LABEL[outcome]}`);
+      // Closed, but the ARR wasn't added: say why, rather than letting the toast imply it was.
+      if (res.warning) onError(`Closed as Won, but its ARR was not added. ${res.warning}`);
     });
   };
 
@@ -452,10 +454,10 @@ export function CloseSheet({ o, onCancel, onDone, onError }: {
               </Row>
               <label className="flex cursor-pointer items-center gap-2 text-[12px] text-fg-muted">
                 <input type="checkbox" checked={arrRecorded} onChange={(e) => setArrRecorded(e.target.checked)} />
-                Already recorded in the ARR ledger
+                Add this to the account&apos;s ARR now
               </label>
               <p className="text-[11px] leading-relaxed text-fg-subtle">
-                Closing writes nothing to the ARR ledger. This marker only records whether the two have been reconciled.
+                Adds the final ARR to the account&apos;s ARR from the Won date. Leave it unticked if the contract isn&apos;t signed yet; you can add it from the record later.
               </p>
             </div>
           )}

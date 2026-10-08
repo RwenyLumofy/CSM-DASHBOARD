@@ -127,10 +127,34 @@ is due tomorrow. One number cannot say both, and collapsing them loses the diffe
   shared means **Proposed**; an invoice raised with no client acceptance is **still
   Proposed**. Only client acceptance — verbal or written — is **Won**. The close dialog says
   this out loud.
-- **Closing writes nothing to the ARR ledger.** `arr_events` remains the source of truth for
-  recorded ARR. `arr_recorded` records only whether the two have been reconciled by a human;
-  it is an indicator, not a state. A Won opportunity with `arr_recorded = false` carries an
-  amber *ARR not recorded* marker.
+- **"ARR recorded" adds a Won opportunity's final ARR to the account's ARR ledger.**
+  *(Changed 2026-10-08 — before this, closing and the flag wrote nothing to the ledger and
+  `arr_recorded` only said a human had reconciled the two. Product owner approved the change
+  after a Won $20,000 expansion was marked "ARR recorded" but never reached the account's
+  ARR.)* `arr_events` is still the source of truth for ARR; the flag now makes the entry.
+  *Partially verified* — implementation read end to end; the refusal rule is unit-tested, the
+  ledger write is not; confirmed by hand against the local test database (closing Won with
+  the box ticked moved one account's ARR 17,608 → 69,584; reopening returned it to 17,608 and
+  removed the row).
+  - **Where.** The close dialog's checkbox, **Add this to the account's ARR now**, unticked by
+    default; and on a Won record, **Add $X to ARR** / **Remove from ARR**.
+  - **The entry.** One `arr_events` row per opportunity: type `expansion`, source `manual`,
+    amount = the opportunity's final ARR, effective on the Won (outcome) date, note
+    *Expansion won · &lt;name&gt;*, with the deterministic id `exp-won-<opportunityId>` — so ticking
+    twice upserts the same row and never double-counts. The account's ARR is recomputed.
+  - **Removal.** Unticking, reopening the opportunity (moving a closed one back to a stage),
+    or deleting it removes that row and recomputes the account's ARR.
+  - **Refusal — same expansion already counted through HubSpot.** If the account has a
+    **ticked** HubSpot CS-pipeline deal in the `expansion` category whose close date is within
+    **60 days** of the Won date, the entry is refused with an explanation (adding it would
+    count the expansion twice). From the record, nothing changes and the reason is shown.
+    From the close dialog, the opportunity **still closes as Won**, unticked, and the user
+    sees *Closed as Won, but its ARR was not added. &lt;reason&gt;*. An unticked HubSpot deal, or
+    one with no close date, never blocks. *Verified* — `lib/expansion/same-expansion.test.ts`
+    (4 tests).
+  - **Not added** without a final ARR above zero, or for an outcome other than Won.
+  - A Won opportunity with `arr_recorded = false` still carries an amber *ARR not recorded*
+    marker.
 - **Lost and Dropped are different.** Lost = the client declined. Dropped = we stopped. Both
   render the amount as **`$19K potential`** — an unqualified figure on a Lost card reads as
   revenue won.
@@ -187,7 +211,10 @@ a fact.
 - A next step is resolved back to its opportunity and its account before it is touched, so a
   writable account can never be used as a lever on someone else's row.
 - `arr_recorded` is gated exactly as an `arr_events` write is today — `denyClientWrite` and
-  nothing more (decision D-3, verified against `app/(app)/clients/[id]/actions.ts`).
+  nothing more (decision D-3, verified against `app/(app)/clients/[id]/actions.ts`). Since
+  2026-10-08 ticking it **is** an `arr_events` write; the gate is unchanged
+  (`guardOpportunity` → `canEditExpansion` + `denyClientWrite`, the same per-account gate as
+  `recordArrAction`).
 
 ## Integrations
 
@@ -208,7 +235,9 @@ already on the board does not also get a derived expansion signal saying it migh
 current state, one per opportunity, so an unchanged fact produces the same single row
 tomorrow rather than a fresh alert each day.
 
-**ARR ledger** — read only. See the business rules above.
+**ARR ledger** — written only through "ARR recorded" on a Won opportunity
+([`lib/expansion/ledger-sync.ts`](../../../lib/expansion/ledger-sync.ts)); see the business
+rules above. Before 2026-10-08 this page never wrote to the ledger.
 
 **Signals** — expansion signals live on the Action list, not on this board. There is no
 signals lane on the Kanban.
@@ -219,6 +248,8 @@ Every one of the 132 accounts is USD (verified against the database, 2026-08-16)
 `arr_events` has no currency column at all. **Release 1 is USD-only** (decision D-4). The
 `currency` column exists and defaults from `clients.currency` so a future non-USD account is
 representable rather than silently mis-summed — not because mixed-currency reporting works.
+**Known limitation (2026-10-08):** a Won opportunity's final ARR is added to the ledger
+as-is, with no conversion — a non-USD opportunity would be summed as if it were USD.
 
 ## Data
 
@@ -257,6 +288,8 @@ That is the gap the page exists to close, not a bug.
 `app/(app)/expansion/ui.tsx` · `app/(app)/expansion/actions.ts` ·
 `lib/expansion/attention.ts` · `lib/expansion/attention.test.ts` · `lib/expansion/types.ts` ·
 `lib/expansion/format.ts` · `lib/expansion/read.ts` · `lib/expansion/repo.ts` ·
+`lib/expansion/ledger-sync.ts` · `lib/expansion/same-expansion.ts` ·
+`lib/expansion/same-expansion.test.ts` ·
 `components/expansion/ClientExpansionCard.tsx` ·
 `components/expansion/ExpansionActionList.tsx` · `lib/db/schema.ts` · `lib/today/build.ts` ·
 `components/layout/Sidebar.tsx` · `scripts/add-expansion-tables.mjs` ·
@@ -268,3 +301,5 @@ That is the gap the page exists to close, not a bug.
 **Last verified:** 2026-08-16 · **Commit:** working tree (uncommitted) · **Owner:** Unassigned
 **Change pass 2026-10-08** against `main` (`f0c2866`) + the Expansion links change: Entry points / *Linking to the
 board* only (Partially verified). The rest of this document was not re-read.
+**Change pass 2026-10-08 (ARR recorded → ledger)** against `main` (`4ddbe7c`) + this change: the "ARR recorded" business rule, Permissions, Integrations → ARR ledger, Currency and
+Implementation only. The rest of this document was not re-read.
