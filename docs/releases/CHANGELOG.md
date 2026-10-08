@@ -18,6 +18,28 @@ limitations · commit.
 
 ## 2026-10-08
 
+### Contract records — phase 1: the tables, the import and the ARR comparison (no visible change)
+**Area:** Data model · Revenue (ARR) · the coming contract rework
+**Roles affected:** None yet — the app does not read these tables. Operators run the import.
+**Before:** An account's contract history lived in HubSpot deals (`client_deals`, including the
+HubSpot CS pipeline) plus CS overrides in JSON; ARR was the sum of ticked deals plus the ARR
+ledger, which double-counts a renewal's earlier expansion and keeps churned accounts' ARR.
+**After:** Three new tables — `contract_records` (every sale, renewal, expansion, downgrade and
+churn, with modules, per-provider global library terms, support, one-time fees, currency,
+per-year ARR, milestones and dates), `client_status_overrides` and `contract_audit`. A tested
+import (`lib/contracts/import.ts`) maps today's deals into them; ARR is read with the tested
+ledger (`lib/contracts/ledger.ts`). `scripts/import-contract-records.mts` dry-runs by default
+and prints per-account ARR differences and flags for review.
+**Migration or data impact:** Additive only. Production: paste `drizzle/contract-records.sql`
+into the Supabase SQL editor. Test database: `node scripts/add-contract-tables.mjs`. On the
+test database (prod clone) the import wrote 307 records for 132 accounts; live ARR
+$1,263,018 → $1,258,507 from records, churned $54,454 → $0.
+**Known limitations:** Not used by any page yet (phases 2–5). Four sales where a CS-edited
+amount disagrees with HubSpot need a person to confirm which is right.
+**Commit:** this change. **Spec:** [Contract records](../specs/revenue/contract-records-specification.md)
+
+---
+
 ### Client Profile: Won Expansion-page opportunities now appear under Contracts & deals → Expansion
 **Area:** Client Profile → General information → Contracts & deals card, Expansion tab.
 **Roles affected:** Everyone who can see Expansion (`canSeeExpansion`). Guests see no

@@ -818,3 +818,79 @@ export const projectTemplates = pgTable("project_templates", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+
+/* ── Contract records ─────────────────────────────────────────────────────
+ * The account's contract history, owned by Signal: every sale, renewal,
+ * expansion, downgrade and churn. Only Closed Won sales come from HubSpot
+ * (source "hubspot", money fields kept in step by the sync); everything after
+ * the sale is recorded in Signal. ARR is read from these records with
+ * lib/contracts/ledger.ts (a renewal replaces the term before it; support
+ * counts; one-time fees never do).
+ *
+ * Not read by the app yet: filled by scripts/import-contract-records.mts and
+ * compared against today's ARR until the contract rework is switched on.
+ * DDL: drizzle/contract-records.sql. Spec: docs/specs/revenue/contract-records-specification.md
+ */
+export const contractRecords = pgTable("contract_records", {
+  id: text("id").primaryKey(), // ctr-{uuid}; imports use ctr-hs-{dealId} / ctr-churn-{clientId}
+  clientId: text("client_id").notNull(),
+  kind: text("kind").notNull(), // sale | renewal | expansion | downgrade | churn
+  source: text("source").notNull(), // hubspot | signal | imported | expansion
+  hubspotDealId: text("hubspot_deal_id"),
+  opportunityId: text("opportunity_id"),
+  channel: text("channel"),
+  name: text("name").notNull(),
+  currency: text("currency").notNull().default("USD"), // USD | BHD | SAR
+  /** sale/renewal: licence ARR (year 1); expansion/downgrade: the change; churn: ARR lost (0 = all). */
+  amount: doublePrecision("amount").notNull().default(0),
+  yearAmounts: jsonb("year_amounts").$type<number[] | null>(),
+  supportLevel: text("support_level"),
+  supportAmount: doublePrecision("support_amount"),
+  oneTimeFees: jsonb("one_time_fees").$type<{ label: string; amount: number }[]>().notNull().default([]),
+  licences: doublePrecision("licences"),
+  complementary: doublePrecision("complementary"),
+  pricePerUser: doublePrecision("price_per_user"),
+  modules: jsonb("modules").$type<string[]>().notNull().default([]),
+  startingModules: jsonb("starting_modules").$type<string[]>().notNull().default([]),
+  libraryDecided: boolean("library_decided").notNull().default(false),
+  libraryTerms: jsonb("library_terms").$type<Record<string, { licences: number | null; start: string | null; expiry: string | null }>>().notNull().default({}),
+  implementationLevel: text("implementation_level"),
+  aiCredits: doublePrecision("ai_credits"),
+  /** invoice_sent_date, kickoff_meeting_date, launch_date, platform_start_date, platform_end_date. */
+  milestones: jsonb("milestones").$type<Record<string, string | null>>().notNull().default({}),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  renewalDate: date("renewal_date"),
+  counted: boolean("counted").notNull().default(true),
+  churnReasons: jsonb("churn_reasons").$type<string[]>().notNull().default([]),
+  note: text("note"),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
+  voidedBy: text("voided_by"),
+  voidReason: text("void_reason"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("contract_records_client_id_idx").on(t.clientId)]);
+
+/** A status set by hand: needs a reason; expires, or clears at the next renewal or churn. */
+export const clientStatusOverrides = pgTable("client_status_overrides", {
+  clientId: text("client_id").primaryKey(),
+  status: text("status").notNull(), // onboarding | active | renewal | overdue | churned
+  reason: text("reason").notNull(),
+  setBy: text("set_by"),
+  setAt: timestamp("set_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+});
+
+/** Who changed what on an account's contracts and status, before and after. */
+export const contractAudit = pgTable("contract_audit", {
+  id: serial("id").primaryKey(),
+  clientId: text("client_id").notNull(),
+  recordId: text("record_id"),
+  action: text("action").notNull(), // create | update | void | status_set | status_cleared | import
+  actor: text("actor"),
+  before: jsonb("before"),
+  after: jsonb("after"),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("contract_audit_client_idx").on(t.clientId)]);
