@@ -18,9 +18,56 @@ probability percentages, no weighted pipeline, no approval workflow and no secon
 ## Entry points
 
 - **Route:** `/expansion` — sidebar entry between **Clients** and **Action list**.
-- `?account=<clientId>` opens the create form pre-filled — used from a client profile.
+- Links into the board from other pages use URL parameters — see
+  [Linking to the board](#linking-to-the-board).
 - **Surfaces in:** the client profile's Expansion card, the Action list, and Today's
   Expansion focus area.
+
+### Linking to the board
+
+**Status:** Partially verified — implementation read end to end; no test covers it. Checked
+by hand 2026-10-06 against the local test database: `?opportunity=<id>` opened that
+opportunity's record on load, and `?account=<clientId>` opened the New opportunity form with
+the account chosen and the search set to its name.
+
+Three URL parameters let another page point at one opportunity or one account:
+
+| Parameter | Effect |
+|---|---|
+| `?opportunity=<opportunity id>` | Opens that opportunity's record on load, as if the card had been clicked. |
+| `?q=<text>` | Pre-fills the board's search box. Search matches account name, opportunity name and product (case-insensitive substring), so an account name narrows the board to that account's opportunities. |
+| `?account=<clientId>` | Sets the search to that account's name, narrowing the board to it. For a viewer whose role can write to Expansion, it also opens the **New opportunity** form with that account pre-selected. A read-only viewer gets the filtered board only. |
+
+- **Access is unchanged.** The guest 404 runs before anything is read, and every parameter
+  is applied only after `getExpansionBoard()` has scoped the board to the viewer's accounts.
+  Lookups use that already-scoped data, so:
+  - an `?opportunity=` id the viewer cannot see, or that does not exist, **opens nothing**,
+    silently;
+  - an `?account=` id the viewer cannot see opens **no form** and leaves the search empty
+    (its name is looked up among the visible accounts, then among the visible opportunities —
+    both scoped the same way).
+  No parameter can reveal an opportunity or account the board would not show anyway.
+- **What "can write" means here.** The form opens when the role-level `canWrite` flag
+  (`canEditExpansion`) is true **and** the account is in the board's account list, which is
+  every account the viewer can *see* (`lib/expansion/read.ts`), not only ones they can edit.
+  Saving still goes through the server-side `denyClientWrite` check for that account (see
+  [Permissions](#permissions)), so a pre-filled form never grants a write.
+- If both `?q=` and `?account=` are present, `?q=` wins for the search text; the form still
+  opens for `?account=`.
+- They are **starting values only**. They seed the record, search and form state when the
+  board first renders; closing the record or form, or editing the search, does not rewrite
+  the URL.
+- Search is a name match, not an id filter: an account whose name is a substring of
+  another's will match both — including when the search came from `?account=`.
+- **Who links here:** the client profile's Expansion card — its header link (**Add opportunity →** for a
+  writer, **Open the board →** otherwise) uses `?account=<clientId>` and each opportunity row uses `?opportunity=<id>`
+  (`components/expansion/ClientExpansionCard.tsx`).
+
+Source: `app/(app)/expansion/page.tsx` (reads `searchParams` after the guest gate and after
+`getExpansionBoard()`) · `app/(app)/expansion/Expansion.tsx` (`initialOpenId`,
+`initialQuery` and `initialAccountId` seed `openId`, `q` and `creating`; the search
+predicate is in the `visible` filter) · `app/(app)/expansion/dialogs.tsx` (`CreateForm`
+`initialAccountId` pre-selects the account).
 
 ## Shape
 
@@ -219,3 +266,5 @@ That is the gap the page exists to close, not a bug.
 
 **Documentation status:** Verified
 **Last verified:** 2026-08-16 · **Commit:** working tree (uncommitted) · **Owner:** Unassigned
+**Change pass 2026-10-08** against `main` (`f0c2866`) + the Expansion links change: Entry points / *Linking to the
+board* only (Partially verified). The rest of this document was not re-read.

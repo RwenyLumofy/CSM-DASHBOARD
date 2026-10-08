@@ -197,6 +197,24 @@ This is the exact mechanism that made `/scratch-wf` an anonymous data leak (comm
 
 ---
 
+## ~~Expansion account link is ignored~~ — RESOLVED
+
+**Resolved 2026-10-08 by the Expansion links change (see the [changelog](../releases/CHANGELOG.md)).** Kept as a
+record because the documentation had described this link's behaviour for seven weeks
+without the page implementing it.
+
+| Side | Said / did | Now |
+|---|---|---|
+| `components/expansion/ClientExpansionCard.tsx` header link | `/expansion?account=<clientId>` | Unchanged — and now honoured |
+| Expansion documentation | *"opens the create form pre-filled"* | Rewritten to the confirmed behaviour: narrows the search to the account's name and, for a viewer with Expansion write, opens the New opportunity form with the account pre-selected |
+| `app/(app)/expansion/page.tsx` | Never read `account` (from `16e039b` on) | Reads it and passes it to `Expansion.tsx` / `CreateForm` |
+
+**Files:** `components/expansion/ClientExpansionCard.tsx` · `app/(app)/expansion/page.tsx` ·
+`app/(app)/expansion/Expansion.tsx` · `app/(app)/expansion/dialogs.tsx` · Documented at
+[expansion](../product/expansion/README.md#linking-to-the-board)
+
+---
+
 ## How to add to this file
 
 Only add a genuine conflict — two implementations, or an implementation that contradicts

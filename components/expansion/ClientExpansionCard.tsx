@@ -70,7 +70,7 @@ export function ClientExpansionCard({ clientId, opportunities, today, canWrite }
               const a = attention(o, today);
               return (
                 <li key={o.id}>
-                  <Link href="/expansion" className="flex items-baseline gap-3 py-2 hover:bg-bg-subtle">
+                  <Link href={`/expansion?opportunity=${encodeURIComponent(o.id)}`} className="flex items-baseline gap-3 py-2 hover:bg-bg-subtle">
                     <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{o.name}</span>
                     <span className="shrink-0 text-[11px] text-fg-subtle">
                       {o.outcome ? o.outcome : STAGE_LABEL[o.stage]}
