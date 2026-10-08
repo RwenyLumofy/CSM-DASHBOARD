@@ -133,9 +133,22 @@ type TabKey =
   | "notes"
   | "actions";
 
+/** A Won opportunity from the Expansion page, shown beside HubSpot expansion deals. */
+export interface ExpansionWin {
+  id: string;
+  name: string;
+  finalArr: number | null;
+  currency: string;
+  outcomeDate: string | null;
+  /** True when its final ARR has been added to the account's ARR. */
+  arrRecorded: boolean;
+}
+
 interface Props {
   client: Client;
   deals: Deal[];
+  /** Won Expansion-page opportunities for this account. Empty for viewers without Expansion access. */
+  expansionWins?: ExpansionWin[];
   emails: Email[];
   meetings: Meeting[];
   contacts: Contact[];
@@ -276,7 +289,7 @@ export function ClientProfileTabs(props: Props) {
               stakeholders={stakeholderOptions}
               implementations={useCaseImplementations}
             />
-            <GeneralTab client={client} deals={deals} propertyDefs={propertyDefs} canEdit={canEditClient} techStackCategories={props.techStackCategories} />
+            <GeneralTab client={client} deals={deals} expansionWins={props.expansionWins ?? []} propertyDefs={propertyDefs} canEdit={canEditClient} techStackCategories={props.techStackCategories} />
           </>
         )}
         {active === "stakeholders" && (
@@ -407,12 +420,14 @@ function hasValue(v: unknown): boolean {
 function GeneralTab({
   client,
   deals,
+  expansionWins,
   propertyDefs,
   canEdit,
   techStackCategories,
 }: {
   client: Client;
   deals: Deal[];
+  expansionWins: ExpansionWin[];
   propertyDefs: PropertyDefinition[];
   /** Server-resolved write gate, passed on to Tech stack. The older field
    *  groups above it don't read it yet — see the Section comment below. */
@@ -479,7 +494,7 @@ function GeneralTab({
 
       {/* Contracts & deals — each deal carries its economics, package, service
           levels and per-deal dates (CSM-editable milestones + synced contract dates). */}
-      {deals.length > 0 && <DealsTabs deals={deals} clientId={id} dealOverrides={dealOverrides} dealDates={dealDates} dealBriefs={dealBriefs} propertyDefs={propertyDefs} />}
+      {(deals.length > 0 || expansionWins.length > 0) && <DealsTabs deals={deals} expansionWins={expansionWins} clientId={id} dealOverrides={dealOverrides} dealDates={dealDates} dealBriefs={dealBriefs} propertyDefs={propertyDefs} />}
 
       {groups.map((g) => (
         <Section key={g.key} icon={g.icon} title={g.label} subtitle={g.subtitle} defaultOpen={false}>
@@ -2805,7 +2820,7 @@ const PIPELINE_LABEL = (p: Deal["pipeline"]) =>
  *  draft spanning both tabs and only persist (recomputing ARR) on Save. The
  *  whole section collapses. Per-deal milestone dates are CSM-editable and persist
  *  under client.properties.__deal_dates; synced contract dates stay read-only. */
-function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, propertyDefs }: { deals: Deal[]; clientId: string; dealOverrides: DealOverridesMap; dealDates: DealDatesMap; dealBriefs: DealBriefsMap; propertyDefs: PropertyDefinition[] }) {
+function DealsTabs({ deals, expansionWins, clientId, dealOverrides, dealDates, dealBriefs, propertyDefs }: { deals: Deal[]; expansionWins: ExpansionWin[]; clientId: string; dealOverrides: DealOverridesMap; dealDates: DealDatesMap; dealBriefs: DealBriefsMap; propertyDefs: PropertyDefinition[] }) {
   const router = useRouter();
   // router.refresh() is fire-and-forget — it resolves the *scheduling* of a
   // background re-render, not the refreshed (server-confirmed) props actually
@@ -2829,7 +2844,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
   const TAB_ORDER: { key: DealTab; n: number }[] = [
     { key: "sales", n: sales.length },
     { key: "renewals", n: renewals.length },
-    { key: "expansion", n: expansions.length },
+    { key: "expansion", n: expansions.length + expansionWins.length },
     { key: "confirmed_churn", n: confirmedChurns.length },
     { key: "downgrade", n: downgrades.length },
   ];
@@ -2941,7 +2956,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
   const TOGGLE: { key: DealTab; label: string; n: number }[] = [
     { key: "sales", label: "Sales", n: sales.length },
     { key: "renewals", label: "Renewal", n: renewals.length },
-    { key: "expansion", label: "Expansion", n: expansions.length },
+    { key: "expansion", label: "Expansion", n: expansions.length + expansionWins.length },
     { key: "confirmed_churn", label: "Confirmed Churn", n: confirmedChurns.length },
     { key: "downgrade", label: "Downgrade", n: downgrades.length },
   ];
@@ -2990,7 +3005,32 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
               </div>
             </div>
 
-            {shown.length === 0 ? (
+            {/* Expansions are recorded in Signal, on the Expansion page — only Closed Won sales come from
+                HubSpot. A won expansion's ARR reaches the account through the ARR ledger when "ARR
+                recorded" is ticked, so it has no tracked box. Older HubSpot CS-pipeline expansion deals
+                (synced until the contract rework turns that sync off) still list below. */}
+            {tab === "expansion" && expansionWins.length > 0 && (
+              <ul className="mb-3 flex flex-col gap-3">
+                {expansionWins.map((w) => (
+                  <li key={w.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border-subtle p-4">
+                    <div className="min-w-0 flex-1">
+                      <span className="block font-body text-sm font-semibold text-fg">{w.name}</span>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <Badge tone="aurora">Won on the Expansion page</Badge>
+                        {w.outcomeDate && <span className="caption">{formatDate(w.outcomeDate)}</span>}
+                        <Badge tone={w.arrRecorded ? "neutral" : "stellar"}>{w.arrRecorded ? "Counted in ARR" : "Not added to ARR yet"}</Badge>
+                      </div>
+                    </div>
+                    <span className="tabular font-display text-base font-bold text-fg">{w.finalArr != null ? formatCurrency(w.finalArr, w.currency || "USD") : "—"}</span>
+                    <a href={`/expansion?opportunity=${encodeURIComponent(w.id)}`} className="w-full font-body text-[12.5px] font-semibold text-sirius hover:underline sm:w-auto">
+                      Open on Expansion →
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {shown.length === 0 && !(tab === "expansion" && expansionWins.length > 0) ? (
               <EmptyHint
                 icon={Tag}
                 title={
@@ -3003,7 +3043,7 @@ function DealsTabs({ deals, clientId, dealOverrides, dealDates, dealBriefs, prop
                 body={
                   tab === "sales" ? "Closed-won deals from Direct Sales or Indirect Sales pipelines appear here."
                   : tab === "renewals" ? "CS pipeline deals in the Renewed stage appear here."
-                  : tab === "expansion" ? "Deals in the CS pipeline's Expansion stage appear here."
+                  : tab === "expansion" ? "Expansions are recorded on the Expansion page. Once one is won, it appears here."
                   : tab === "confirmed_churn" ? "Deals in the CS pipeline's Confirmed Churned stage appear here."
                   : "Deals in the CS pipeline's Downgraded stage appear here."
                 }

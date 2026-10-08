@@ -18,6 +18,30 @@ limitations · commit.
 
 ## 2026-10-08
 
+### Client Profile: Won Expansion-page opportunities now appear under Contracts & deals → Expansion
+**Area:** Client Profile → General information → Contracts & deals card, Expansion tab.
+**Roles affected:** Everyone who can see Expansion (`canSeeExpansion`). Guests see no
+Expansion-page rows. No permission change.
+**Before:** The Expansion tab listed only HubSpot CS-pipeline deals in the Expansion stage. A
+Won opportunity on the Expansion page did not appear there, and the empty state said "Deals in
+the CS pipeline's Expansion stage appear here."
+**After:** The tab first lists the account's Won Expansion-page opportunities: name, "Won on
+the Expansion page", Won date, "Counted in ARR" or "Not added to ARR yet", final ARR and
+**Open on Expansion →**. They have no tracked checkbox, because their ARR reaches the account
+through the ARR ledger when "ARR recorded" is ticked. They count in the tab's number, and the
+card now shows when an account has only these. HubSpot CS-pipeline expansion deals still list
+below while that sync runs. The empty state reads "Expansions are recorded on the Expansion
+page. Once one is won, it appears here." This follows the product decision that only Closed
+Won sales come from HubSpot.
+**Migration / data impact:** None. Read-only; built from the existing Expansion read.
+**Verified:** Implementation read (`app/(app)/clients/[id]/page.tsx`,
+`components/clients/ClientProfileTabs.tsx`). Checked locally on the test DB: a Won opportunity
+with ARR recorded showed as "Won on the Expansion page · Counted in ARR · $51,976".
+**Commit:** this change.
+**Docs:** [Client Profile → Contracts & deals card](../product/client-profile/README.md#contracts--deals-card).
+
+---
+
 ### Expansion: "ARR recorded" now adds a Won opportunity's ARR to the account's ARR
 **Area:** Expansion (`/expansion`) — close dialog and the Won record; the account's ARR as
 read by the Clients directory, Client Profile and Insights.

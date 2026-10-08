@@ -346,6 +346,12 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       <ClientProfileTabs
         client={client}
         deals={deals}
+        expansionWins={canSeeExpansion(role)
+          ? expansion.opportunities.filter((o) => o.outcome === "won").map((o) => ({
+              id: o.id, name: o.name, finalArr: o.finalArr, currency: o.currency,
+              outcomeDate: o.outcomeDate, arrRecorded: o.arrRecorded,
+            }))
+          : []}
         emails={emails}
         meetings={meetings}
         contacts={contacts}

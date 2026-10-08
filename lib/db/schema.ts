@@ -719,10 +719,11 @@ export const projectTasks = pgTable("project_tasks", {
  * exists so a future non-USD account is representable rather than silently
  * mis-summed, NOT because mixed-currency reporting works today.
  *
- * CLOSING WRITES NOTHING TO THE ARR LEDGER. `arr_events` stays the source of
- * truth for recorded ARR; `arr_recorded` only records whether a Won opportunity
- * and the ledger have been reconciled by a human. It is an indicator, not a
- * state — a Won opportunity with arr_recorded = false is still Won.
+ * ARR: closing as Won does not by itself touch the ledger. Since 2026-10-08,
+ * ticking `arr_recorded` ADDS the final ARR to `arr_events` (one entry per
+ * opportunity, id `exp-won-<id>`) and unticking, reopening or deleting removes
+ * it — see lib/expansion/ledger-sync.ts. It is an indicator, not a state: a Won
+ * opportunity with arr_recorded = false is still Won, its ARR just not counted.
  */
 export const expansionOpportunities = pgTable("expansion_opportunities", {
   id: text("id").primaryKey(), // "exp-{uuid}"
