@@ -19,7 +19,10 @@
        to its opportunity and its account before it is touched, so a writable
        account can never be used as a lever on someone else's row.
 
-   Closing an opportunity writes NOTHING to `arr_events`. See §5 of the spec.
+   ARR: ticking "ARR recorded" on a Won opportunity (in the close dialog or on
+   the record) adds its final ARR to the ARR ledger; unticking, reopening or
+   deleting it removes that entry again. See lib/expansion/ledger-sync.ts.
+   Before 2026-10-08 the tick was a check-off only and wrote nothing.
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";
@@ -38,12 +41,15 @@ import {
   deleteOpportunityDb, getOpportunityClientIdDb, getOpportunityOutcomeDb, getStepOwnerDb, moveStageDb,
   setArrRecordedDb, updateNextStepDb, updateOpportunityDb,
 } from "@/lib/expansion/repo";
+import { recordWonArr, removeWonArr } from "@/lib/expansion/ledger-sync";
 
 export interface ExpansionActionResult {
   ok: boolean;
   error?: string;
   /** Set by create, so the caller can open the new record. */
   id?: string;
+  /** The action succeeded, but something the user asked for didn't happen (shown to them). */
+  warning?: string;
 }
 
 const GONE = "That opportunity no longer exists, or you don't have access to it.";
@@ -54,6 +60,9 @@ const NO_DB = "The database isn't configured.";
 function revalidate(clientId?: string) {
   revalidatePath("/expansion");
   if (clientId) revalidatePath(`/clients/${clientId}`);
+  // A Won opportunity can add to or remove from ARR, which the clients list and Insights read.
+  revalidatePath("/clients");
+  revalidatePath("/reports");
   revalidatePath("/inbox");
   revalidatePath("/today");
 }
@@ -203,6 +212,8 @@ export async function moveStageAction(id: string, to: Stage): Promise<ExpansionA
   try {
     const moved = await moveStageDb(id, to, await getCurrentUserEmail());
     if (!moved) return { ok: false, error: GONE };
+    // Reopening clears the Won outcome, so any ARR it added comes off the ledger.
+    if (moved.outcomeCleared) await removeWonArr(id, gate.clientId);
     revalidate(gate.clientId);
     return { ok: true };
   } catch (e) {
@@ -225,7 +236,9 @@ export async function moveStageAction(id: string, to: Stage): Promise<ExpansionA
  * optional note. Free text alone cannot be counted, and "why do we lose
  * expansion" is the first question anyone asks of this data.
  *
- * Nothing here writes to the ARR ledger.
+ * Won with "ARR recorded" ticked adds the final ARR to the ARR ledger. If that
+ * is refused (the same expansion is already counted through HubSpot), the
+ * opportunity still closes as Won, unticked, and the reason comes back as a warning.
  */
 export async function closeOpportunityAction(id: string, input: CloseInput): Promise<ExpansionActionResult> {
   const outcome = input.outcome;
@@ -269,27 +282,39 @@ export async function closeOpportunityAction(id: string, input: CloseInput): Pro
         ? `Closed Won · ${agreementType} agreement`
         : `Closed ${OUTCOME_LABEL[outcome as Outcome]} · ${closeReason}`,
     });
+    let warning: string | undefined;
+    if (outcome === "won" && input.arrRecorded) {
+      const actor = await getCurrentUserEmail();
+      const added = await recordWonArr(id, actor);
+      if (!added.ok) { await setArrRecordedDb(id, false, actor); warning = added.error; }
+    }
     revalidate(gate.clientId);
-    return { ok: true };
+    return { ok: true, warning };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
 }
 
 /**
- * Tick (or untick) "ARR recorded" on a Won opportunity.
+ * Tick (or untick) "ARR recorded" on a Won opportunity. Ticking ADDS the final
+ * ARR to the ledger; unticking removes it.
  *
  * Gated on exactly what gates an `arr_events` write today — denyClientWrite,
- * the gate on recordArrAction (decision D-3). It is deliberately not a stricter
- * gate: the marker says the two records have been reconciled, and whoever may
- * write the ledger entry is whoever can know that.
+ * the gate on recordArrAction (decision D-3) — because it now is one.
  */
 export async function setArrRecordedAction(id: string, recorded: boolean): Promise<ExpansionActionResult> {
   const gate = await guardOpportunity(id);
   if ("error" in gate) return { ok: false, error: gate.error };
   try {
-    const n = await setArrRecordedDb(id, recorded, await getCurrentUserEmail());
-    if (!n) return { ok: false, error: "Only a Won opportunity can be reconciled against the ledger." };
+    const actor = await getCurrentUserEmail();
+    if (recorded) {
+      // Ledger first: if it is refused, the flag must not claim it was recorded.
+      const added = await recordWonArr(id, actor);
+      if (!added.ok) return { ok: false, error: added.error };
+    }
+    const n = await setArrRecordedDb(id, recorded, actor);
+    if (!n) return { ok: false, error: "Only a Won opportunity can add ARR." };
+    if (!recorded) await removeWonArr(id, gate.clientId);
     revalidate(gate.clientId);
     return { ok: true };
   } catch (e) {
@@ -441,6 +466,7 @@ export async function deleteOpportunityAction(id: string): Promise<ExpansionActi
   try {
     const n = await deleteOpportunityDb(id);
     if (!n) return { ok: false, error: GONE };
+    await removeWonArr(id, gate.clientId); // a deleted opportunity takes its ARR with it
     revalidate(gate.clientId);
     return { ok: true };
   } catch (e) {

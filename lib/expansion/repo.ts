@@ -352,10 +352,11 @@ export async function moveStageDb(
 }
 
 /**
- * Close it. Writes NOTHING to `arr_events` — the ARR ledger stays the source of
- * truth for recorded ARR, and `arrRecorded` only says whether the two have been
- * reconciled. An invoice is not an acceptance and a Won opportunity is not a
- * ledger entry; conflating them is how a running balance silently doubles.
+ * Close it. This function writes nothing to `arr_events`: the ledger entry for a
+ * Won opportunity with `arrRecorded` is made by the caller through
+ * lib/expansion/ledger-sync.ts, which also refuses it when the same expansion is
+ * already counted through HubSpot. An invoice is not an acceptance; conflating
+ * them is how a running balance silently doubles.
  *
  * Closing also clears the step queue: a finished deal cannot be late for
  * anything, and leaving steps behind would keep it in the overdue count.
@@ -391,9 +392,9 @@ export async function closeOpportunityDb(input: {
   await touch(input.id, input.actorEmail, input.summary, now);
 }
 
-/** Mark a Won opportunity as reconciled against the ledger. Reversible, because
- *  the person who ticks it can be wrong and an un-ticked marker is recoverable
- *  information whereas a wrong tick is a lie the amber badge no longer tells. */
+/** Set the "ARR recorded" flag on a Won opportunity. The ledger entry itself is
+ *  added or removed by the caller (lib/expansion/ledger-sync.ts); this only
+ *  stores the flag. Reversible, because the person who ticks it can be wrong. */
 export async function setArrRecordedDb(id: string, recorded: boolean, actorEmail: string | null): Promise<number> {
   const db = getDb();
   const rows = await db.update(schema.expansionOpportunities)

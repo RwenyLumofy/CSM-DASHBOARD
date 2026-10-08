@@ -132,7 +132,7 @@ export interface Opportunity {
   finalArr: number | null;
   agreementType: AgreementType | null;
   confirmedBy: string | null;
-  /** Won only. Whether this and the ARR ledger have been reconciled. */
+  /** Won only. True when this opportunity's final ARR has been added to the ARR ledger. */
   arrRecorded: boolean;
   closeReason: string | null;
   closeNote: string | null;

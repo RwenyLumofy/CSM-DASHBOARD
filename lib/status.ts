@@ -16,7 +16,7 @@
                   account (it renews without that field ever being updated),
                   and treating "overdue" as "approaching" would mislabel most
                   of the book as perpetually up for renewal.
-     active     — any TRACKED deal has a known launch date
+     active     — any deal (tracked or not) has a known launch date
                   (client.properties.__deal_dates[dealId].launch_date — the
                   per-deal "Launch" field on the deal card; this is the ONLY
                   source now, deliberately. The old account-level
@@ -24,13 +24,13 @@
                   entirely (2026-07-09 cleanup) — it let accounts show
                   "active" off a stale/unrelated legacy value even when
                   their real per-deal Launch field was empty).
-                  OR the client has ARR but no deal rows at all (e.g. a
+                  OR the client has ARR but no TRACKED deals (e.g. a
                   legacy account brought in via bulk CSV import, which
                   carries an ARR-ledger baseline but never gets a
                   client_deals row — there is no deal to ever attach a
                   launch date to, so requiring one would be a dead end).
-     onboarding — default: no tracked deals and no ARR yet, or a tracked deal
-                  exists but its launch date genuinely hasn't been entered —
+     onboarding — default: no tracked deals and no ARR yet, or tracked deals
+                  exist but no deal on the account has a launch date —
                   intentionally strict (not backfilled from ARR/tenure) so
                   the label prompts the CSM to record the real launch date
                   rather than silently assuming an established deal launched.
@@ -85,6 +85,10 @@ export function computeClientStatus(
   });
   if (anyRenewalApproaching) return "renewal";
 
-  const anyLaunchKnown = tracked.some((d) => hasValue(launchDateByDealId[d.id]));
+  // Launch is a fact about the ACCOUNT, not about one deal. When a renewal
+  // arrives and CS unticks the original sale, the launch date stays on that
+  // sale; reading only tracked deals sent a long-launched account back to
+  // "onboarding" on every renewal (Ministry of Economy and Planning, Oct 2026).
+  const anyLaunchKnown = deals.some((d) => hasValue(launchDateByDealId[d.id]));
   return anyLaunchKnown ? "active" : "onboarding";
 }

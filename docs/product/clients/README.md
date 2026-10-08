@@ -87,6 +87,36 @@ Account status (`AccountStatus` in `lib/types.ts`) drives whether a client count
 for retention, at-risk and concentration analysis. A churned account is excluded from
 health and renewal analysis everywhere.
 
+### How account status is derived — `Verified` (2026-10-08)
+
+Status is computed, never picked, by `computeClientStatus` in
+[`lib/status.ts`](../../../lib/status.ts). The only manual lever is marking an account
+churned (and reversing it). Precedence, highest first:
+
+| Status | Condition |
+|---|---|
+| **Churned** | A CSM has manually marked the account churned (`client.properties.__status_override = "churned"`). Wins over everything. |
+| *(no tracked deals)* | If the account has **no tracked deals**, it is **Active** when ARR > 0, otherwise **Onboarding**. Launch dates are not consulted. |
+| **Renewal** | Any **tracked** deal's renewal date — contract start date + 1 year, falling back to close date + 1 year — falls within the next 90 days. An overdue renewal date does not count. |
+| **Active** | **Any deal on the account — tracked or unticked** — has a launch date (`client.properties.__deal_dates[dealId].launch_date`, the deal card's "Launch" field). |
+| **Onboarding** | Default: the account has tracked deals but no deal on it carries a launch date. |
+
+Launch is treated as a fact about the account, not about one deal. When a renewal deal
+arrives and CS unticks the original sale (which carries the launch date), the account stays
+**Active**. Before 2026-10-08 only tracked deals were read for the launch date, so such an
+account fell back to **Onboarding** on every renewal — see the
+[changelog](../../releases/CHANGELOG.md).
+
+Tracked deals use the CSM's contract-start-date overrides before the renewal check.
+Status is stored on `clients.status` and recomputed by `recomputeClient`
+([`lib/repo/drizzle.ts`](../../../lib/repo/drizzle.ts)) on every HubSpot sync, property
+edit, bulk import and ARR-ledger append, so a stale status corrects itself on the next
+sync or edit.
+
+**Tests:** [`lib/status.test.ts`](../../../lib/status.test.ts) — 6 tests covering the
+renewal/unticked-sale case, no launch date, launch on a tracked deal, renewal beating
+active, churned beating everything, and the no-tracked-deals ARR fallback.
+
 ## Business rules
 
 - **Visibility scoping** — see [permissions](../../business-rules/permissions-and-scoping.md).

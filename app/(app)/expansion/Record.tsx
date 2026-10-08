@@ -209,17 +209,17 @@ export function OpportunityRecord({
                 <p className="mt-2 text-[13px] text-fg-muted">
                   Confirmed by {o.confirmedBy ?? "—"} on {fmt(o.outcomeDate)}.
                 </p>
-                {/* The ledger is the source of truth for recorded ARR; this only
-                    says the two have been reconciled. Nothing here writes to it. */}
+                {/* Adding writes the final ARR to the account's ARR ledger (lib/expansion/ledger-sync.ts);
+                    removing takes it off again. */}
                 {canWrite && !o.arrRecorded && (
                   <Btn primary className="mt-2.5" onClick={() => run(() => setArrRecordedAction(o.id, true))}>
-                    Mark ARR as recorded
+                    Add {o.finalArr != null ? moneyFull(o.finalArr, o.currency) : "it"} to ARR
                   </Btn>
                 )}
                 {canWrite && o.arrRecorded && (
                   <button onClick={() => run(() => setArrRecordedAction(o.id, false))}
                     className="mt-2.5 block text-[11px] text-fg-subtle hover:underline">
-                    Not actually recorded
+                    Remove from ARR
                   </button>
                 )}
               </div>

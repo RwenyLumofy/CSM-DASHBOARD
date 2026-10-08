@@ -268,6 +268,16 @@ A Won opportunity carries a small indicator — **ARR not recorded** or **ARR re
 separate Won stages.** The ARR ledger remains the source of truth for recorded ARR; this flag
 records whether the two have been reconciled.
 
+> **Decision changed 2026-10-08.** The paragraph above is kept as the original decision. It no
+> longer describes the product: ticking **ARR recorded** on a Won opportunity now **adds** its
+> final ARR to the account's ARR ledger (one `arr_events` row per opportunity, type
+> `expansion`), and unticking, reopening or deleting the opportunity removes it. The entry is
+> refused when a ticked HubSpot CS-pipeline expansion deal closed within 60 days of the Won date
+> already counts it. Approved by the product owner on 2026-10-08 after a Won $20,000 expansion
+> was marked "ARR recorded" but never reached the account's ARR. Current behaviour:
+> [product/expansion](../../product/expansion/README.md) → Business rules;
+> implementation `lib/expansion/ledger-sync.ts`.
+
 ### 7.2 Lost
 
 Loss reason · short note · outcome date.
