@@ -71,8 +71,10 @@ function AccountPicker({ accounts, value, onChange }: {
   );
 }
 
-export function CreateForm({ accounts, people, me, today, onClose, onCreate }: {
+export function CreateForm({ accounts, people, me, today, initialAccountId = null, onClose, onCreate }: {
   accounts: ExpansionAccount[];
+  /** Pre-selects the account when the form is opened from an account's link. */
+  initialAccountId?: string | null;
   people: ExpansionPerson[];
   me: string | null;
   today: string;
@@ -81,7 +83,7 @@ export function CreateForm({ accounts, people, me, today, onClose, onCreate }: {
 }) {
   const plus60 = new Date(Date.parse(`${today}T00:00:00Z`) + 60 * 86_400_000).toISOString().slice(0, 10);
 
-  const [account, setAccount] = useState<ExpansionAccount | null>(null);
+  const [account, setAccount] = useState<ExpansionAccount | null>(accounts.find((a) => a.id === initialAccountId) ?? null);
   const [oppName, setOppName] = useState("");
   const [arr, setArr] = useState("");
   const [expansionType, setExpansionType] = useState<ExpansionType>("module");

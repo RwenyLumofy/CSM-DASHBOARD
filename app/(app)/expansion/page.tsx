@@ -22,7 +22,11 @@ export const metadata = { title: "Expansion · Signal" };
 /** The board reflects writes immediately, so it must never be statically cached. */
 export const dynamic = "force-dynamic";
 
-export default async function ExpansionPage() {
+/* ?opportunity=<id> opens that opportunity's record; ?q=<text> pre-fills the
+   search; ?account=<clientId> narrows the board to that account and, for a
+   writer, opens the new-opportunity form with it chosen. All are display hints
+   only — the board is scoped by getExpansionBoard() before any is applied. */
+export default async function ExpansionPage({ searchParams }: { searchParams: Promise<{ opportunity?: string; q?: string; account?: string }> }) {
   /* Guests have no access to Expansion — not read-only, none.
 
      A 404 rather than a "you don't have permission" page, for the same reason
@@ -35,5 +39,6 @@ export default async function ExpansionPage() {
   if (!(await viewerCanSeeExpansion())) notFound();
 
   const data = await getExpansionBoard();
-  return <Expansion data={data} />;
+  const { opportunity, q, account } = await searchParams;
+  return <Expansion data={data} initialOpenId={opportunity ?? null} initialQuery={q ?? ""} initialAccountId={account ?? null} />;
 }

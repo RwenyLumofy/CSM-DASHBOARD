@@ -16,6 +16,44 @@ limitations · commit.
 
 ---
 
+## 2026-10-08
+
+### Expansion: links can open one opportunity, one account, or a pre-filled search
+**Area:** Expansion (`/expansion`) · Client Profile → Expansion card
+**Roles affected:** Everyone with Expansion access (all roles except Guest) — no change to
+what they can see. Writers — the card's **Add opportunity →** link now opens a pre-filled
+form. Guests are unaffected: still a 404.
+**Before:** `/expansion` ignored URL parameters. The client profile's Expansion card linked
+to `/expansion?account=<clientId>`, but the page did not read it, so the link opened the full
+board with nothing filtered or open. The card's opportunity rows linked to plain
+`/expansion`, so clicking one did not open it.
+**After:**
+- `/expansion?opportunity=<opportunity id>` opens that opportunity's record on load. The
+  client profile card's opportunity rows now use it, so clicking a row opens that record.
+- `/expansion?account=<clientId>` narrows the board's search to that account's name and,
+  for a viewer whose role can write to Expansion, opens the **New opportunity** form with
+  the account already chosen. A read-only viewer gets the filtered board only.
+- `/expansion?q=<text>` pre-fills the search box, which matches account name, opportunity
+  name and product.
+
+All three are applied only after the board has been scoped to the viewer's accounts: an
+opportunity or account the viewer cannot see opens nothing. Creating an opportunity is still
+checked server-side per account; the pre-filled form grants nothing.
+**Migration or data impact:** None.
+**Known limitations:**
+- Starting values only — closing the record or form, or changing the search, does not
+  update the URL.
+- The account filter is a name match, not an id filter; similarly named accounts both match.
+- No test covers this; verified by hand against the local test database.
+
+**Commit:** this change (`app/(app)/expansion/page.tsx`, `app/(app)/expansion/Expansion.tsx`,
+`app/(app)/expansion/dialogs.tsx`, `components/expansion/ClientExpansionCard.tsx`). Resolves the
+"Expansion account link is ignored" entry in
+[contradictions](../known-limitations/contradictions.md).
+[Details](../product/expansion/README.md#linking-to-the-board)
+
+---
+
 ## 2026-10-04
 
 ### Owner assignment: a Super Admin can now be — and assign themselves as — an account owner

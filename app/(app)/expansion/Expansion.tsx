@@ -53,7 +53,11 @@ type SortKey = "account" | "name" | "arr" | "owner" | "close" | "due" | "momentu
 
 /* ── Page ─────────────────────────────────────────────────────────────────── */
 
-export function Expansion({ data }: { data: ExpansionBoardData }) {
+/** `initialOpenId` / `initialQuery` / `initialAccountId` come from the page's
+ *  ?opportunity=, ?q= and ?account= links, so another surface (the client
+ *  profile's Expansion card) can point at one opportunity or one account. An id
+ *  the viewer can't see opens nothing: lookups use the already-scoped data. */
+export function Expansion({ data, initialOpenId = null, initialQuery = "", initialAccountId = null }: { data: ExpansionBoardData; initialOpenId?: string | null; initialQuery?: string; initialAccountId?: string | null }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
 
@@ -66,15 +70,20 @@ export function Expansion({ data }: { data: ExpansionBoardData }) {
   const { today, people, accounts, canWrite, canDelete, me } = data;
 
   const [layout, setLayout] = useState<Layout>("board");
-  const [q, setQ] = useState("");
+  // ?account= narrows the board to that account and, for someone who can write,
+  // opens the new-opportunity form with the account already chosen.
+  const linkedAccountName = initialAccountId
+    ? accounts.find((a) => a.id === initialAccountId)?.name ?? data.opportunities.find((o) => o.clientId === initialAccountId)?.accountName ?? null
+    : null;
+  const [q, setQ] = useState(initialQuery || linkedAccountName || "");
   const [owner, setOwner] = useState("all");
   const [type, setType] = useState<"all" | (typeof TYPES)[number]>("all");
   const [attentionOnly, setAttentionOnly] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "due", dir: 1 });
 
   const [filterOpen, setFilterOpen] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(initialOpenId);
+  const [creating, setCreating] = useState(canWrite && !!initialAccountId && accounts.some((a) => a.id === initialAccountId));
   const [closing, setClosing] = useState<Opportunity | null>(null);
   const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -284,7 +293,7 @@ export function Expansion({ data }: { data: ExpansionBoardData }) {
       </div>
 
       {creating && (
-        <CreateForm accounts={accounts} people={people} me={me} today={today}
+        <CreateForm accounts={accounts} people={people} me={me} today={today} initialAccountId={initialAccountId}
           onClose={() => setCreating(false)} onCreate={create} />
       )}
 
