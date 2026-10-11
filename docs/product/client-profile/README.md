@@ -197,8 +197,8 @@ A preview of the screen that is planned to replace the Contracts & deals card. I
 ARR, status and renewal date in the header, Today, Clients and Insights still come from
 HubSpot deals, so a renewal, downgrade or churn recorded here changes this tab only. A
 churn recorded here does **not** mark the account churned, does not change its live ARR
-and does not close its Expansion opportunities. An expansion won on the Expansion page
-after the import does not appear in this history yet. New HubSpot sales reach the history
+and does not close its Expansion opportunities. An expansion won on the Expansion page is
+listed in this history once its ARR is added there, and voided if that ARR is removed. New HubSpot sales reach the history
 only when the import script is run; the HubSpot sync does not write contract records.
 
 Full behaviour, validation rules and phases:

@@ -19,11 +19,16 @@ import "server-only";
    an expansion can also arrive as a CS-pipeline "Expanded" deal, and a ticked
    deal already counts toward ARR. If the account has one dated near the Won
    date, the entry is refused with an explanation instead of added.
+
+   Contract record: the same moment writes (or voids) the opportunity's
+   expansion contract record, so the contract history lists it. See
+   lib/contracts/expansion-sync.ts. That write never blocks this one.
    ========================================================================= */
 
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/client";
 import { appendArrEvent, recomputeClient } from "@/lib/repo/drizzle";
+import { voidWonExpansionRecord, writeWonExpansionRecord } from "@/lib/contracts/expansion-sync";
 import { findSameHubspotExpansion } from "./same-expansion";
 
 /** One ledger entry per opportunity. */
@@ -39,6 +44,8 @@ export async function recordWonArr(opportunityId: string, actorEmail: string | n
     outcome: schema.expansionOpportunities.outcome,
     finalArr: schema.expansionOpportunities.finalArr,
     outcomeDate: schema.expansionOpportunities.outcomeDate,
+    currency: schema.expansionOpportunities.currency,
+    product: schema.expansionOpportunities.product,
   }).from(schema.expansionOpportunities).where(eq(schema.expansionOpportunities.id, opportunityId)).limit(1);
   if (!o || o.outcome !== "won") return { ok: false, error: "Only a Won opportunity can add ARR." };
   if (!o.finalArr || o.finalArr <= 0) return { ok: false, error: "This opportunity has no final ARR to add." };
@@ -75,6 +82,9 @@ export async function recordWonArr(opportunityId: string, actorEmail: string | n
     createdBy: actorEmail,
     createdAt: new Date().toISOString(),
   });
+  await writeWonExpansionRecord(o.clientId, {
+    id: opportunityId, name: o.name, finalArr: o.finalArr, currency: o.currency, outcomeDate: wonOn, arrRecorded: true, product: o.product,
+  }, actorEmail);
   return { ok: true };
 }
 
@@ -85,4 +95,5 @@ export async function removeWonArr(opportunityId: string, clientId: string): Pro
     .where(eq(schema.arrEvents.id, wonArrEventId(opportunityId)))
     .returning({ id: schema.arrEvents.id });
   if (removed.length) await recomputeClient(clientId);
+  await voidWonExpansionRecord(opportunityId, null, "Its ARR was removed on the Expansion page (unticked, reopened or deleted).");
 }

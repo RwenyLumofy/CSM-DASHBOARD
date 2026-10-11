@@ -18,6 +18,16 @@ limitations · commit.
 
 ## 2026-10-11
 
+### Expansion: a Won opportunity whose ARR is added now also writes its contract record
+**Area:** Expansion → closing as Won / "ARR recorded" · Contract tab (preview) history (phase 4 of the contract records rework).
+**Roles affected:** Anyone who can close an opportunity or tick "ARR recorded" (unchanged). The result is visible only to super admins, in the contract tab preview.
+**Before:** Adding a Won opportunity's ARR wrote the ARR ledger only. The contract history listed only expansions the one-time import had brought in.
+**After:** The same action also writes the expansion contract record (`ctr-exp-<opportunity id>`): final ARR, currency, Won date, modules from the product. Removing the ARR (unticking, reopening or deleting the opportunity) voids that record with the reason; adding it again un-voids the same record and keeps what CS filled in on it. Both are logged in `contract_audit`.
+**Migration / data impact:** None. Needs the phase 1 tables; where they are missing the write is skipped and logged on the server, and the Expansion page behaves exactly as before.
+**Known limitations:** The Won form does not ask for licences added or a separate start date; fill them in on the record. An expansion won between the import run and this change reaching production is not listed until the import is re-run. Nothing live reads contract records yet.
+**Verified:** Implementation read (`lib/contracts/expansion-sync.ts`, `lib/expansion/ledger-sync.ts`). Checked locally on the test DB on 2026-10-11: Won with ARR added → listed in the contract history, ARR from records equal to live ARR; reopened → record voided. The write and void have no automated test.
+**Docs:** [Contract records — specification §3](../specs/revenue/contract-records-specification.md#3-expansions-are-recorded-on-the-expansion-page) · [Expansion](../product/expansion/README.md).
+
 ### Contract tab (preview): the status can be set by hand, with a reason
 **Area:** Client Profile → `/clients/<id>/contract` (phase 3 of the contract records rework, first part).
 **Roles affected:** Super admins only (the tab is still a preview). No change for any other role.
