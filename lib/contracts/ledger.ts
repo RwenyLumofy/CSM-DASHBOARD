@@ -1,9 +1,10 @@
 /* =========================================================================
    Contract ledger — how an account's ARR is read from its contract records.
 
-   Not wired into the product yet: the contract-history prototype
-   (app/(app)/scratch-contracts) uses it, and the real contract-record build is
-   meant to reuse it. The rules it pins, each covered by ledger.test.ts:
+   Read by the contract tab (app/(app)/clients/[id]/contract, a super-admin
+   preview) and the import comparison (scripts/import-contract-records.mts).
+   The account's live ARR does not come from here yet. The rules it pins, each
+   covered by ledger.test.ts:
 
      - A sale or renewal SETS ARR to that contract's annual value. A renewal
        replaces the term before it; it is never added to it. (A one-year deal

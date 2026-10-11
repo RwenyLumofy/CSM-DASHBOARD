@@ -1,0 +1,114 @@
+"use server";
+
+/* =========================================================================
+   Contract tab — every mutation.
+
+   AUTHORIZATION: a contract record is account data, so every write gates on
+   `denyClientWrite` for the record's OWN client_id, looked up from the
+   database rather than taken from the request. A record id in a request is not
+   proof of ownership.
+
+   PREVIEW: until the contract rework is switched on, the tab is visible to
+   super admins only, and these actions refuse everyone else — the page gate is
+   not the permission. Remove `previewGate` at the switch-over; `denyClientWrite`
+   stays.
+
+   What these writes do NOT do yet (phases 3–5): they don't change the account's
+   live ARR, status or renewal date, and a churn here does not close Expansion
+   opportunities. Until the switch-over the app still reads ARR from deals.
+   ========================================================================= */
+
+import { revalidatePath } from "next/cache";
+import { denyClientWrite, getCurrentUserEmail, isSuperAdmin } from "@/lib/auth";
+import { hasDatabase } from "@/lib/config";
+import { getChurnTaxonomy } from "@/lib/data";
+import { churnReasonIds } from "@/lib/metrics/churn-taxonomy";
+import {
+  createContractRecordDb, getContractRecordDb, updateContractRecordDb, voidContractRecordDb,
+} from "@/lib/contracts/repo";
+import {
+  editablePatch, validateKindForCreate, validateRecord, type ContractFields, type ContractKind,
+} from "@/lib/contracts/validate";
+
+export interface ContractActionResult {
+  ok: boolean;
+  error?: string;
+  /** Set by create. */
+  id?: string;
+  /** The save worked, but part of it was not applied (shown to the user). */
+  warning?: string;
+}
+
+const GONE = "That record no longer exists, or you don't have access to it.";
+
+async function previewGate(): Promise<string | null> {
+  if (!hasDatabase()) return "The database isn't configured.";
+  // Deliberately the per-account sentence, so nobody can tell the preview exists.
+  if (!(await isSuperAdmin())) return "You don't have permission to edit this account.";
+  return null;
+}
+
+/** Record a renewal, downgrade or churn on an account. */
+export async function recordContractChangeAction(clientId: string, kind: ContractKind, fields: ContractFields): Promise<ContractActionResult> {
+  const blocked = (await previewGate()) ?? (await denyClientWrite(clientId));
+  if (blocked) return { ok: false, error: blocked };
+  const kindOk = validateKindForCreate(kind);
+  if (!kindOk.ok) return { ok: false, error: kindOk.error };
+  const valid = validateRecord(kind, fields, kind === "churn" ? churnReasonIds(await getChurnTaxonomy()) : undefined);
+  if (!valid.ok) return { ok: false, error: valid.error };
+  try {
+    const created = await createContractRecordDb(clientId, kind, fields, await getCurrentUserEmail());
+    revalidatePath(`/clients/${clientId}/contract`);
+    return { ok: true, id: created.id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** Save edits to a record. On a HubSpot sale, HubSpot-owned fields are left alone and reported. */
+export async function updateContractRecordAction(recordId: string, patch: Partial<ContractFields> & { counted?: boolean }): Promise<ContractActionResult> {
+  const pre = await previewGate();
+  if (pre) return { ok: false, error: pre };
+  const current = await getContractRecordDb(recordId);
+  if (!current) return { ok: false, error: GONE };
+  const denied = await denyClientWrite(current.clientId);
+  if (denied) return { ok: false, error: denied };
+  if (current.voidedAt) return { ok: false, error: "A voided record can't be edited." };
+
+  const { counted, ...fieldPatch } = patch;
+  const { patch: allowed, refused } = editablePatch(current.source, fieldPatch);
+  const merged: ContractFields = { ...current, ...allowed };
+  const valid = validateRecord(current.kind, merged, current.kind === "churn" ? churnReasonIds(await getChurnTaxonomy()) : undefined);
+  if (!valid.ok) return { ok: false, error: valid.error };
+  try {
+    const saved = await updateContractRecordDb(recordId, { ...allowed, ...(counted === undefined ? {} : { counted }) }, await getCurrentUserEmail());
+    if (!saved) return { ok: false, error: GONE };
+    revalidatePath(`/clients/${current.clientId}/contract`);
+    return {
+      ok: true,
+      warning: refused.length ? `${refused.join(", ")} come${refused.length === 1 ? "s" : ""} from HubSpot and ${refused.length === 1 ? "was" : "were"} not changed. Change ${refused.length === 1 ? "it" : "them"} in HubSpot.` : undefined,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** Void a record made by mistake. It stays in the history, struck through, and stops counting. */
+export async function voidContractRecordAction(recordId: string, reason: string): Promise<ContractActionResult> {
+  const pre = await previewGate();
+  if (pre) return { ok: false, error: pre };
+  const current = await getContractRecordDb(recordId);
+  if (!current) return { ok: false, error: GONE };
+  const denied = await denyClientWrite(current.clientId);
+  if (denied) return { ok: false, error: denied };
+  if (current.source === "hubspot") return { ok: false, error: "A HubSpot sale can't be voided here. If it shouldn't count, keep it as history instead." };
+  if (current.voidedAt) return { ok: false, error: "This record is already voided." };
+  if (!reason.trim()) return { ok: false, error: "Say why this record is being voided." };
+  try {
+    await voidContractRecordDb(recordId, reason.trim(), await getCurrentUserEmail());
+    revalidatePath(`/clients/${current.clientId}/contract`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}

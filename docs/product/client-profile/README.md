@@ -157,6 +157,64 @@ not `property_definitions` rows, and none of it counts towards profile completen
 category's storage key is generated once and never follows a rename. See
 [tech-stack](tech-stack.md).
 
+### Contract tab (preview · super admins only)
+
+**Status:** Partially verified (validation and draft-to-patch rules tested in
+`lib/contracts/validate.test.ts` and `lib/contracts/view.test.ts`; page, actions and gates
+read, untested; checked by hand on the test DB, 2026-10-11). **Not in production** — it
+needs the contract tables and import from phase 1 of the contract rework, which are in an
+open PR.
+
+A preview of the screen that is planned to replace the Contracts & deals card. It does
+**not** replace it yet, and the card above is unchanged.
+
+- **Route:** `/clients/[id]/contract` (`app/(app)/clients/[id]/contract/page.tsx`, screen
+  in `ContractTab.tsx` beside it). Outside the app's
+  navigation; the only way in is the link **Preview the new contract tab · super admins
+  only** on the client profile, which is rendered for super admins only.
+- **Who can open it:** super admins. The page returns a 404 for everyone else (admins and
+  the account's CSM included) and when no database is configured. Every write is checked
+  again on the server: super admin, then `denyClientWrite` on the record's own account
+  (`app/(app)/clients/[id]/contract/actions.ts`).
+- **What it reads:** the account's **contract records** (`contract_records`), not HubSpot
+  deals. If the tables are not in the database, the page says so and stops.
+- **What it shows:** a preview banner; the status the records would give (display only);
+  a summary with **ARR from records** beside the account's live ARR; **Open work** cards
+  (Account setup checklist, Renewal, Expansion, Churn); and the contract history, newest
+  first.
+- **What can be done:** edit a record in a draft and **Save changes** or **Cancel**; tick
+  or untick **Counts toward ARR**; **Void this record…** with a required reason (voided,
+  never deleted); record a **renewal** (1–5 years, optionally a different ARR per year,
+  support level and annual support amount, USD / BHD / SAR, several global libraries), a
+  **downgrade**, or a **churn** (effective date and reasons from Settings → Churn
+  taxonomy); add **one-time fees** to a sale or renewal (recorded, never ARR). On a sale
+  that came from HubSpot, the amount, currency, licences, complementary licences, user
+  price and name are locked, and it cannot be voided. Every change writes an audit row.
+- **Expansion is not recorded here.** Every expansion control links to the
+  [Expansion page](../expansion/README.md).
+
+**What it does not do.** Nothing else in Signal reads contract records yet. The account's
+ARR, status and renewal date in the header, Today, Clients and Insights still come from
+HubSpot deals, so a renewal, downgrade or churn recorded here changes this tab only. A
+churn recorded here does **not** mark the account churned, does not change its live ARR
+and does not close its Expansion opportunities. An expansion won on the Expansion page
+after the import does not appear in this history yet. New HubSpot sales reach the history
+only when the import script is run; the HubSpot sync does not write contract records.
+
+Full behaviour, validation rules and phases:
+[Contract records — specification §8](../../specs/revenue/contract-records-specification.md#8-the-contract-tab-phase-2-preview).
+
+"Account Executive" is a **deal-level field only** (HubSpot's `account_executive`). There
+is no account-executive user role — that scaffolding was removed because nothing wrote to
+it (`lib/roles.ts` header).
+
+**Tech stack** is a set of fields at the bottom of the same tab — one list of tools per
+category, plus a catch-all and an integration-notes box, CSM-entered and never synced. The
+categories are **workspace configuration** (Settings → Properties → Tech stack categories),
+not `property_definitions` rows, and none of it counts towards profile completeness. A
+category's storage key is generated once and never follows a rename. See
+[tech-stack](tech-stack.md).
+
 ## States and statuses
 
 Account status · health tier (admin-named) · churn reason (from the taxonomy) ·

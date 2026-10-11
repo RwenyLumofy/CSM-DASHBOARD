@@ -1,6 +1,9 @@
 # Contract records — specification
 
-**Status:** Phase 1 built (tables, import, comparison). Not read by the app yet.
+**Status:** Phase 1 built (tables, import, comparison). Phase 2 built as a **preview for
+super admins only** (the contract tab, §8). Neither is in production yet: phase 1 is in an
+open PR and phase 2 depends on it. Outside the preview tab, nothing in Signal reads contract
+records — live ARR, status and renewal date still come from HubSpot deals.
 **Owner:** Product (Mahmood Malik) · **Decided:** 2026-10-04 → 2026-10-08
 **Prototype:** `/scratch-contracts` (local only, sample and real accounts, read-only)
 
@@ -94,8 +97,163 @@ accounts $54,454 still counted today → $0.
 1. **Foundations** — tables, import, comparison. *Built.*
 2. **Contract tab** — replaces Contracts & deals: history, Save on every edit, renewals
    (1–5 years, ARR per year), support, one-time fees, currencies, several libraries,
-   account setup checklist, open work.
-3. **Status** — from records; manual status with reason and expiry; churn flow.
-4. **Expansion page Won → contract record.**
+   account setup checklist, open work. *Built as a preview for super admins only (§8). It
+   does not replace the Contracts & deals card yet; that card is unchanged.*
+3. **Status** — from records; manual status with reason and expiry; churn flow. *Not built.
+   The preview shows the status the records would give, display only.*
+4. **Expansion page Won → contract record.** *Not built.*
 5. **Switch** — run both ARRs side by side for 2–4 weeks, then switch Today, Clients and
-   Insights, and stop syncing the HubSpot CS pipeline.
+   Insights, and stop syncing the HubSpot CS pipeline. *Not built.*
+
+## 8. The contract tab (phase 2, preview)
+
+**Status:** Partially verified. The rules in `lib/contracts/validate.ts` and the
+draft-to-patch logic in `lib/contracts/view.ts` are tested (`validate.test.ts`,
+`view.test.ts`). The page, the server actions, their gates and the repository writes are
+read end to end but have no test. Checked by hand on the test database on 2026-10-11 (see
+"Checked locally" below).
+
+### 8.1 Where it is and who can open it
+
+- **Route:** `/clients/<id>/contract`
+  (`app/(app)/clients/[id]/contract/page.tsx`, screen in `ContractTab.tsx`).
+- **Way in:** a link on the client profile, "Preview the new contract tab · super admins
+  only", rendered only for super admins (`app/(app)/clients/[id]/page.tsx`). There is no
+  sidebar entry.
+- **Read gate (server):** the page returns a 404 unless a database is configured **and**
+  the user is a super admin (`isSuperAdmin`). Everyone else, including admins and the
+  account's own CSM, gets the same 404 as a page that does not exist.
+- **Write gate (server):** every action in `app/(app)/clients/[id]/contract/actions.ts`
+  checks two things: the preview gate (database configured, super admin) and then
+  `denyClientWrite` on the record's **own** account, looked up from the database by record
+  id, not taken from the request. A non-super-admin is refused with the ordinary
+  "You don't have permission to edit this account." The preview gate is to be removed at
+  the switch-over; `denyClientWrite` stays.
+- **Tables missing:** if `contract_records` cannot be read, the page shows "The contract
+  tables don't exist in this database yet." and names the migration and the import to run.
+  This is the state of production until phase 1 is deployed.
+
+### 8.2 What the screen shows
+
+1. **Preview banner** — says saves are real and logged, that nothing else in Signal reads
+   these records yet, and shows the account's live ARR and status (still from HubSpot
+   deals). A **Show amounts in** picker switches the display between USD, BHD and SAR.
+2. **Status from contract records** — Onboarding, Active, Renewal due (within 90 days),
+   Renewal overdue, or Churned, with the sentence that explains it, a timeline, and a
+   **See status on** date picker to see what the records give on another day. This is
+   worked out in the browser from the records and is **display only**. It is not the
+   account's status anywhere else in Signal. "Renewal overdue" follows §4: it shows 14 days
+   after the renewal date; until then the account stays "Renewal due". One difference from
+   §4: a status set by hand (`client_status_overrides`) is not read or written.
+3. **Summary** — **ARR from records** with the live ARR beside it when they differ by more
+   than 1 US dollar ("Live ARR today is …", otherwise "Same as live ARR today"), licences
+   with modules and global library in force, current term, renewal date.
+4. **Open work** — four cards:
+   - **Account setup**: an eight-item checklist for the contract in force (modules
+     contracted, modules you start with, global library or none, support level, support
+     amount, implementation level, kick-off date, launch date). Hidden when churned.
+   - **Renewal**: the renewal date and buttons to record a renewal, downgrade or churn; or
+     the renewal already recorded for the next term.
+   - **Expansion**: the account's Expansion-page opportunities, each linking to the
+     Expansion page. Nothing is recorded from this card.
+   - **Churn**: the churn record and its reasons, or a **Record churn** button.
+5. **Contracts & deals** — every record, newest first, with a filter per kind. Records kept
+   as history, voided records and records that start in the future are all listed. Each
+   shows its source (HubSpot, Imported, Signal) and the ARR before and after it.
+
+### 8.3 What can be done
+
+**Edit a record.** Opening a record puts its fields in a draft. Nothing is written until
+**Save changes**; **Cancel** discards the draft. A Save sends only the fields that changed
+(`changedFields`, tested). A voided record cannot be edited.
+
+- On a **HubSpot sale**, name, amount, currency, licences, complementary licences and user
+  price are shown locked. If a request tries to change them anyway, the server drops those
+  fields, saves the rest and reports which were not changed (`editablePatch`, tested).
+  Everything else on the sale is editable: modules, starting modules, global library and
+  its terms, support level and annual support amount, implementation level, AI course
+  credits, one-time fees, dates and milestones.
+- **One-time fees** (sales and renewals): a list of label + amount. Recorded on the
+  contract, never counted toward ARR.
+- **Counts toward ARR** tick: untick to keep a record as history only. Saved with the
+  other changes. This is available on HubSpot sales too.
+
+**Void a record.** "Void this record…" needs a reason. The record stays in the history,
+struck through with who, when and why, and stops counting. There is no un-void on the
+screen. A HubSpot sale cannot be voided (the control is not shown and the server refuses);
+keep it as history instead. Nothing is ever deleted.
+
+**Record a change** (drawer). Requires a contract in force (a sale or renewal with a
+renewal date); without one the screen says a sale has to arrive from HubSpot first.
+
+| Kind | What is entered |
+|---|---|
+| Renewal | Prefilled from the contract in force. Currency (USD, BHD, SAR), licence ARR, licences, user price, support level and annual support amount, modules, one or more global libraries with licences each, start, length (1–5 years or a custom end date), end and renewal date. For 2 years or more, an optional different ARR for each year. |
+| Downgrade | ARR removed (stored as a negative change), licences removed, modules and libraries removed, dates. |
+| Churn | Effective date and at least one reason from Settings → Churn taxonomy. Takes ARR from records to zero from that date. |
+
+A multi-year renewal's ARR is its **annual** value (year 1 licence ARR + annual support),
+not the total over the term; the drawer shows the total contract value separately.
+
+**Expansion is never recorded here.** "Record expansion" and every expansion control on
+this screen is a link to the Expansion page (§3), and the server refuses an expansion or a
+sale created through these actions.
+
+Every create, update and void writes a `contract_audit` row (action, who, before, after)
+in the same transaction as the change (`lib/contracts/repo.ts`).
+
+### 8.4 Validation rules
+
+Enforced on the server by `validateKindForCreate` and `validateRecord`
+(`lib/contracts/validate.ts`), on every create and on the merged record at every edit.
+The first rule that fails is returned as the error message.
+
+| Rule | Applies to |
+|---|---|
+| Only renewal, downgrade and churn can be created here. A sale is refused ("Sales come from HubSpot…"), an expansion is refused ("Expansions are recorded on the Expansion page.") | Create |
+| A name is required | All |
+| Currency must be USD, BHD or SAR | All |
+| Amount must be a number; not negative on a sale or renewal; zero or negative on a downgrade; not negative on an expansion | All |
+| Start, end and renewal dates must be valid dates | All |
+| A churn needs an effective date and at least one reason, and every reason must still exist in Settings → Churn taxonomy. No further rules are applied to a churn | Churn |
+| A start date is required; the end date cannot be before it; the renewal date must be after it | All except churn |
+| A support amount must be zero or more and needs a support level | All except churn |
+| Per-year ARR is only for a sale or renewal, needs at least two years, each zero or more, and year 1 must equal the contract's ARR | All except churn |
+| Each one-time fee needs a label and an amount of zero or more | All except churn |
+| Licences, complementary licences, user price and AI credits must be numbers when set | All except churn |
+| Starting modules must be among the contracted modules | All except churn |
+| Each global library needs a provider; licences zero or more; valid start and expiry; expiry not before start | All except churn |
+| Milestones must be one of invoice sent, kick-off meeting, launch, platform start, platform end, each a valid date | All except churn |
+
+Further refusals in the actions: a voided record cannot be edited or voided again; a void
+needs a reason; a HubSpot sale cannot be voided.
+
+### 8.5 What the preview deliberately does not do yet
+
+- **It changes nothing outside this tab.** The account's live ARR, status and renewal date
+  on Today, Clients, the client profile, Insights and reports still come from HubSpot
+  deals. Recording a renewal, downgrade or churn here does not move them.
+- **A churn recorded here does not change the account's live status or ARR, and does not
+  close its open Expansion opportunities.** The churn flow in §4 is phase 3.
+- **An expansion won on the Expansion page after the import is not in this history.** The
+  import brought in opportunities won before it ran; creating the record at Won is phase 4.
+  Until then "ARR from records" can be lower than live ARR for such an account.
+- **New HubSpot sales do not arrive on their own.** The only code that writes a sale into
+  `contract_records` is the import script (`scripts/import-contract-records.mts`); the
+  HubSpot sync does not create or update contract records. The screen says so: a HubSpot
+  sale's money fields are "copied in by the import and are not refreshed by the sync yet",
+  and a new sale "appears once the import is re-run". Until the sync is wired, a sale closed after
+  the last import run is missing here, and a HubSpot change to an imported sale shows only
+  after the import is re-run.
+- **Status set by hand** (reason, 30-day expiry) is not built.
+- **It does not replace the Contracts & deals card** on the client profile, and deal edits
+  made on that card do not reach contract records.
+- **Not in production.** It needs the phase 1 tables and import (§5, §6), which are in an
+  open PR.
+
+**Checked locally** (test database, 2026-10-11, signed in as a super admin): editing a
+HubSpot sale's support amount and adding a one-time fee (a fee with a blank label was
+refused); recording a 3-year renewal (ARR from records stayed the annual value, not the
+3-year total); voiding that renewal; recording a churn (ARR from records went to 0); an
+audit row written for each. Not checked: the 404 and the write refusal as a signed-in
+non-super-admin, and a write by a super admin against an account outside their scope.
