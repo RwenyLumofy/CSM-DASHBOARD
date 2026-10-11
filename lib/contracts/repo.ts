@@ -16,6 +16,7 @@ import { randomUUID } from "crypto";
 import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/client";
 import type { Currency } from "./ledger";
+import { overrideExpiry, type ContractStatus, type StatusOverride } from "./status";
 import type { ContractFields, ContractKind, ContractSource } from "./validate";
 
 export interface ContractRecord extends ContractFields {
@@ -123,5 +124,45 @@ export async function voidContractRecordDb(id: string, reason: string, actor: st
       clientId: after.clientId, recordId: id, action: "void", actor, before: rowToRecord(beforeRow), after,
     });
     return after;
+  });
+}
+
+/* ── Status set by hand ────────────────────────────────────────────────── */
+
+type OverrideRow = typeof schema.clientStatusOverrides.$inferSelect;
+const rowToOverride = (r: OverrideRow): StatusOverride => ({
+  status: r.status as ContractStatus, reason: r.reason, setBy: r.setBy,
+  setOn: r.setAt.toISOString().slice(0, 10),
+  expiresOn: r.expiresAt ? r.expiresAt.toISOString().slice(0, 10) : overrideExpiry(r.setAt.toISOString().slice(0, 10)),
+});
+
+/** The stored override, whether or not it still applies (see activeOverride in status.ts). */
+export async function getStatusOverrideDb(clientId: string): Promise<StatusOverride | null> {
+  const [row] = await getDb().select().from(schema.clientStatusOverrides).where(eq(schema.clientStatusOverrides.clientId, clientId)).limit(1);
+  return row ? rowToOverride(row) : null;
+}
+
+/** Set (or replace) the account's status by hand. One per account; the audit log keeps the earlier ones. */
+export async function setStatusOverrideDb(clientId: string, status: ContractStatus, reason: string, actor: string | null): Promise<StatusOverride> {
+  return getDb().transaction(async (tx) => {
+    const [beforeRow] = await tx.select().from(schema.clientStatusOverrides).where(eq(schema.clientStatusOverrides.clientId, clientId)).limit(1);
+    const setAt = new Date();
+    const expiresAt = new Date(`${overrideExpiry(setAt.toISOString().slice(0, 10))}T00:00:00Z`);
+    const values = { status, reason, setBy: actor, setAt, expiresAt };
+    const [row] = await tx.insert(schema.clientStatusOverrides).values({ clientId, ...values })
+      .onConflictDoUpdate({ target: schema.clientStatusOverrides.clientId, set: values }).returning();
+    const after = rowToOverride(row);
+    await tx.insert(schema.contractAudit).values({ clientId, recordId: null, action: "status_set", actor, before: beforeRow ? rowToOverride(beforeRow) : null, after });
+    return after;
+  });
+}
+
+/** Return the account to its automatic status. `why` says what cleared it (a person, or a renewal / churn). */
+export async function clearStatusOverrideDb(clientId: string, actor: string | null, why: string): Promise<boolean> {
+  return getDb().transaction(async (tx) => {
+    const [beforeRow] = await tx.delete(schema.clientStatusOverrides).where(eq(schema.clientStatusOverrides.clientId, clientId)).returning();
+    if (!beforeRow) return false;
+    await tx.insert(schema.contractAudit).values({ clientId, recordId: null, action: "status_clear", actor, before: rowToOverride(beforeRow), after: { why } });
+    return true;
   });
 }

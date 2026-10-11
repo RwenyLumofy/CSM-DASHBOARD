@@ -18,6 +18,25 @@ limitations · commit.
 
 ## 2026-10-11
 
+### Contract tab (preview): the status can be set by hand, with a reason
+**Area:** Client Profile → `/clients/<id>/contract` (phase 3 of the contract records rework, first part).
+**Roles affected:** Super admins only (the tab is still a preview). No change for any other role.
+**Before:** The tab showed the status the contract records give, display only.
+**After:** The status pill opens **Set status**. A super admin can set Onboarding, Active, Renewal
+due or Renewal overdue with a required reason. It lasts 30 days, ends early when a renewal or
+churn takes effect, and can be returned to **Automatic** at any time. Churned can't be set by
+hand: choosing it opens the churn form (date and reasons). "Renewal overdue" now shows 14 days
+after the renewal date, as decided. The status rules moved to `lib/contracts/status.ts`.
+**Migration / data impact:** None. Uses `client_status_overrides` (phase 1). Each set and clear
+is written to `contract_audit`.
+**Known limitations:** The status set here is the contract tab's only; the account's live status
+everywhere else still comes from HubSpot deals. The churn flow that closes open Expansion
+opportunities is not built.
+**Verified:** `lib/contracts/status.test.ts` (7 tests). Checked locally on the test DB on
+2026-10-11: set Renewal due with a reason, saw it applied, returned to automatic. The 30-day
+expiry and the early end at a renewal or churn are covered by tests only.
+**Docs:** [Contract records — specification §8.3a](../specs/revenue/contract-records-specification.md#83a-setting-the-status-by-hand-phase-3-preview).
+
 ### Client Profile: a preview of the new contract tab, for super admins only
 **Area:** Client Profile → new page `/clients/<id>/contract` (phase 2 of the contract records
 rework). Reached from a link on the client profile, "Preview the new contract tab · super

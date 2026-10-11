@@ -28,9 +28,13 @@ import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { CURRENCIES, USD_PER, contractValueUSD, toUSD, withArr, type Currency } from "@/lib/contracts/ledger";
 import { changedFields, libraryTerm, toFields, type ContractView, type LibraryTerm } from "@/lib/contracts/view";
+import {
+  OVERRIDE_DAYS, RENEWAL_WINDOW, effectiveStatus, firstMilestone, nextTerm, type ContractStatus, type StatusOverride,
+} from "@/lib/contracts/status";
 import type { ContractFields, ContractKind, ContractSource } from "@/lib/contracts/validate";
 import {
-  recordContractChangeAction, updateContractRecordAction, voidContractRecordAction, type ContractActionResult,
+  clearStatusOverrideAction, recordContractChangeAction, setStatusOverrideAction, updateContractRecordAction, voidContractRecordAction,
+  type ContractActionResult,
 } from "./actions";
 
 type Kind = ContractKind;
@@ -122,10 +126,12 @@ export type ContractTabProps = {
   records: ContractView[];
   opportunities: Opportunity[];
   churnReasons: ChurnReasonOption[];
+  /** The status set by hand on this account, if one is stored (it may have expired). */
+  override: StatusOverride | null;
   today: string;
 };
 
-export function ContractTab({ client, records, opportunities: opps, churnReasons, today: startDay }: ContractTabProps) {
+export function ContractTab({ client, records, opportunities: opps, churnReasons, override, today: startDay }: ContractTabProps) {
   const router = useRouter();
   const [saving, startSaving] = useTransition();
   const [displayCcy, setDisplayCcy] = useState<Currency>("USD");
@@ -149,7 +155,8 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
   // The contract in force is the latest sale or renewal; expansions and downgrades co-term onto it.
   const current = useMemo(() => [...effective].filter((r) => (r.kind === "sale" || r.kind === "renewal") && r.renewal).sort((a, b) => (b.start ?? "").localeCompare(a.start ?? ""))[0], [effective]);
   const churned = latest?.r.kind === "churn";
-  const status = useMemo(() => accountStatus(effectiveAll, current, today), [effectiveAll, current, today]);
+  // A status set by hand wins while it applies; a churn record always wins over it.
+  const status = useMemo(() => effectiveStatus(records, override, today), [records, override, today]);
   // What the account has right now: the contract in force, plus what was added or removed on top of it.
   const inForce = useMemo(() => {
     if (!current) return { modules: [] as string[], library: [] as string[] };
@@ -223,8 +230,13 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
         <Link href={`/clients/${encodeURIComponent(client.id)}`} className="eyebrow w-fit hover:text-sirius">← Client profile</Link>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="font-display text-2xl font-bold leading-tight text-fg">{client.name}</h1>
-          <StatusPill status={status.key} />
-          <span className="font-body text-[11.5px] text-fg-subtle">from contract records</span>
+          <StatusControl status={status.key} auto={status.auto} manual={status.override} saving={saving}
+            onSave={(next, reason) => {
+              if (next === "churned") { openDrawer("churn"); return; } // churn needs a date and reasons
+              if (next === "auto") run(() => clearStatusOverrideAction(client.id), "Status returned to automatic.");
+              else run(() => setStatusOverrideAction(client.id, next, reason), `Status set to ${STATUS[next].label} for ${OVERRIDE_DAYS} days.`);
+            }} />
+          <span className="font-body text-[11.5px] text-fg-subtle">{status.override ? "set by hand · contract tab only" : "from contract records"}</span>
         </div>
       </header>
 
@@ -357,11 +369,7 @@ function Summary({ label, value, hint, small }: { label: string; value: string; 
 
 /* ── Status ────────────────────────────────────────────────────────────── */
 
-type StatusKey = "onboarding" | "active" | "renewal" | "overdue" | "churned";
-const RENEWAL_WINDOW = 90;
-/** Days after the renewal date before "Renewal due" becomes "Renewal overdue" (decided 2026-10-08). */
-const OVERDUE_GRACE = 14;
-
+type StatusKey = ContractStatus;
 const STATUS: Record<StatusKey, { label: string; dot: string; chip: string; rule: string }> = {
   onboarding: { label: "Onboarding", dot: "bg-info", chip: "bg-info-bg text-info-fg", rule: "A contract is in force but no launch date has passed yet." },
   active: { label: "Active", dot: "bg-success", chip: "bg-success-bg text-success-fg", rule: "Launched, and the renewal date is more than 90 days away." },
@@ -371,44 +379,54 @@ const STATUS: Record<StatusKey, { label: string; dot: string; chip: string; rule
 };
 const ORDER: StatusKey[] = ["onboarding", "active", "renewal", "overdue", "churned"];
 
-/** A renewal recorded for the term after the one in force, if there is one. */
-function nextTerm(records: ContractRecord[], current: ContractRecord, today: string): ContractRecord | undefined {
-  return records
-    .filter((r) => r.kind === "renewal" && r.counted !== false && r.start && r.start > today && r.start >= (current.start ?? ""))
-    .sort((a, b) => (b.start ?? "").localeCompare(a.start ?? ""))[0];
-}
-
-function firstMilestone(records: ContractRecord[], key: string): string | null {
-  const ds = records.map((r) => r.milestones[key]).filter((d): d is string => !!d).sort();
-  return ds[0] ?? null;
-}
-
-/** The account's status on `today`, and the date that decided it. Highest wins:
- *  churned → overdue → renewal due → onboarding → active. */
-function accountStatus(records: ContractRecord[], current: ContractRecord | undefined, today: string): { key: StatusKey; why: string } {
-  const churn = records.find((r) => r.kind === "churn" && r.start && r.start <= today);
-  if (churn) return { key: "churned", why: `Churn recorded, effective ${fmtDate(churn.start)}.` };
-  if (!current) return { key: "onboarding", why: "No contract has started yet." };
-  // A renewal signed ahead of time settles the coming renewal: read the date from the new term.
-  const signedAhead = nextTerm(records, current, today);
-  const renewal = signedAhead?.renewal ?? current.renewal;
-  if (signedAhead) {
-    const launch = firstMilestone(records, "launch_date");
-    if (launch && launch <= today && renewal && daysBetween(today, renewal) > RENEWAL_WINDOW)
-      return { key: "active", why: `Renewed. The new term starts ${fmtDate(signedAhead.start)}; next renewal ${fmtDate(renewal)}.` };
-  }
-  if (renewal) {
-    const days = daysBetween(today, renewal);
-    if (days < -OVERDUE_GRACE) return { key: "overdue", why: `Renewal date ${fmtDate(renewal)} passed ${-days} days ago with no renewal or churn recorded.` };
-    if (days < 0) return { key: "renewal", why: `Renewal date ${fmtDate(renewal)} passed ${-days} days ago. It becomes overdue after ${OVERDUE_GRACE} days.` };
-    if (days <= RENEWAL_WINDOW) return { key: "renewal", why: `Renewal date ${fmtDate(renewal)} is in ${days} days.` };
-  }
-  const launch = firstMilestone(records, "launch_date");
-  if (!launch || launch > today) {
-    const kickoff = firstMilestone(records, "kickoff_meeting_date");
-    return { key: "onboarding", why: launch ? `Launch is planned for ${fmtDate(launch)}.` : kickoff ? `Kicked off ${fmtDate(kickoff)}; no launch date yet.` : "No launch date yet." };
-  }
-  return { key: "active", why: `Launched ${fmtDate(launch)}. Renewal date ${renewal ? fmtDate(renewal) : "not set"}${renewal ? `, ${daysBetween(today, renewal)} days away` : ""}.` };
+/** The status in the header. It can be set by hand with a reason (Churned instead opens the
+ *  churn form, which needs a date and reasons), or returned to automatic. */
+function StatusControl({ status, auto, manual, saving, onSave }: {
+  status: StatusKey; auto: StatusKey; manual: StatusOverride | null; saving: boolean; onSave: (s: StatusKey | "auto", reason: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pick, setPick] = useState<StatusKey | "auto">("auto");
+  const [reason, setReason] = useState("");
+  const needsReason = pick !== "auto" && pick !== "churned";
+  return (
+    <span className="relative inline-flex items-center gap-2">
+      <button onClick={() => { setPick(manual ? status : "auto"); setReason(manual?.reason ?? ""); setOpen((o) => !o); }}
+        className="inline-flex items-center gap-1 rounded-pill hover:opacity-90" aria-expanded={open} aria-label="Change status">
+        <StatusPill status={status} /><ChevronDown size={14} className="text-fg-subtle" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-2 w-[320px] rounded-lg border border-border bg-surface p-3 shadow-lg">
+          <div className="mb-2 font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Set status</div>
+          <ul className="flex flex-col gap-1">
+            {(["auto", ...ORDER] as (StatusKey | "auto")[]).map((k) => (
+              <li key={k}>
+                <label className={cn("flex cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5 font-body text-[13px]", pick === k ? "bg-accent-soft" : "hover:bg-bg-subtle")}>
+                  <input type="radio" name="status-pick" checked={pick === k} onChange={() => setPick(k)} className="accent-sirius" />
+                  {k === "auto" ? <span>Automatic <span className="text-fg-subtle">· now {STATUS[auto].label}</span></span> : <StatusPill status={k} />}
+                </label>
+              </li>
+            ))}
+          </ul>
+          {pick === "churned" && <p className="mt-2 font-body text-[12px] text-fg-muted">Churn needs an effective date and reasons. Continue opens the churn form.</p>}
+          {needsReason && (
+            <label className="mt-2 flex flex-col gap-1.5">
+              <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Reason · required</span>
+              <textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason for setting the status by hand"
+                className="w-full resize-y rounded-sm border border-border bg-surface px-2 py-1.5 font-body text-[13px] text-fg outline-none focus:border-sirius" />
+              <span className="font-body text-[11.5px] text-fg-subtle">Lasts {OVERRIDE_DAYS} days, or until a renewal or churn takes effect.</span>
+            </label>
+          )}
+          <div className="mt-3 flex justify-end gap-2">
+            <button onClick={() => setOpen(false)} className="rounded-sm px-3 py-1.5 font-body text-[12.5px] font-semibold text-fg-muted hover:text-fg">Cancel</button>
+            <button disabled={saving || (needsReason && !reason.trim()) || (pick === "auto" && !manual)} onClick={() => { onSave(pick, reason); setOpen(false); }}
+              className="rounded-sm bg-sirius px-3 py-1.5 font-body text-[12.5px] font-semibold text-white hover:bg-accent-hover disabled:opacity-50">
+              {pick === "churned" ? "Continue" : "Save status"}
+            </button>
+          </div>
+        </div>
+      )}
+    </span>
+  );
 }
 
 function StatusPill({ status }: { status: StatusKey }) {
@@ -542,7 +560,7 @@ function StatusPanel({ records, status, today, realToday, onToday }: {
               <span className="font-body text-[12.5px] leading-relaxed text-fg-muted">{STATUS[k].rule}</span>
             </li>
           ))}
-          <li className="px-2 pt-1 font-body text-[11.5px] text-fg-subtle">If more than one applies, the priority is Churned, then Renewal overdue, then Renewal due, then Onboarding, then Active.</li>
+          <li className="px-2 pt-1 font-body text-[11.5px] text-fg-subtle">If more than one applies, the priority is Churned, then Renewal overdue, then Renewal due, then Onboarding, then Active. A status set by hand, with a reason, wins over all but Churned for 30 days or until a renewal or churn takes effect.</li>
         </ul>
       </details>
     </section>
