@@ -58,10 +58,15 @@ export interface ImportedRecord {
   note: string | null;
 }
 
+/** A Won opportunity from the Expansion page, as the contract record reads it. */
+export interface WonOpportunity {
+  id: string; name: string; finalArr: number | null; currency: string; outcomeDate: string | null; arrRecorded: boolean; product: string | null;
+}
+
 export interface ImportInput {
   client: { id: string; status: string; churnedAt: string | null; currency: string; properties?: Record<string, unknown> };
   deals: Deal[];
-  wonOpportunities: { id: string; name: string; finalArr: number | null; currency: string; outcomeDate: string | null; arrRecorded: boolean; product: string | null }[];
+  wonOpportunities: WonOpportunity[];
 }
 
 export interface ImportResult {
@@ -91,6 +96,24 @@ function kindOf(d: Deal): ContractKind {
   if (d.category === "confirmed_churn") return "churn";
   if (d.category === "downgraded") return "downgrade";
   return "renewal";
+}
+
+/**
+ * The expansion record a Won opportunity gives, or null when its ARR isn't recorded.
+ * Shared by the import and by the Expansion page (lib/contracts/expansion-sync.ts),
+ * so both write the same record under the same id.
+ */
+export function expansionRecordFromOpportunity(clientId: string, o: WonOpportunity): ImportedRecord | null {
+  if (!o.arrRecorded || !o.finalArr) return null;
+  return {
+    id: `ctr-exp-${o.id}`, clientId, kind: "expansion", source: "expansion",
+    hubspotDealId: null, opportunityId: o.id, channel: null, name: o.name, currency: asCurrency(o.currency),
+    amount: o.finalArr, licences: null, complementary: null, pricePerUser: null,
+    modules: o.product ? o.product.split(/\s*[+,]\s*/).filter(Boolean) : [],
+    libraryDecided: false, libraryTerms: {}, supportLevel: null, implementationLevel: null, aiCredits: null,
+    milestones: {}, startDate: o.outcomeDate, endDate: null, renewalDate: null, counted: true, churnReasons: [],
+    note: "Won on the Expansion page.",
+  };
 }
 
 export function buildContractRecords({ client, deals, wonOpportunities }: ImportInput): ImportResult {
@@ -167,16 +190,8 @@ export function buildContractRecords({ client, deals, wonOpportunities }: Import
   }
 
   for (const o of wonOpportunities) {
-    if (!o.arrRecorded || !o.finalArr) continue;
-    records.push({
-      id: `ctr-exp-${o.id}`, clientId: client.id, kind: "expansion", source: "expansion",
-      hubspotDealId: null, opportunityId: o.id, channel: null, name: o.name, currency: asCurrency(o.currency),
-      amount: o.finalArr, licences: null, complementary: null, pricePerUser: null,
-      modules: o.product ? o.product.split(/\s*[+,]\s*/).filter(Boolean) : [],
-      libraryDecided: false, libraryTerms: {}, supportLevel: null, implementationLevel: null, aiCredits: null,
-      milestones: {}, startDate: o.outcomeDate, endDate: null, renewalDate: null, counted: true, churnReasons: [],
-      note: "Won on the Expansion page.",
-    });
+    const rec = expansionRecordFromOpportunity(client.id, o);
+    if (rec) records.push(rec);
   }
 
   // An expansion shortly before a renewal is ambiguous: the renewal replaces the term

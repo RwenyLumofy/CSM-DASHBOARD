@@ -664,7 +664,7 @@ function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps,
             );
           })}
         </ul>
-        <p className="text-[12.5px]">Expansions are recorded on the Expansion page, never here. Expansions won there before the import are in this history; during the preview, one won after it is not listed here yet.</p>
+        <p className="text-[12.5px]">Expansions are recorded on the Expansion page, never here. When one is won there and its ARR is added, it is listed in this history; if that ARR is removed again, the record is voided.</p>
         {!churned && <LoopLink href={expansionHref} quiet>New expansion on the Expansion page</LoopLink>}
         {clientId && (
           <Link href={`/clients/${encodeURIComponent(clientId)}`} className="inline-flex w-fit items-center gap-1 font-semibold text-sirius hover:underline">
@@ -1165,6 +1165,7 @@ function addOne(iso: string): string {
 
 function SourceBadge({ source }: { source: Source }) {
   if (source === "hubspot") return <span className="inline-flex items-center gap-1 rounded-sm bg-bg-muted px-1.5 py-0.5 font-body text-[10.5px] font-semibold uppercase tracking-[0.05em] text-fg-muted"><Lock size={10} />HubSpot</span>;
+  if (source === "expansion") return <span className="rounded-sm bg-success-bg px-1.5 py-0.5 font-body text-[10.5px] font-semibold uppercase tracking-[0.05em] text-success-fg">Expansion page</span>;
   if (source === "imported") return <span className="rounded-sm bg-bg-muted px-1.5 py-0.5 font-body text-[10.5px] font-semibold uppercase tracking-[0.05em] text-fg-muted">Imported</span>;
   return <span className="rounded-sm bg-accent-soft px-1.5 py-0.5 font-body text-[10.5px] font-semibold uppercase tracking-[0.05em] text-sirius">Signal</span>;
 }

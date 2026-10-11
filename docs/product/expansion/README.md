@@ -132,6 +132,10 @@ is due tomorrow. One number cannot say both, and collapsing them loses the diffe
   `arr_recorded` only said a human had reconciled the two. Product owner approved the change
   after a Won $20,000 expansion was marked "ARR recorded" but never reached the account's
   ARR.)* `arr_events` is still the source of truth for ARR; the flag now makes the entry.
+  *(Added 2026-10-11)* The same moment also writes the opportunity's expansion **contract
+  record**, and removing the ARR voids it; see
+  [contract records specification §3](../../specs/revenue/contract-records-specification.md#3-expansions-are-recorded-on-the-expansion-page).
+  Nothing live reads contract records yet, and a failure there never blocks this save.
   *Partially verified* — implementation read end to end; the refusal rule is unit-tested, the
   ledger write is not; confirmed by hand against the local test database (closing Won with
   the box ticked moved one account's ARR 17,608 → 69,584; reopening returned it to 17,608 and

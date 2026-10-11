@@ -42,8 +42,27 @@ Implemented and tested in `lib/contracts/ledger.ts` (`ledger.test.ts`).
 
 The contract page links to the Expansion module for every expansion. Closing an
 opportunity as Won with "ARR recorded" adds its ARR (live since 2026-10-08 via the ARR
-ledger; from phase 4 it creates the expansion contract record directly). The Won form
-will also need start date, licences added, modules added and currency.
+ledger) and, since phase 4, writes its expansion contract record at the same moment
+(`lib/contracts/expansion-sync.ts`, called from `lib/expansion/ledger-sync.ts`):
+
+- The record id is `ctr-exp-<opportunity id>`, the same id the import uses, so recording
+  twice never makes two records. Amount = final ARR, currency = the opportunity's, start =
+  the Won date, modules read from the opportunity's product.
+- If that ARR is removed again (unticked, opportunity reopened or deleted) the record is
+  **voided** with the reason, not deleted. Recording it again un-voids the same record and
+  rewrites only name, amount, currency and date; licences, modules and anything else CS
+  added on the contract tab are kept.
+- Each write is logged in `contract_audit` (`expansion_won`, `expansion_removed`).
+- The write never blocks the Expansion page: if the contract tables are missing or the
+  write fails, it is logged on the server and the opportunity's own save stands.
+
+Not built: asking for licences added and a separate start date on the Won form. They can
+be filled in on the record in the contract tab.
+
+Checked locally on the test DB on 2026-10-11: marking an opportunity Won with "Add this to
+the account's ARR now" listed it in the contract history (ARR from records = live ARR);
+reopening it voided the record. The write and void have no automated test; the record's
+fields are covered by `lib/contracts/import.test.ts`.
 
 ## 4. Status
 
@@ -103,7 +122,8 @@ accounts $54,454 still counted today → $0.
    built, inside the preview only (§8.2, §8.3): the status rules (`lib/contracts/status.ts`,
    tested) and a status set by hand. Not built: making it the account's live status, and
    the churn flow that closes open Expansion opportunities.*
-4. **Expansion page Won → contract record.** *Not built.*
+4. **Expansion page Won → contract record.** *Built (§3). The Won form does not ask for
+   licences or a separate start date; those are filled in on the record.*
 5. **Switch** — run both ARRs side by side for 2–4 weeks, then switch Today, Clients and
    Insights, and stop syncing the HubSpot CS pipeline. *Not built.*
 
@@ -259,9 +279,9 @@ needs a reason; a HubSpot sale cannot be voided.
   deals. Recording a renewal, downgrade or churn here does not move them.
 - **A churn recorded here does not change the account's live status or ARR, and does not
   close its open Expansion opportunities.** The churn flow in §4 is phase 3.
-- **An expansion won on the Expansion page after the import is not in this history.** The
-  import brought in opportunities won before it ran; creating the record at Won is phase 4.
-  Until then "ARR from records" can be lower than live ARR for such an account.
+- **An expansion won between the import run and phase 4 reaching production is not in
+  this history** until the import is re-run or its ARR is un-recorded and recorded again.
+  Wins recorded after phase 4 is live are written at the time (§3).
 - **New HubSpot sales do not arrive on their own.** The only code that writes a sale into
   `contract_records` is the import script (`scripts/import-contract-records.mts`); the
   HubSpot sync does not create or update contract records. The screen says so: a HubSpot
