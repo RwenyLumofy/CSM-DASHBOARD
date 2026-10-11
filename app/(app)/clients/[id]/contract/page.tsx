@@ -5,7 +5,7 @@ import { hasDatabase } from "@/lib/config";
 import { getChurnTaxonomy } from "@/lib/data";
 import { getDb, schema } from "@/lib/db/client";
 import { getClientByIdFromDb } from "@/lib/repo/drizzle";
-import { contractTablesExist, getContractRecordsDb } from "@/lib/contracts/repo";
+import { contractTablesExist, getContractRecordsDb, getStatusOverrideDb } from "@/lib/contracts/repo";
 import { toView } from "@/lib/contracts/view";
 import { ContractTab } from "./ContractTab";
 
@@ -38,8 +38,9 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
     );
   }
 
-  const [records, opportunities, taxonomy] = await Promise.all([
+  const [records, override, opportunities, taxonomy] = await Promise.all([
     getContractRecordsDb(id),
+    getStatusOverrideDb(id),
     getDb().select().from(schema.expansionOpportunities).where(eq(schema.expansionOpportunities.clientId, id)),
     getChurnTaxonomy(),
   ]);
@@ -53,6 +54,7 @@ export default async function ContractPage({ params }: { params: Promise<{ id: s
         product: o.product, arrRecorded: o.arrRecorded,
       }))}
       churnReasons={taxonomy.flatMap((c) => c.reasons.map((r) => ({ id: r.id, label: r.label, category: c.label })))}
+      override={override}
       today={new Date().toISOString().slice(0, 10)}
     />
   );

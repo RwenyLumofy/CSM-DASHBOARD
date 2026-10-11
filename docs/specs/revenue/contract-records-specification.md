@@ -99,8 +99,10 @@ accounts $54,454 still counted today → $0.
    (1–5 years, ARR per year), support, one-time fees, currencies, several libraries,
    account setup checklist, open work. *Built as a preview for super admins only (§8). It
    does not replace the Contracts & deals card yet; that card is unchanged.*
-3. **Status** — from records; manual status with reason and expiry; churn flow. *Not built.
-   The preview shows the status the records would give, display only.*
+3. **Status** — from records; manual status with reason and expiry; churn flow. *Partly
+   built, inside the preview only (§8.2, §8.3): the status rules (`lib/contracts/status.ts`,
+   tested) and a status set by hand. Not built: making it the account's live status, and
+   the churn flow that closes open Expansion opportunities.*
 4. **Expansion page Won → contract record.** *Not built.*
 5. **Switch** — run both ARRs side by side for 2–4 weeks, then switch Today, Clients and
    Insights, and stop syncing the HubSpot CS pipeline. *Not built.*
@@ -140,11 +142,11 @@ read end to end but have no test. Checked by hand on the test database on 2026-1
    deals). A **Show amounts in** picker switches the display between USD, BHD and SAR.
 2. **Status from contract records** — Onboarding, Active, Renewal due (within 90 days),
    Renewal overdue, or Churned, with the sentence that explains it, a timeline, and a
-   **See status on** date picker to see what the records give on another day. This is
-   worked out in the browser from the records and is **display only**. It is not the
-   account's status anywhere else in Signal. "Renewal overdue" follows §4: it shows 14 days
-   after the renewal date; until then the account stays "Renewal due". One difference from
-   §4: a status set by hand (`client_status_overrides`) is not read or written.
+   **See status on** date picker to see what the records give on another day. The rules
+   are in `lib/contracts/status.ts` (tested in `status.test.ts`). It is the contract tab's
+   status only: it is not the account's status anywhere else in Signal. "Renewal overdue" follows §4: it shows 14 days
+   after the renewal date; until then the account stays "Renewal due". A status
+   set by hand (below) wins over the records' status while it applies, except Churned.
 3. **Summary** — **ARR from records** with the live ARR beside it when they differ by more
    than 1 US dollar ("Live ARR today is …", otherwise "Same as live ARR today"), licences
    with modules and global library in force, current term, renewal date.
@@ -202,6 +204,28 @@ sale created through these actions.
 Every create, update and void writes a `contract_audit` row (action, who, before, after)
 in the same transaction as the change (`lib/contracts/repo.ts`).
 
+### 8.3a Setting the status by hand (phase 3, preview)
+
+The status pill in the header opens **Set status** (`StatusControl` in `ContractTab.tsx`;
+`setStatusOverrideAction` / `clearStatusOverrideAction` in `actions.ts`, same gates as §8.1).
+
+- Pick Onboarding, Active, Renewal due or Renewal overdue and give a **reason** (required).
+  It is stored in `client_status_overrides` and lasts **30 days**.
+- It ends early when a renewal or churn takes effect after it was set; recording a renewal
+  or churn in the tab also clears it. A churn record always wins over it.
+- **Churned can't be set by hand**: choosing it opens the churn form, which needs a date
+  and reasons.
+- **Automatic** returns the account to the status the records give.
+- One per account. Every set and clear writes `contract_audit` (`status_set`,
+  `status_clear`) in the same transaction.
+- While it applies, the header says "set by hand · contract tab only" and the status
+  sentence gives who set it, when, the reason, when it returns to automatic, and what the
+  records would give.
+
+Checked locally on the test DB on 2026-10-11: set Renewal due with a reason, saw it in the
+header, returned to automatic. Not exercised: expiry after 30 days and the early end at a
+renewal or churn (covered by `status.test.ts` only).
+
 ### 8.4 Validation rules
 
 Enforced on the server by `validateKindForCreate` and `validateRecord`
@@ -245,7 +269,8 @@ needs a reason; a HubSpot sale cannot be voided.
   and a new sale "appears once the import is re-run". Until the sync is wired, a sale closed after
   the last import run is missing here, and a HubSpot change to an imported sale shows only
   after the import is re-run.
-- **Status set by hand** (reason, 30-day expiry) is not built.
+- **A status set by hand changes the contract tab only.** It is stored and logged, but
+  the account's live status everywhere else still comes from `lib/status.ts`.
 - **It does not replace the Contracts & deals card** on the client profile, and deal edits
   made on that card do not reach contract records.
 - **Not in production.** It needs the phase 1 tables and import (§5, §6), which are in an

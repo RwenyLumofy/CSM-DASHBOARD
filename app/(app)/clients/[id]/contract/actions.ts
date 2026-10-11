@@ -13,9 +13,10 @@
    not the permission. Remove `previewGate` at the switch-over; `denyClientWrite`
    stays.
 
-   What these writes do NOT do yet (phases 3–5): they don't change the account's
-   live ARR, status or renewal date, and a churn here does not close Expansion
-   opportunities. Until the switch-over the app still reads ARR from deals.
+   What these writes do NOT do yet: they don't change the account's live ARR,
+   status or renewal date, and a churn here does not close Expansion
+   opportunities. Until the switch-over the app still reads ARR and status from
+   deals. A status set by hand here is likewise the contract tab's status only.
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";
@@ -24,8 +25,9 @@ import { hasDatabase } from "@/lib/config";
 import { getChurnTaxonomy } from "@/lib/data";
 import { churnReasonIds } from "@/lib/metrics/churn-taxonomy";
 import {
-  createContractRecordDb, getContractRecordDb, updateContractRecordDb, voidContractRecordDb,
+  clearStatusOverrideDb, createContractRecordDb, getContractRecordDb, setStatusOverrideDb, updateContractRecordDb, voidContractRecordDb,
 } from "@/lib/contracts/repo";
+import { validateOverride, type ContractStatus } from "@/lib/contracts/status";
 import {
   editablePatch, validateKindForCreate, validateRecord, type ContractFields, type ContractKind,
 } from "@/lib/contracts/validate";
@@ -57,7 +59,10 @@ export async function recordContractChangeAction(clientId: string, kind: Contrac
   const valid = validateRecord(kind, fields, kind === "churn" ? churnReasonIds(await getChurnTaxonomy()) : undefined);
   if (!valid.ok) return { ok: false, error: valid.error };
   try {
-    const created = await createContractRecordDb(clientId, kind, fields, await getCurrentUserEmail());
+    const actor = await getCurrentUserEmail();
+    const created = await createContractRecordDb(clientId, kind, fields, actor);
+    // A renewal or churn ends a status set by hand (it would stop applying on the record's start date anyway).
+    if (kind === "renewal" || kind === "churn") await clearStatusOverrideDb(clientId, actor, `A ${kind} was recorded.`);
     revalidatePath(`/clients/${clientId}/contract`);
     return { ok: true, id: created.id };
   } catch (e) {
@@ -107,6 +112,34 @@ export async function voidContractRecordAction(recordId: string, reason: string)
   try {
     await voidContractRecordDb(recordId, reason.trim(), await getCurrentUserEmail());
     revalidatePath(`/clients/${current.clientId}/contract`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** Set the account's status by hand. Needs a reason; lasts 30 days or until a renewal or churn. Churned is refused: record a churn. */
+export async function setStatusOverrideAction(clientId: string, status: string, reason: string): Promise<ContractActionResult> {
+  const blocked = (await previewGate()) ?? (await denyClientWrite(clientId));
+  if (blocked) return { ok: false, error: blocked };
+  const valid = validateOverride(status, reason);
+  if (!valid.ok) return { ok: false, error: valid.error };
+  try {
+    await setStatusOverrideDb(clientId, status as ContractStatus, reason.trim(), await getCurrentUserEmail());
+    revalidatePath(`/clients/${clientId}/contract`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+/** Return the account to its automatic status. */
+export async function clearStatusOverrideAction(clientId: string): Promise<ContractActionResult> {
+  const blocked = (await previewGate()) ?? (await denyClientWrite(clientId));
+  if (blocked) return { ok: false, error: blocked };
+  try {
+    await clearStatusOverrideDb(clientId, await getCurrentUserEmail(), "Returned to automatic by hand.");
+    revalidatePath(`/clients/${clientId}/contract`);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };

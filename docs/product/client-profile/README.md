@@ -178,7 +178,7 @@ A preview of the screen that is planned to replace the Contracts & deals card. I
   (`app/(app)/clients/[id]/contract/actions.ts`).
 - **What it reads:** the account's **contract records** (`contract_records`), not HubSpot
   deals. If the tables are not in the database, the page says so and stops.
-- **What it shows:** a preview banner; the status the records would give (display only);
+- **What it shows:** a preview banner; the status the records give, which a super admin can also set by hand with a reason for 30 days (it changes this tab only);
   a summary with **ARR from records** beside the account's live ARR; **Open work** cards
   (Account setup checklist, Renewal, Expansion, Churn); and the contract history, newest
   first.
