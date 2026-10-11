@@ -16,6 +16,20 @@ limitations · commit.
 
 ---
 
+## 2026-10-12
+
+### Contract check: every account's ARR and status today beside what its contract records give
+**Area:** Insights → new page `/reports/contract-check` (phase 5 of the contract records rework, first part). Linked from the contract tab's preview banner; not in the Insights tabs.
+**Roles affected:** Super admins only. Everyone else gets a 404. Read-only.
+**Before:** The two ARRs could only be compared by running the import script's dry run.
+**After:** A page lists each account with ARR today, ARR from records, the difference, status today and status from records. Totals at the top split live and churned accounts. It shows accounts with a difference by default, biggest ARR gap first, with a switch to all accounts. Each account opens its contract tab, where the difference is fixed.
+**Migration / data impact:** None. Reads `clients` and `contract_records`.
+**Known limitations:** Nothing switches yet: Today, Clients and Insights still use the numbers from HubSpot deals. "Renewal overdue" exists only on the records side, so it always shows as a status difference. A status set by hand is not applied in the comparison.
+**Verified:** `lib/contracts/compare.test.ts` (4 tests). Checked by hand on the test DB on 2026-10-12. The 404 for other roles is read in code only.
+**Docs:** [Contract records — specification §9](../specs/revenue/contract-records-specification.md#9-contract-check--the-side-by-side-page-phase-5-first-part).
+
+---
+
 ## 2026-10-11
 
 ### Expansion: a Won opportunity whose ARR is added now also writes its contract record
