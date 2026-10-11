@@ -16,7 +16,81 @@ limitations · commit.
 
 ---
 
+## 2026-10-11
+
+### Client Profile: a preview of the new contract tab, for super admins only
+**Area:** Client Profile → new page `/clients/<id>/contract` (phase 2 of the contract records
+rework). Reached from a link on the client profile, "Preview the new contract tab · super
+admins only".
+**Roles affected:** Super admins only. Everyone else gets a 404 on the page and never sees the
+link; every write is also refused on the server unless the user is a super admin **and** may
+edit that account (`denyClientWrite` on the record's own account). No change for any other
+role.
+**Before:** Contract records (phase 1) could only be created by the import and read by the
+comparison script. There was no screen for them.
+**After:** A super admin can open an account's contract history as read from contract records:
+- A banner states that this is a preview, and shows the account's live ARR and status.
+- The status the records would give, a summary with **ARR from records** beside live ARR, and
+  **Open work** cards: Account setup checklist, Renewal, Expansion, Churn.
+- Each record opens into a draft with **Save changes** / **Cancel**. On a sale from HubSpot the
+  amount, currency, licences, complementary licences, user price and name are locked; CS fields
+  (modules, global library, support level and amount, implementation level, AI credits,
+  one-time fees, dates, milestones) are editable.
+- **Counts toward ARR** tick to keep a record as history only. **Void this record…** with a
+  required reason; a voided record stays in the history and stops counting. A HubSpot sale
+  cannot be voided. Nothing is deleted.
+- Record a **renewal** (1–5 years, optionally a different ARR each year, support level and
+  annual support amount, USD / BHD / SAR, several global libraries), a **downgrade**, or a
+  **churn** (effective date and reasons from Settings → Churn taxonomy).
+- **One-time fees** on a sale or renewal: recorded, never counted toward ARR.
+- Expansion is never recorded here; every expansion control links to the Expansion page.
+- Every create, edit and void writes an audit row in the same transaction.
+**Migration / data impact:** None of its own. It needs the phase 1 tables (`contract_records`,
+`client_status_overrides`, `contract_audit` from `drizzle/contract-records.sql`) and the
+import, which are in an open PR and **not yet in production**. Where the tables are missing the
+page says so. Saves in the preview are real writes to `contract_records` and `contract_audit`.
+**Known limitations:**
+- Nothing else in Signal reads contract records yet. Live ARR, status and renewal date still
+  come from HubSpot deals; the Contracts & deals card is unchanged.
+- Recording a churn here does **not** change the account's live status or ARR and does **not**
+  close its Expansion opportunities (phase 3).
+- An expansion won on the Expansion page after the import does not appear in this history yet
+  (phase 4).
+- The HubSpot sync does not write contract records, so a sale closed after the last import run
+  is not listed until the import is re-run. The screen says so.
+- The status shown is display only; a status set by hand is not built.
+**Verified:** Implementation read (`app/(app)/clients/[id]/contract/page.tsx`, `ContractTab.tsx`,
+`actions.ts`, `lib/contracts/repo.ts`). Rules tested in `lib/contracts/validate.test.ts` and
+`lib/contracts/view.test.ts` (14 tests pass). Checked locally on the test DB on 2026-10-11:
+edited a HubSpot sale's support amount and one-time fee (blank fee label refused), recorded a
+3-year renewal (ARR stays the annual value, not summed), voided it, recorded a churn (ARR from
+records → 0), audit rows written. The page, actions and gates have no automated test.
+**Docs:** [Contract records — specification §8](../specs/revenue/contract-records-specification.md#8-the-contract-tab-phase-2-preview) ·
+[Client Profile → Contract tab (preview)](../product/client-profile/README.md#contract-tab-preview--super-admins-only).
+
 ## 2026-10-08
+
+### Contract records — phase 1: the tables, the import and the ARR comparison (no visible change)
+**Area:** Data model · Revenue (ARR) · the coming contract rework
+**Roles affected:** None yet — the app does not read these tables. Operators run the import.
+**Before:** An account's contract history lived in HubSpot deals (`client_deals`, including the
+HubSpot CS pipeline) plus CS overrides in JSON; ARR was the sum of ticked deals plus the ARR
+ledger, which double-counts a renewal's earlier expansion and keeps churned accounts' ARR.
+**After:** Three new tables — `contract_records` (every sale, renewal, expansion, downgrade and
+churn, with modules, per-provider global library terms, support, one-time fees, currency,
+per-year ARR, milestones and dates), `client_status_overrides` and `contract_audit`. A tested
+import (`lib/contracts/import.ts`) maps today's deals into them; ARR is read with the tested
+ledger (`lib/contracts/ledger.ts`). `scripts/import-contract-records.mts` dry-runs by default
+and prints per-account ARR differences and flags for review.
+**Migration or data impact:** Additive only. Production: paste `drizzle/contract-records.sql`
+into the Supabase SQL editor. Test database: `node scripts/add-contract-tables.mjs`. On the
+test database (prod clone) the import wrote 307 records for 132 accounts; live ARR
+$1,263,018 → $1,258,507 from records, churned $54,454 → $0.
+**Known limitations:** Not used by any page yet (phases 2–5). Four sales where a CS-edited
+amount disagrees with HubSpot need a person to confirm which is right.
+**Commit:** this change. **Spec:** [Contract records](../specs/revenue/contract-records-specification.md)
+
+---
 
 ### Client Profile: Won Expansion-page opportunities now appear under Contracts & deals → Expansion
 **Area:** Client Profile → General information → Contracts & deals card, Expansion tab.
