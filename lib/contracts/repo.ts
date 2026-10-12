@@ -166,3 +166,10 @@ export async function clearStatusOverrideDb(clientId: string, actor: string | nu
     return true;
   });
 }
+
+/** Every contract record in the workspace, for the side-by-side check. */
+export async function getAllContractRecordsDb(): Promise<ContractRecord[]> {
+  const rows = await getDb().select().from(schema.contractRecords)
+    .orderBy(asc(schema.contractRecords.startDate), asc(schema.contractRecords.createdAt));
+  return rows.map(rowToRecord);
+}

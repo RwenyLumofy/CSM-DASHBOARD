@@ -216,6 +216,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
         <span className="min-w-0 flex-1 basis-80">
           Saves here are real and logged, but nothing else in Signal reads these records yet. The account&apos;s live ARR
           (<b className="text-fg">{money(client.arr)}</b>), status (<b className="text-fg">{client.status}</b>) and renewal date still come from HubSpot deals.
+          {" "}<Link href="/reports/contract-check" className="font-semibold text-sirius hover:underline">See every account side by side</Link>
         </span>
         <label className="flex items-center gap-1.5">
           <span className="font-semibold">Show amounts in</span>

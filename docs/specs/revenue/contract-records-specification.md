@@ -125,7 +125,9 @@ accounts $54,454 still counted today → $0.
 4. **Expansion page Won → contract record.** *Built (§3). The Won form does not ask for
    licences or a separate start date; those are filled in on the record.*
 5. **Switch** — run both ARRs side by side for 2–4 weeks, then switch Today, Clients and
-   Insights, and stop syncing the HubSpot CS pipeline. *Not built.*
+   Insights, and stop syncing the HubSpot CS pipeline. *The side-by-side page is built
+   (§9). The switch itself, the churn flow that closes open Expansion opportunities, and
+   stopping the CS-pipeline sync are not built.*
 
 ## 8. The contract tab (phase 2, preview)
 
@@ -302,3 +304,27 @@ refused); recording a 3-year renewal (ARR from records stayed the annual value, 
 3-year total); voiding that renewal; recording a churn (ARR from records went to 0); an
 audit row written for each. Not checked: the 404 and the write refusal as a signed-in
 non-super-admin, and a write by a super admin against an account outside their scope.
+
+## 9. Contract check — the side-by-side page (phase 5, first part)
+
+**Status:** Partially verified. The comparison rules are tested
+(`lib/contracts/compare.test.ts`); the page was checked by hand on the test DB on
+2026-10-12 as a super admin. The 404 for other roles is read in code only.
+
+`/reports/contract-check` (`page.tsx` under `app/(app)/reports/contract-check`). Super
+admins only; a 404 for everyone else. Read-only: nothing on it changes a number. It is
+linked from the contract tab's preview banner and is not in the Insights tabs.
+
+- **Totals:** ARR today for accounts that are not churned beside what their records give;
+  ARR still counted today on churned accounts beside what their records give; how many
+  accounts differ on ARR and on status; how many have no records.
+- **Table:** one row per account with ARR today, ARR from records, the difference, status
+  today and status from records, and how many of its records count. **Differences** (the
+  default) lists only accounts where ARR or status differs; **All accounts** lists every one.
+  Biggest ARR gap first. Each name opens that account's contract tab, where a difference is
+  fixed.
+- **Rules** (`lib/contracts/compare.ts`): ARR differs when the two are more than a dollar
+  apart. Status differs when the labels differ; "Renewal overdue" exists only on the
+  records side, so an overdue account always shows as a status difference. ARR from records
+  is `arrOn` (§2) and status is `statusFromRecords` (§4), both as of today. A status set by
+  hand is not applied here: the page compares what the records themselves give.
