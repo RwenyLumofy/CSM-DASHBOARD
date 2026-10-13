@@ -120,7 +120,8 @@ accounts $54,454 still counted today → $0.
 2. **Contract tab** — replaces Contracts & deals: history, Save on every edit, renewals
    (1–5 years, ARR per year), support, one-time fees, currencies, several libraries,
    account setup checklist, open work. *Built as a preview, open to everyone who can see the
-   account (§8). It does not replace the Contracts & deals card yet; that card is unchanged.*
+   account (§8). Since 2026-10-13 it is shown on the client profile in place of the
+   Contracts & deals card, which stays one click away.*
 3. **Status** — from records; manual status with reason and expiry; churn flow. *Partly
    built, inside the preview only (§8.2, §8.3): the status rules (`lib/contracts/status.ts`,
    tested) and a status set by hand. Not built: making it the account's live status, and
@@ -144,9 +145,15 @@ read end to end but have no test. Checked by hand on the test database on 2026-1
 
 - **Route:** `/clients/<id>/contract`
   (`app/(app)/clients/[id]/contract/page.tsx`, screen in `ContractTab.tsx`).
-- **Way in:** a link on the client profile, "Open the new contract tab · preview"
-  (`app/(app)/clients/[id]/page.tsx`), shown to everyone who can open the profile. There
-  is no sidebar entry.
+- **On the client profile:** since 2026-10-13 the tab is shown on the profile's General
+  information tab **in place of the Contracts & deals card**, for any account that has
+  contract records (`contractSlot` in `components/clients/ClientProfileTabs.tsx`, loaded by
+  `app/(app)/clients/[id]/contract/load.ts`). Under it, **See the old Contracts & deals
+  view** swaps the old card back in, and **Back to the new contract view** returns. The
+  old card is unchanged and is still what live ARR is read from. If the contract tables
+  can't be read or the account has no records, the profile shows the old card as before.
+- **Full page:** the same tab on its own at `/clients/<id>/contract`, reached from the
+  Contract check page. There is no sidebar entry.
 - **Read gate (server):** the account's own visibility. The page loads the account with
   the scoped `getClientById`, so an account the user can't see is a 404, as is a missing
   database. *(Changed 2026-10-13 on the product owner's instruction — it was super admins
@@ -304,10 +311,11 @@ needs a reason; a HubSpot sale cannot be voided.
   after the import is re-run.
 - **A status set by hand changes the contract tab only.** It is stored and logged, but
   the account's live status everywhere else still comes from `lib/status.ts`.
-- **It does not replace the Contracts & deals card** on the client profile, and deal edits
-  made on that card do not reach contract records.
-- **Not in production.** It needs the phase 1 tables and import (§5, §6), which are in an
-  open PR.
+- **Two views of the contract exist side by side.** The profile shows the contract tab
+  first, with the old Contracts & deals card one click away. Edits made on the old card
+  change deals (and so live ARR) but do not reach contract records; edits made on the
+  contract tab change records but not live ARR. This lasts until the switch-over.
+- **In production since 2026-10-13** (tables created and import run that day).
 
 **Checked locally** (test database, 2026-10-11, signed in as a super admin): editing a
 HubSpot sale's support amount and adding a one-time fee (a fee with a blank label was

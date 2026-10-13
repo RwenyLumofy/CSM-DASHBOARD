@@ -137,10 +137,12 @@ export type ContractTabProps = {
   /** May this user see Expansion? Without it the Expansion card and links are left out. */
   showExpansion: boolean;
   superAdmin: boolean;
+  /** Shown inside the client profile, in place of the Contracts & deals card: no page header, no page padding. */
+  embedded?: boolean;
   today: string;
 };
 
-export function ContractTab({ client, records, opportunities: opps, churnReasons, override, canEdit, showExpansion, superAdmin, today: startDay }: ContractTabProps) {
+export function ContractTab({ client, records, opportunities: opps, churnReasons, override, canEdit, showExpansion, superAdmin, embedded, today: startDay }: ContractTabProps) {
   const router = useRouter();
   const [saving, startSaving] = useTransition();
   const [displayCcy, setDisplayCcy] = useState<Currency>("USD");
@@ -219,7 +221,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
   return (
     <DisplayCurrency.Provider value={displayCcy}>
     <ReasonLabels.Provider value={reasonLabels}>
-    <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-7 px-4 py-6 sm:px-8 sm:py-10">
+    <div className={cn("flex w-full flex-col", embedded ? "gap-5" : "mx-auto max-w-[1080px] gap-7 px-4 py-6 sm:px-8 sm:py-10")}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-dashed border-border bg-surface px-4 py-3 font-body text-[12.5px] leading-relaxed text-fg-muted">
         <Badge tone="sirius">Preview</Badge>
         <span className="min-w-0 flex-1 basis-80">
@@ -238,9 +240,11 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
       </div>
 
       <header className="flex flex-col gap-3">
-        <Link href={`/clients/${encodeURIComponent(client.id)}`} className="eyebrow w-fit hover:text-sirius">← Client profile</Link>
+        {!embedded && <Link href={`/clients/${encodeURIComponent(client.id)}`} className="eyebrow w-fit hover:text-sirius">← Client profile</Link>}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h1 className="font-display text-2xl font-bold leading-tight text-fg">{client.name}</h1>
+          {embedded
+            ? <h2 className="font-display text-lg font-bold leading-tight text-fg">Contract</h2>
+            : <h1 className="font-display text-2xl font-bold leading-tight text-fg">{client.name}</h1>}
           {!canEdit ? <StatusPill status={status.key} /> : <StatusControl status={status.key} auto={status.auto} manual={status.override} saving={saving}
             onSave={(next, reason) => {
               if (next === "churned") { openDrawer("churn"); return; } // churn needs a date and reasons
