@@ -18,6 +18,16 @@ limitations · commit.
 
 ## 2026-10-13
 
+### Client Profile: the new contract view replaces the Contracts & deals card
+**Area:** Client Profile → General information.
+**Roles affected:** Everyone who can open a client profile.
+**Before:** The profile showed the Contracts & deals card; the new contract tab was a separate page behind a small link.
+**After:** For any account with contract records, the profile shows the new contract view where the Contracts & deals card was: status from records, ARR from records beside live ARR, open work, and the contract history. **See the old Contracts & deals view** under it swaps the old card back in. The link "Open the new contract tab · preview" is gone. The account's CSM, admins and super admins can edit; everyone else sees it read-only.
+**Migration / data impact:** None.
+**Known limitations:** Two views exist until the switch-over and do not write to each other: the old card still drives live ARR and status; the new view writes contract records. An account with no records, or a failure reading them, shows the old card.
+**Verified:** Checked by hand on the test DB on 2026-10-13 as a super admin (embedded view renders, old view toggle present, no console errors). 363 tests pass; none cover the embedding. Other roles not exercised.
+**Docs:** [Client Profile → Contract tab (preview)](../product/client-profile/README.md#contract-tab-preview) · [specification §8.1](../specs/revenue/contract-records-specification.md#81-where-it-is-and-who-can-open-it).
+
 ### Contract records import: a re-run no longer overwrites what people edited
 **Area:** `scripts/import-contract-records.mts` (operator script) · contract records.
 **Roles affected:** Operators running the import; indirectly everyone who edits the contract tab.

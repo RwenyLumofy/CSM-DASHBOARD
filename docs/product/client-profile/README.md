@@ -161,17 +161,19 @@ category's storage key is generated once and never follows a rename. See
 
 **Status:** Partially verified (validation and draft-to-patch rules tested in
 `lib/contracts/validate.test.ts` and `lib/contracts/view.test.ts`; page, actions and gates
-read, untested; checked by hand on the test DB, 2026-10-11). **Not in production** — it
-needs the contract tables and import from phase 1 of the contract rework, which are in an
-open PR.
+read, untested; checked by hand on the test DB, 2026-10-11). In production since 2026-10-13.
 
-A preview of the screen that is planned to replace the Contracts & deals card. It does
-**not** replace it yet, and the card above is unchanged.
+Since 2026-10-13 this is what the General information tab shows **in place of the Contracts
+& deals card**, for any account that has contract records. **See the old Contracts & deals
+view**, under it, swaps the old card back in. The old card is unchanged and is still what
+the account's live ARR and status are read from; the two do not write to each other. An
+account with no contract records (or a database without the contract tables) shows the old
+card as before.
 
 - **Route:** `/clients/[id]/contract` (`app/(app)/clients/[id]/contract/page.tsx`, screen
   in `ContractTab.tsx` beside it). Outside the app's
-  navigation; the way in is the link **Open the new contract tab · preview** on the client
-  profile.
+  navigation. The same tab is embedded on the client profile (above); the full page is
+  reached from the Contract check page.
 - **Who can open it:** everyone who can see the account *(since 2026-10-13; super admins
   only before)*. An account the user can't see is a 404.
 - **Who can change things:** the account's CSM, admins and super admins. Everyone else

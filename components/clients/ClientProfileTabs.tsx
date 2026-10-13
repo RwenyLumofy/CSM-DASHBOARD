@@ -149,6 +149,9 @@ interface Props {
   deals: Deal[];
   /** Won Expansion-page opportunities for this account. Empty for viewers without Expansion access. */
   expansionWins?: ExpansionWin[];
+  /** The contract tab for this account, rendered by the page. When present it is shown
+   *  in place of the Contracts & deals card, which stays one click away. */
+  contractSlot?: React.ReactNode;
   emails: Email[];
   meetings: Meeting[];
   contacts: Contact[];
@@ -289,7 +292,7 @@ export function ClientProfileTabs(props: Props) {
               stakeholders={stakeholderOptions}
               implementations={useCaseImplementations}
             />
-            <GeneralTab client={client} deals={deals} expansionWins={props.expansionWins ?? []} propertyDefs={propertyDefs} canEdit={canEditClient} techStackCategories={props.techStackCategories} />
+            <GeneralTab client={client} deals={deals} expansionWins={props.expansionWins ?? []} contractSlot={props.contractSlot} propertyDefs={propertyDefs} canEdit={canEditClient} techStackCategories={props.techStackCategories} />
           </>
         )}
         {active === "stakeholders" && (
@@ -421,6 +424,7 @@ function GeneralTab({
   client,
   deals,
   expansionWins,
+  contractSlot,
   propertyDefs,
   canEdit,
   techStackCategories,
@@ -428,6 +432,7 @@ function GeneralTab({
   client: Client;
   deals: Deal[];
   expansionWins: ExpansionWin[];
+  contractSlot?: React.ReactNode;
   propertyDefs: PropertyDefinition[];
   /** Server-resolved write gate, passed on to Tech stack. The older field
    *  groups above it don't read it yet — see the Section comment below. */
@@ -494,7 +499,12 @@ function GeneralTab({
 
       {/* Contracts & deals — each deal carries its economics, package, service
           levels and per-deal dates (CSM-editable milestones + synced contract dates). */}
-      {(deals.length > 0 || expansionWins.length > 0) && <DealsTabs deals={deals} expansionWins={expansionWins} clientId={id} dealOverrides={dealOverrides} dealDates={dealDates} dealBriefs={dealBriefs} propertyDefs={propertyDefs} />}
+      {(() => {
+        const dealsCard = (deals.length > 0 || expansionWins.length > 0)
+          ? <DealsTabs deals={deals} expansionWins={expansionWins} clientId={id} dealOverrides={dealOverrides} dealDates={dealDates} dealBriefs={dealBriefs} propertyDefs={propertyDefs} />
+          : null;
+        return contractSlot ? <ContractOrDeals contract={contractSlot} dealsCard={dealsCard} /> : dealsCard;
+      })()}
 
       {groups.map((g) => (
         <Section key={g.key} icon={g.icon} title={g.label} subtitle={g.subtitle} defaultOpen={false}>
@@ -2820,6 +2830,22 @@ const PIPELINE_LABEL = (p: Deal["pipeline"]) =>
  *  draft spanning both tabs and only persist (recomputing ARR) on Save. The
  *  whole section collapses. Per-deal milestone dates are CSM-editable and persist
  *  under client.properties.__deal_dates; synced contract dates stay read-only. */
+/** The new contract tab where the Contracts & deals card used to be. The old card is kept
+ *  one click away while both exist: it is still what the account's live ARR is read from. */
+function ContractOrDeals({ contract, dealsCard }: { contract: React.ReactNode; dealsCard: React.ReactNode }) {
+  const [old, setOld] = useState(false);
+  return (
+    <div className="flex flex-col gap-3">
+      {old ? dealsCard : contract}
+      {dealsCard && (
+        <button type="button" onClick={() => setOld((o) => !o)} className="w-fit font-body text-[12.5px] font-semibold text-fg-subtle hover:text-sirius">
+          {old ? "← Back to the new contract view" : "See the old Contracts & deals view"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function DealsTabs({ deals, expansionWins, clientId, dealOverrides, dealDates, dealBriefs, propertyDefs }: { deals: Deal[]; expansionWins: ExpansionWin[]; clientId: string; dealOverrides: DealOverridesMap; dealDates: DealDatesMap; dealBriefs: DealBriefsMap; propertyDefs: PropertyDefinition[] }) {
   const router = useRouter();
   // router.refresh() is fire-and-forget — it resolves the *scheduling* of a

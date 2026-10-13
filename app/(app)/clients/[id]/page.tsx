@@ -1,3 +1,5 @@
+import { ContractTab } from "./contract/ContractTab";
+import { loadContractTab } from "./contract/load";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -152,6 +154,8 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       getProjectConfig(),
       listProjectTemplates(),
     ]);
+  // The contract tab's data; null when it can't be shown (see ./contract/load.ts).
+  const contractTab = hasDatabase() ? await loadContractTab(client, canSeeExpansion(role)) : null;
   const [churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy, expansion, techStackCategories] =
     await Promise.all([
       getChurnTaxonomy(),
@@ -319,12 +323,6 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
              exists and assert there is nothing in it — and the second half
              would be a claim the guest is not entitled to. The read layer
              returns nothing to them regardless. ─────────────────────────── */}
-      {/* The contract rework's new tab, a preview open to everyone who can see this
-          account. Editing there needs the same right as editing here. */}
-      <Link href={`/clients/${client.id}/contract`} className="w-fit font-body text-[12.5px] font-semibold text-sirius hover:underline">
-        Open the new contract tab · preview
-      </Link>
-
       {canSeeExpansion(role) && (
         <ClientExpansionCard
           clientId={client.id}
@@ -352,6 +350,12 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       <ClientProfileTabs
         client={client}
         deals={deals}
+        /* The contract tab, in place of the Contracts & deals card (which stays one
+           click away inside the tab). Null when the contract tables can't be read or
+           the account has no records yet; the old card then shows as before. */
+        contractSlot={contractTab && contractTab.records.length > 0
+          ? <ContractTab key="contract" {...contractTab} canEdit={mayEditClient} superAdmin={superAdmin} embedded />
+          : undefined}
         expansionWins={canSeeExpansion(role)
           ? expansion.opportunities.filter((o) => o.outcome === "won").map((o) => ({
               id: o.id, name: o.name, finalArr: o.finalArr, currency: o.currency,
