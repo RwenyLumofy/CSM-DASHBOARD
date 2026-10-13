@@ -26,6 +26,9 @@ import { FIELD_OVERRIDES_KEY, fieldOverridesSet } from "@/lib/client-overrides";
 import type { SyncBundle } from "@/lib/integrations/sync";
 import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
 import { computeClientStatus, STATUS_OVERRIDE_KEY } from "@/lib/status";
+import { buildContractRecords, planSaleSync } from "@/lib/contracts/import";
+import { liveFromRecords } from "@/lib/contracts/live";
+import { overrideExpiry, type ContractStatus } from "@/lib/contracts/status";
 import { getClientHealthConfig } from "@/lib/metrics/health-config-store";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
@@ -615,6 +618,8 @@ export async function persistEngagement(e: {
   // Deals drive ARR + the auto renewal date, so re-materialize every client
   // whose deals were just refreshed.
   const clientIds = [...new Set(e.deals.map((d) => d.clientId))];
+  // A Closed Won sale becomes (or refreshes) its contract record before the recompute reads it.
+  await mapLimit(clientIds, 5, (id) => syncSaleContractRecords(id));
   await mapLimit(clientIds, 5, (id) => recomputeClient(id));
 }
 
@@ -705,10 +710,123 @@ async function recomputeClientBody(clientId: string): Promise<void> {
   );
   const status = computeClientStatus(effective, launchDateByDealId, statusOverride, arr);
 
+  // Switched to contract records: an account that has records takes its ARR,
+  // renewal date and status from them (lib/contracts/live.ts). An account with
+  // none keeps the deal-based numbers above. If the switch or the records can't
+  // be read, this throws and the row is left as it was.
+  const fromRecords = await liveNumbersFromRecords(clientId, statusOverride === "churned", qStart);
+  if (fromRecords) {
+    await db
+      .update(schema.clients)
+      .set({
+        arr: fromRecords.arr, previousArr: fromRecords.previousArr, status: fromRecords.status,
+        renewalDate: fromRecords.renewalDate ? new Date(`${fromRecords.renewalDate}T00:00:00Z`) : null, updatedAt: new Date(),
+      })
+      .where(eq(schema.clients.id, clientId));
+    return;
+  }
+
   await db
     .update(schema.clients)
     .set({ arr, previousArr, renewalDate, status, updatedAt: new Date() })
     .where(eq(schema.clients.id, clientId));
+}
+
+/* ------------------------------------------------ contract records: live */
+
+/** workspace_config key: true once Signal reads ARR, status and renewal date from contract records. */
+export const CONTRACT_RECORDS_LIVE_KEY = "contract_records_live";
+let liveSwitchCache: { on: boolean; at: number } | null = null;
+
+/**
+ * Is the workspace switched to contract records? Off unless a super admin has
+ * turned it on (Contract check page). Cached for 30 seconds per server
+ * instance, since a sync recomputes every account.
+ *
+ * A failed read THROWS and is not cached: "unknown" must never be read as
+ * "off". If it were, one database hiccup during a sync would re-materialize
+ * accounts from deals while the workspace is on records, and the numbers would
+ * flap. A recompute that can't tell fails and leaves the row as it was.
+ */
+export async function contractRecordsLive(): Promise<boolean> {
+  if (liveSwitchCache && Date.now() - liveSwitchCache.at < 30_000) return liveSwitchCache.on;
+  const on = (await getWorkspaceConfigFromDb(CONTRACT_RECORDS_LIVE_KEY)) === true;
+  liveSwitchCache = { on, at: Date.now() };
+  return on;
+}
+
+export async function setContractRecordsLiveDb(on: boolean): Promise<void> {
+  await setWorkspaceConfigDb(CONTRACT_RECORDS_LIVE_KEY, on);
+  liveSwitchCache = { on, at: Date.now() };
+}
+
+async function liveNumbersFromRecords(clientId: string, legacyChurned: boolean, quarterStart: string) {
+  // No try/catch on purpose: if the switch or the records can't be read, the recompute fails
+  // and the row keeps its last numbers, rather than falling back to deals (see contractRecordsLive).
+  if (!(await contractRecordsLive())) return null;
+  {
+    const db = getDb();
+    const rows = await db.select().from(schema.contractRecords).where(eq(schema.contractRecords.clientId, clientId));
+    if (!rows.length) return null;
+    const [o] = await db.select().from(schema.clientStatusOverrides).where(eq(schema.clientStatusOverrides.clientId, clientId)).limit(1);
+    const setOn = o ? o.setAt.toISOString().slice(0, 10) : "";
+    return liveFromRecords(
+      rows.map((r) => ({ ...r, kind: r.kind as "sale" | "renewal" | "expansion" | "downgrade" | "churn" })),
+      {
+        override: o ? { status: o.status as ContractStatus, reason: o.reason, setBy: o.setBy, setOn, expiresOn: o.expiresAt ? o.expiresAt.toISOString().slice(0, 10) : overrideExpiry(setOn) } : null,
+        legacyChurned,
+        today: new Date().toISOString().slice(0, 10),
+        quarterStart,
+      },
+    );
+  }
+}
+
+/**
+ * Keep an account's SALE contract records in step with its HubSpot sales
+ * deals: a Closed Won sale that has no record yet gets one, and an existing
+ * sale record has its HubSpot-owned fields (name, amount, licences,
+ * complementary, user price) refreshed. Nothing CS owns is touched, and
+ * renewals / expansions / churn are never created here — those are recorded in
+ * Signal. Runs after every deal sync, switch on or off; it never throws, so a
+ * problem with contract records can't fail a HubSpot sync.
+ */
+export async function syncSaleContractRecords(clientId: string): Promise<void> {
+  try {
+    const db = getDb();
+    const client = await getClientByIdFromDb(clientId);
+    if (!client) return;
+    const deals = (await getDealsByClient(clientId)).filter((d) => d.pipeline !== "cs");
+    if (!deals.length) return;
+    const { records } = buildContractRecords({
+      client: { id: client.id, status: client.status, churnedAt: client.churnedAt, currency: client.currency, properties: client.properties },
+      deals, wonOpportunities: [],
+    });
+    const sales = records.filter((r) => r.kind === "sale");
+    const existing = await db.select({
+      id: schema.contractRecords.id, name: schema.contractRecords.name, amount: schema.contractRecords.amount, licences: schema.contractRecords.licences,
+      complementary: schema.contractRecords.complementary, pricePerUser: schema.contractRecords.pricePerUser,
+    }).from(schema.contractRecords).where(eq(schema.contractRecords.clientId, clientId));
+    const plan = planSaleSync(existing, sales);
+    if (!plan.insert.length && !plan.updates.length) return;
+    await db.transaction(async (tx) => {
+      if (plan.insert.length) {
+        await tx.insert(schema.contractRecords).values(plan.insert.map((r) => ({
+          ...r, oneTimeFees: [], startingModules: [], yearAmounts: null, supportAmount: null, createdBy: "hubspot-sync", updatedBy: "hubspot-sync",
+        })));
+      }
+      for (const u of plan.updates) {
+        // updated_by is left alone: a HubSpot refresh is not a person's edit, and the import relies on that field to know what people touched.
+        await tx.update(schema.contractRecords).set({ ...u.patch, updatedAt: new Date() }).where(eq(schema.contractRecords.id, u.id));
+      }
+      await tx.insert(schema.contractAudit).values({
+        clientId, recordId: null, action: "hubspot_sync", actor: "hubspot-sync",
+        after: { added: plan.insert.map((r) => r.id), refreshed: plan.updates },
+      });
+    });
+  } catch (e) {
+    console.error("[contracts] could not sync sale records for", clientId, e);
+  }
 }
 
 /**

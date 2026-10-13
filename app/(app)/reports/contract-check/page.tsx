@@ -4,22 +4,27 @@ import { isSuperAdmin } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { hasDatabase } from "@/lib/config";
 import { formatCurrency } from "@/lib/format";
-import { getClientsFromDb } from "@/lib/repo/drizzle";
+import { contractRecordsLive, getClientsFromDb, getWorkspaceConfigFromDb } from "@/lib/repo/drizzle";
 import { compareAccount, sortForReview, summarize } from "@/lib/contracts/compare";
 import { contractTablesExist, getAllContractRecordsDb } from "@/lib/contracts/repo";
 import { STATUS_LABEL, type ContractStatus } from "@/lib/contracts/status";
 import { toView, type ContractView } from "@/lib/contracts/view";
+import { SwitchControl } from "./SwitchControl";
 
 /* Contract check — every account's ARR and status today (from HubSpot deals)
    beside what its contract records give. Phase 5 of the contract rework
    (docs/specs/revenue/contract-records-specification.md): the two run side by
    side until the differences are understood, then the app switches over.
 
-   Read-only, and super admins only: a 404 for everyone else. Nothing here
-   changes a number anywhere; a difference is fixed on the account's contract tab. */
+   Super admins only: a 404 for everyone else. The table is read-only; a
+   difference is fixed on the account's contract tab. The one thing here that
+   changes numbers is the switch at the top (./actions.ts), which makes Signal
+   read contract records instead of deals, and can be flipped back. */
 
 export const metadata = { title: "Contract check · Lumofy Signals" };
 export const dynamic = "force-dynamic";
+// Flipping the switch re-materializes every account from this route.
+export const maxDuration = 300;
 
 const LIVE_LABEL: Record<string, string> = { onboarding: "Onboarding", active: "Active", renewal: "Renewal due", churned: "Churned" };
 const money = (n: number) => formatCurrency(Math.round(n));
@@ -39,7 +44,13 @@ export default async function ContractCheckPage({ searchParams }: { searchParams
     );
   }
 
-  const [clients, records] = await Promise.all([getClientsFromDb(), getAllContractRecordsDb()]);
+  const [clients, records, live, lastRaw] = await Promise.all([
+    getClientsFromDb(), getAllContractRecordsDb(), contractRecordsLive(),
+    getWorkspaceConfigFromDb("contract_records_live_log").catch(() => null),
+  ]);
+  const last = lastRaw && typeof lastRaw === "object" && typeof (lastRaw as { at?: unknown }).at === "string"
+    ? { at: (lastRaw as { at: string }).at, by: ((lastRaw as { by?: string | null }).by ?? null) }
+    : null;
   const byClient = new Map<string, ContractView[]>();
   for (const r of records) {
     const list = byClient.get(r.clientId) ?? [];
@@ -57,10 +68,13 @@ export default async function ContractCheckPage({ searchParams }: { searchParams
         <div className="eyebrow">Super admins only · read-only</div>
         <h1 className="font-display text-2xl font-bold leading-tight text-fg">Contract check</h1>
         <p className="max-w-[70ch] font-body text-[13.5px] leading-relaxed text-fg-muted">
-          What each account shows today, from HubSpot deals, beside what its contract records give. Nothing on this page changes a number;
-          open an account to fix its records. When the differences are understood, Signal switches to the records.
+          {live
+            ? "Signal is reading contract records, so an account with records shows the same on both sides. A difference here is an account with no records, or one whose numbers have not been refreshed yet."
+            : "What each account shows today, from HubSpot deals, beside what its contract records give. Open an account to fix its records. When the differences are understood, switch Signal to the records below."}
         </p>
       </header>
+
+      <SwitchControl on={live} last={last} />
 
       <section className="grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-surface shadow-sm md:grid-cols-4">
         <Stat label="Live accounts · ARR today" value={money(s.liveArr)} hint={`From records ${money(s.recordArrForLive)} (${signedMoney(s.recordArrForLive - s.liveArr)})`} />

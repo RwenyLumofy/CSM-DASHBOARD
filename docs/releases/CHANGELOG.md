@@ -18,6 +18,27 @@ limitations · commit.
 
 ## 2026-10-13
 
+### Contract records can become Signal's source for ARR, status and renewal date (switch, off by default)
+**Area:** Insights → Contract check (the switch) · every account's ARR, status and renewal date · Contract tab · Expansion · HubSpot sync.
+**Roles affected:** Super admins turn the switch on or off. Once on, everyone sees the numbers it produces.
+**Before:** ARR, status and renewal date always came from HubSpot deals. Contract records were shown beside them only.
+**After:** A switch at the top of the Contract check page. **Off (the default): nothing changes.** On: each account that has contract records takes its ARR, previous-quarter ARR, renewal date and status from them; a churned account is $0; a status set by hand applies; recording a churn on the contract tab also closes the account's open expansion opportunities as lost ("Account churned"). Flipping it re-materializes every account at once, and flipping it back restores the deal-based numbers exactly. The contract tab says "Live" instead of "Preview" while it is on.
+Also, switch on or off: after every HubSpot deal sync, a Closed Won sale gets its contract record and existing sale records have their HubSpot-owned fields refreshed, so new sales no longer wait for an import.
+**Migration / data impact:** None on merge. Turning the switch on changes the stored ARR, status and renewal date of every account with records; turning it off changes them back.
+**Known limitations:** "Renewal overdue" is stored as "Renewal due" outside the contract tab. HubSpot CS-pipeline deals are still fetched by the sync; they just stop mattering for accounts with records. Edits on the old Contracts & deals card stop moving numbers for those accounts once the switch is on. If the switch or records can't be read, an account's recompute fails and keeps its last numbers.
+**Verified:** `live.test.ts` (8), `compare.test.ts` (5), `import.test.ts`. By hand on the test DB on 2026-10-13: switched on (132 accounts, 0 differences), recorded a churn (account $0 and churned, open opportunity closed lost), switched off (earlier totals restored exactly). Not exercised: a real HubSpot sync adding a sale record; non-super-admin refusal; production load.
+**Docs:** [Contract records — specification §10](../specs/revenue/contract-records-specification.md#10-the-switch--signal-reads-contract-records-phase-5).
+
+### Contract records: a value CS entered on a deal now wins over HubSpot's
+**Area:** Contract records (import and HubSpot sync) · Contract tab · Contract check.
+**Roles affected:** Everyone reading a contract tab.
+**Before:** Where CS had edited a sale's amount, users or price in Signal and HubSpot said something else, the record used HubSpot's value. Bank of Bahrain & Kuwait showed 410 users (the original sale) instead of 660 (after its expansions).
+**After:** The value CS entered is used, and the difference from HubSpot is still flagged. A sale CS never edited takes HubSpot's values.
+**Migration / data impact:** Existing sale records are corrected by the next HubSpot sync after deploy, or by re-running the import.
+**Known limitations:** This relies on the old deal edits; going forward expansions are recorded on the Expansion page, not by editing the sale.
+**Verified:** `import.test.ts` (updated case). Re-ran the import on the test DB: Bank of Bahrain & Kuwait took the CS-entered users and amount.
+**Docs:** [Contract records — specification §1](../specs/revenue/contract-records-specification.md#1-the-rule).
+
 ### Client Profile: the new contract view replaces the Contracts & deals card
 **Area:** Client Profile → General information.
 **Roles affected:** Everyone who can open a client profile.

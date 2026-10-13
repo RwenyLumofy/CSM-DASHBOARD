@@ -11,10 +11,12 @@
    Who may write: whoever may edit the account — its CSM, admins and super
    admins (`denyClientWrite`). The tab was super admins only until 2026-10-13.
 
-   What these writes do NOT do yet: they don't change the account's live ARR,
-   status or renewal date, and a churn here does not close Expansion
-   opportunities. Until the switch-over the app still reads ARR and status from
-   deals. A status set by hand here is likewise the contract tab's status only.
+   Effect on the rest of Signal: every write re-materializes the account
+   (recomputeClient). While the workspace is NOT switched to contract records
+   that changes nothing — live ARR, status and renewal date still come from
+   deals. Once it is switched (Contract check page), the account's ARR, status
+   and renewal date follow the records at once, and recording a churn also
+   closes the account's open Expansion opportunities as lost.
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";
@@ -26,6 +28,8 @@ import {
   clearStatusOverrideDb, createContractRecordDb, getContractRecordDb, setStatusOverrideDb, updateContractRecordDb, voidContractRecordDb,
 } from "@/lib/contracts/repo";
 import { validateOverride, type ContractStatus } from "@/lib/contracts/status";
+import { closeOpenOpportunitiesForChurn } from "@/lib/contracts/churn-close";
+import { contractRecordsLive, recomputeClient } from "@/lib/repo/drizzle";
 import {
   editablePatch, validateKindForCreate, validateRecord, type ContractFields, type ContractKind,
 } from "@/lib/contracts/validate";
@@ -40,6 +44,17 @@ export interface ContractActionResult {
 }
 
 const GONE = "That record no longer exists, or you don't have access to it.";
+
+/** After any write: re-materialize the account, then refresh the two screens that show it. */
+async function afterWrite(clientId: string): Promise<void> {
+  try {
+    await recomputeClient(clientId);
+  } catch (e) {
+    console.error("[contracts] recompute after a contract write failed for", clientId, e);
+  }
+  revalidatePath(`/clients/${clientId}/contract`);
+  revalidatePath(`/clients/${clientId}`);
+}
 
 async function previewGate(): Promise<string | null> {
   return hasDatabase() ? null : "The database isn't configured.";
@@ -58,8 +73,11 @@ export async function recordContractChangeAction(clientId: string, kind: Contrac
     const created = await createContractRecordDb(clientId, kind, fields, actor);
     // A renewal or churn ends a status set by hand (it would stop applying on the record's start date anyway).
     if (kind === "renewal" || kind === "churn") await clearStatusOverrideDb(clientId, actor, `A ${kind} was recorded.`);
-    revalidatePath(`/clients/${clientId}/contract`);
-    return { ok: true, id: created.id };
+    // Once Signal reads contract records, a churned account can't keep open opportunities on the Expansion board.
+    let closed = 0;
+    if (kind === "churn" && (await contractRecordsLive())) closed = await closeOpenOpportunitiesForChurn(clientId, actor);
+    await afterWrite(clientId);
+    return { ok: true, id: created.id, warning: closed ? `${closed} open expansion opportunit${closed === 1 ? "y was" : "ies were"} closed as lost.` : undefined };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -83,7 +101,7 @@ export async function updateContractRecordAction(recordId: string, patch: Partia
   try {
     const saved = await updateContractRecordDb(recordId, { ...allowed, ...(counted === undefined ? {} : { counted }) }, await getCurrentUserEmail());
     if (!saved) return { ok: false, error: GONE };
-    revalidatePath(`/clients/${current.clientId}/contract`);
+    await afterWrite(current.clientId);
     return {
       ok: true,
       warning: refused.length ? `${refused.join(", ")} come${refused.length === 1 ? "s" : ""} from HubSpot and ${refused.length === 1 ? "was" : "were"} not changed. Change ${refused.length === 1 ? "it" : "them"} in HubSpot.` : undefined,
@@ -106,7 +124,7 @@ export async function voidContractRecordAction(recordId: string, reason: string)
   if (!reason.trim()) return { ok: false, error: "Say why this record is being voided." };
   try {
     await voidContractRecordDb(recordId, reason.trim(), await getCurrentUserEmail());
-    revalidatePath(`/clients/${current.clientId}/contract`);
+    await afterWrite(current.clientId);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -121,7 +139,7 @@ export async function setStatusOverrideAction(clientId: string, status: string, 
   if (!valid.ok) return { ok: false, error: valid.error };
   try {
     await setStatusOverrideDb(clientId, status as ContractStatus, reason.trim(), await getCurrentUserEmail());
-    revalidatePath(`/clients/${clientId}/contract`);
+    await afterWrite(clientId);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
@@ -134,7 +152,7 @@ export async function clearStatusOverrideAction(clientId: string): Promise<Contr
   if (blocked) return { ok: false, error: blocked };
   try {
     await clearStatusOverrideDb(clientId, await getCurrentUserEmail(), "Returned to automatic by hand.");
-    revalidatePath(`/clients/${clientId}/contract`);
+    await afterWrite(clientId);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: String(e) };
