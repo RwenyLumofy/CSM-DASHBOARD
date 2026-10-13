@@ -18,6 +18,16 @@ limitations · commit.
 
 ## 2026-10-13
 
+### Contract records import: a re-run no longer overwrites what people edited
+**Area:** `scripts/import-contract-records.mts` (operator script) · contract records.
+**Roles affected:** Operators running the import; indirectly everyone who edits the contract tab.
+**Before:** Every `--write` run deleted and re-created all imported records, so support amounts, one-time fees, dates or voids added on the contract tab since the import were lost.
+**After:** A re-run keeps any imported record that a person has edited or voided, replaces only untouched ones, and prints how many it kept.
+**Migration / data impact:** None. Production was imported on 2026-10-13 (322 records, 136 accounts), before anyone could edit, so nothing was lost.
+**Known limitations:** A kept record no longer picks up later HubSpot changes to its deal through the import.
+**Verified:** `lib/contracts/import.test.ts` (new case). Run against the test DB on 2026-10-13: 2 edited/voided records kept, the rest replaced.
+**Docs:** [Contract records — specification §6](../specs/revenue/contract-records-specification.md#6-import-phase-1).
+
 ### Contract tab (preview): open to everyone who can see the account
 **Area:** Client Profile → `/clients/<id>/contract`, and the link to it on the client profile.
 **Roles affected:** Everyone. Before, only super admins could open or change it.

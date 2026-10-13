@@ -225,3 +225,28 @@ export function buildContractRecords({ client, deals, wonOpportunities }: Import
   return { records, flags };
 }
 
+
+/** True for a record id the import owns (it made it, and may replace it). */
+export const isImportOwnedId = (id: string) => id.startsWith("ctr-hs-") || id.startsWith("ctr-exp-") || id.startsWith("ctr-churn-");
+
+/**
+ * What a re-run of the import may write for one account. A record a person has
+ * touched since the import made it (edited, voided, or re-recorded from the
+ * Expansion page) is KEPT as it is: it is neither deleted nor replaced, so
+ * re-running the import never throws away work done on the contract tab.
+ * Untouched import-owned records are replaced; records made in Signal are
+ * never looked at.
+ */
+export function planImportWrite(
+  existing: { id: string; updatedBy: string | null; voidedAt: unknown }[],
+  records: ImportedRecord[],
+): { deleteIds: string[]; insert: ImportedRecord[]; kept: string[] } {
+  const owned = existing.filter((e) => isImportOwnedId(e.id));
+  const kept = owned.filter((e) => e.updatedBy !== "import" || !!e.voidedAt).map((e) => e.id);
+  const keep = new Set(kept);
+  return {
+    deleteIds: owned.filter((e) => !keep.has(e.id)).map((e) => e.id),
+    insert: records.filter((r) => !keep.has(r.id)),
+    kept,
+  };
+}
