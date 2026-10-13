@@ -120,3 +120,21 @@ test("unticked deals are history; churn deals count even though the sync stored 
   assert.equal(records.find((r) => r.hubspotDealId === "3")?.counted, false);
   assert.equal(arrOn(asLedger(records), "2026-10-08"), 0);
 });
+
+test("a re-run keeps imported records a person has edited or voided, and replaces the rest", async () => {
+  const { planImportWrite } = await import("./import");
+  const rec = (id: string) => ({ id } as Parameters<typeof planImportWrite>[1][number]);
+  const plan = planImportWrite(
+    [
+      { id: "ctr-hs-1", updatedBy: "import", voidedAt: null },          // untouched → replaced
+      { id: "ctr-hs-2", updatedBy: "csm@lumofy.com", voidedAt: null },   // edited → kept
+      { id: "ctr-exp-3", updatedBy: "import", voidedAt: new Date() },    // voided → kept
+      { id: "ctr-hs-9", updatedBy: "import", voidedAt: null },          // deal gone from HubSpot → removed
+      { id: "ctr-abc", updatedBy: "csm@lumofy.com", voidedAt: null },    // made in Signal → never looked at
+    ],
+    [rec("ctr-hs-1"), rec("ctr-hs-2"), rec("ctr-exp-3"), rec("ctr-hs-4")],
+  );
+  assert.deepEqual(plan.deleteIds, ["ctr-hs-1", "ctr-hs-9"]);
+  assert.deepEqual(plan.insert.map((r) => r.id), ["ctr-hs-1", "ctr-hs-4"]);
+  assert.deepEqual(plan.kept, ["ctr-hs-2", "ctr-exp-3"]);
+});

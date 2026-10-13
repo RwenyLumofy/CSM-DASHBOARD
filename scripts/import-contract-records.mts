@@ -6,7 +6,9 @@
  * flags a person should review, and writes nothing. With --write it replaces
  * each account's imported records (ids ctr-hs-*, ctr-exp-*, ctr-churn-*) and
  * logs one "import" audit row per account. Records created in Signal after the
- * import are never touched.
+ * import are never touched, and neither is an imported record a person has
+ * since edited or voided on the contract tab (planImportWrite): a re-run keeps
+ * their work and says how many records it kept.
  *
  * Rules: lib/contracts/import.ts (tested). ARR: lib/contracts/ledger.ts (tested).
  *
@@ -15,10 +17,10 @@
  *   npx tsx scripts/import-contract-records.mts            # dry run
  *   npx tsx scripts/import-contract-records.mts --write    # write to the target database
  */
-import { and, eq, inArray, like, or } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "../lib/db/client";
 import { getClientsFromDb, getDealsByClient } from "../lib/repo/drizzle";
-import { buildContractRecords } from "../lib/contracts/import";
+import { buildContractRecords, planImportWrite } from "../lib/contracts/import";
 import { arrOn } from "../lib/contracts/ledger";
 
 const write = process.argv.includes("--write");
@@ -30,6 +32,7 @@ const db = getDb();
 const clients = await getClientsFromDb();
 const opps = await db.select().from(schema.expansionOpportunities).where(eq(schema.expansionOpportunities.outcome, "won"));
 
+let keptEdited = 0;
 let differ = 0, liveToday = 0, liveNew = 0, churnedToday = 0, churnedNew = 0, recordCount = 0;
 const flagged: string[] = [];
 for (const c of clients) {
@@ -52,15 +55,18 @@ for (const c of clients) {
 
   if (write) {
     await db.transaction(async (tx) => {
-      // Replace only what the import owns; records made in Signal later are kept.
-      await tx.delete(schema.contractRecords).where(and(eq(schema.contractRecords.clientId, c.id), or(
-        like(schema.contractRecords.id, "ctr-hs-%"), like(schema.contractRecords.id, "ctr-exp-%"), like(schema.contractRecords.id, "ctr-churn-%"))));
-      if (records.length) {
-        await tx.insert(schema.contractRecords).values(records.map((r) => ({
+      // Replace only what the import owns and nobody has touched since; see planImportWrite.
+      const existing = await tx.select({ id: schema.contractRecords.id, updatedBy: schema.contractRecords.updatedBy, voidedAt: schema.contractRecords.voidedAt })
+        .from(schema.contractRecords).where(eq(schema.contractRecords.clientId, c.id));
+      const plan = planImportWrite(existing, records);
+      keptEdited += plan.kept.length;
+      if (plan.deleteIds.length) await tx.delete(schema.contractRecords).where(inArray(schema.contractRecords.id, plan.deleteIds));
+      if (plan.insert.length) {
+        await tx.insert(schema.contractRecords).values(plan.insert.map((r) => ({
           ...r, oneTimeFees: [], startingModules: [], yearAmounts: null, supportAmount: null, createdBy: "import", updatedBy: "import",
         })));
       }
-      await tx.insert(schema.contractAudit).values({ clientId: c.id, action: "import", actor: "import", after: { records: records.length, arr: arrNew, flags } });
+      await tx.insert(schema.contractAudit).values({ clientId: c.id, action: "import", actor: "import", after: { records: records.length, written: plan.insert.length, keptEdited: plan.kept, arr: arrNew, flags } });
     });
   }
 }
@@ -73,5 +79,6 @@ for (const f of flagged) console.log(`  - ${f}`);
 if (write) {
   const n = await db.select({ id: schema.contractRecords.id }).from(schema.contractRecords).where(inArray(schema.contractRecords.clientId, clients.map((c) => c.id)));
   console.log(`\n✓ wrote; contract_records now holds ${n.length} rows for these accounts`);
+  if (keptEdited) console.log(`  kept ${keptEdited} imported record${keptEdited === 1 ? "" : "s"} that someone edited or voided since the import`);
 }
 process.exit(0);

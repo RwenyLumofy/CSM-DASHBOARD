@@ -90,7 +90,11 @@ records every change.
 
 `lib/contracts/import.ts` (tested in `import.test.ts`), run by
 `scripts/import-contract-records.mts` (dry run by default; `--write` replaces only the
-records the import owns, so re-running is safe).
+records the import owns, so re-running is safe). Since 2026-10-13 a re-run also **keeps any
+imported record a person has edited or voided** on the contract tab (`planImportWrite`,
+tested): it is neither deleted nor replaced, and the run prints how many it kept. Before
+that fix a re-run reset such records to HubSpot's values. Production was imported on
+2026-10-13 (322 records for 136 accounts).
 
 - Direct / Indirect deals → sales (source `hubspot`); CS-pipeline deals → renewals,
   expansions, churns, downgrades (source `imported`).
