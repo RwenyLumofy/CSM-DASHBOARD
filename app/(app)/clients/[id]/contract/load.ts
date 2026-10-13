@@ -12,10 +12,11 @@ import { eq } from "drizzle-orm";
 import { getChurnTaxonomy } from "@/lib/data";
 import { getDb, schema } from "@/lib/db/client";
 import { contractTablesExist, getContractRecordsDb, getStatusOverrideDb } from "@/lib/contracts/repo";
+import { contractRecordsLive } from "@/lib/repo/drizzle";
 import { toView } from "@/lib/contracts/view";
 import type { ContractTabProps } from "./ContractTab";
 
-type Loaded = Omit<ContractTabProps, "canEdit" | "superAdmin" | "embedded">;
+type Loaded = Omit<ContractTabProps, "canEdit" | "superAdmin" | "embedded">; // includes `live`
 
 export async function loadContractTab(
   client: { id: string; name: string; status: string; arr: number },
@@ -23,12 +24,13 @@ export async function loadContractTab(
 ): Promise<Loaded | null> {
   try {
     if (!(await contractTablesExist())) return null;
-    const [records, override, opportunities, taxonomy] = await Promise.all([
+    const [records, override, opportunities, taxonomy, live] = await Promise.all([
       getContractRecordsDb(client.id),
       getStatusOverrideDb(client.id),
       // Opportunities are passed only to roles that may see Expansion.
       showExpansion ? getDb().select().from(schema.expansionOpportunities).where(eq(schema.expansionOpportunities.clientId, client.id)) : Promise.resolve([]),
       getChurnTaxonomy(),
+      contractRecordsLive(),
     ]);
     return {
       client: { id: client.id, name: client.name.trim(), status: client.status, arr: client.arr },
@@ -40,6 +42,7 @@ export async function loadContractTab(
       churnReasons: taxonomy.flatMap((c) => c.reasons.map((r) => ({ id: r.id, label: r.label, category: c.label }))),
       override,
       showExpansion,
+      live,
       today: new Date().toISOString().slice(0, 10),
     };
   } catch (e) {

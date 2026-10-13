@@ -137,12 +137,14 @@ export type ContractTabProps = {
   /** May this user see Expansion? Without it the Expansion card and links are left out. */
   showExpansion: boolean;
   superAdmin: boolean;
+  /** True once Signal reads ARR, status and renewal date from contract records (the switch on the Contract check page). */
+  live: boolean;
   /** Shown inside the client profile, in place of the Contracts & deals card: no page header, no page padding. */
   embedded?: boolean;
   today: string;
 };
 
-export function ContractTab({ client, records, opportunities: opps, churnReasons, override, canEdit, showExpansion, superAdmin, embedded, today: startDay }: ContractTabProps) {
+export function ContractTab({ client, records, opportunities: opps, churnReasons, override, canEdit, showExpansion, superAdmin, live, embedded, today: startDay }: ContractTabProps) {
   const router = useRouter();
   const [saving, startSaving] = useTransition();
   const [displayCcy, setDisplayCcy] = useState<Currency>("USD");
@@ -223,10 +225,14 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
     <ReasonLabels.Provider value={reasonLabels}>
     <div className={cn("flex w-full flex-col", embedded ? "gap-5" : "mx-auto max-w-[1080px] gap-7 px-4 py-6 sm:px-8 sm:py-10")}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-dashed border-border bg-surface px-4 py-3 font-body text-[12.5px] leading-relaxed text-fg-muted">
-        <Badge tone="sirius">Preview</Badge>
+        <Badge tone="sirius">{live ? "Live" : "Preview"}</Badge>
         <span className="min-w-0 flex-1 basis-80">
-          Saves here are real and logged, but nothing else in Signal reads these records yet. The account&apos;s live ARR
-          (<b className="text-fg">{money(client.arr)}</b>), status (<b className="text-fg">{client.status}</b>) and renewal date still come from HubSpot deals.
+          {live ? (
+            <>This account&apos;s ARR, status and renewal date across Signal come from these records. Saves are logged and take effect at once.</>
+          ) : (
+            <>Saves here are real and logged, but nothing else in Signal reads these records yet. The account&apos;s live ARR
+            (<b className="text-fg">{money(client.arr)}</b>), status (<b className="text-fg">{client.status}</b>) and renewal date still come from HubSpot deals.</>
+          )}
           {!canEdit && <> You can view this account&apos;s contract; only its CSM and admins can change it.</>}
           {superAdmin && <>{" "}<Link href="/reports/contract-check" className="font-semibold text-sirius hover:underline">See every account side by side</Link></>}
         </span>
@@ -251,13 +257,13 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
               if (next === "auto") run(() => clearStatusOverrideAction(client.id), "Status returned to automatic.");
               else run(() => setStatusOverrideAction(client.id, next, reason), `Status set to ${STATUS[next].label} for ${OVERRIDE_DAYS} days.`);
             }} />}
-          <span className="font-body text-[11.5px] text-fg-subtle">{status.override ? "set by hand · contract tab only" : "from contract records"}</span>
+          <span className="font-body text-[11.5px] text-fg-subtle">{status.override ? (live ? "set by hand" : "set by hand · contract tab only") : "from contract records"}</span>
         </div>
       </header>
 
       {records.length === 0 ? (
         <section className="rounded-lg border border-dashed border-border bg-surface px-5 py-8 text-center font-body text-[13px] text-fg-muted">
-          No contract records for this account yet. Sales come from HubSpot at Closed Won; during the preview they are brought in by the import.
+          No contract records for this account yet. Sales come from HubSpot at Closed Won and appear here after the next sync.
         </section>
       ) : (
       <>
@@ -265,7 +271,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
 
       {/* Contract summary */}
       <section className="grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-surface shadow-sm md:grid-cols-4">
-        <Summary label="ARR from records" value={money(latest?.after ?? 0)} hint={liveDiffers ? `Live ARR today is ${money(client.arr)}` : "Same as live ARR today"} />
+        <Summary label="ARR from records" value={money(latest?.after ?? 0)} hint={live ? "This is the account's ARR across Signal" : liveDiffers ? `Live ARR today is ${money(client.arr)}` : "Same as live ARR today"} />
         <Summary label="Licences" value={churned ? "—" : formatNumber(latest?.licences ?? 0)}
           hint={churned ? "" : `${inForce.modules.join(", ") || "No modules"} · ${inForce.library.length ? `Library: ${inForce.library.join(", ")}` : "No global library"}`} />
         <Summary label="Current term" value={current && !churned ? `${fmtDate(current.start)} → ${fmtDate(current.end)}` : "—"} hint={current && !churned ? `From ${KIND[current.kind].label.toLowerCase()}` : churned ? "Account churned" : ""} small />
@@ -283,7 +289,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
 
       <OpenLoops
         status={status.key} current={current} renewalDate={renewalDate} daysToRenewal={daysToRenewal}
-        records={records} opps={opps} expansionHref={expansionAccountHref} clientId={client.id} today={today} canEdit={canEdit} showExpansion={showExpansion}
+        records={records} opps={opps} expansionHref={expansionAccountHref} clientId={client.id} today={today} canEdit={canEdit} showExpansion={showExpansion} live={live}
         onRecord={(kind) => openDrawer(kind)} onView={viewRecord}
       />
 
@@ -324,7 +330,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
                   );
                 })}
                 <div className="mt-1 border-t border-border-subtle px-3.5 py-2 font-body text-[11.5px] leading-snug text-fg-subtle">
-                  Sales are never recorded here: they come from HubSpot at Closed Won. During the preview a new sale appears once the import is re-run.
+                  Sales are never recorded here: they come from HubSpot at Closed Won. A new sale appears here after the next HubSpot sync.
                 </div>
               </div>
             )}
@@ -587,9 +593,9 @@ function StatusPanel({ records, status, today, realToday, onToday }: {
 
 /** The renewal, expansion and churn work that's open on this account, where each
  *  one lives in Signal today, and the contract record that closes it. */
-function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps, expansionHref, clientId, today, canEdit, showExpansion, onRecord, onView }: {
+function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps, expansionHref, clientId, today, canEdit, showExpansion, live, onRecord, onView }: {
   status: StatusKey; current: ContractRecord | undefined; renewalDate: string | null; daysToRenewal: number | null;
-  records: ContractRecord[]; opps: Opportunity[]; expansionHref: string; clientId: string | null; today: string; canEdit: boolean; showExpansion: boolean;
+  records: ContractRecord[]; opps: Opportunity[]; expansionHref: string; clientId: string | null; today: string; canEdit: boolean; showExpansion: boolean; live: boolean;
   onRecord: (kind: Kind, opportunityId?: string) => void; onView: (id: string) => void;
 }) {
   const { money } = useMoney();
@@ -702,7 +708,9 @@ function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps,
         ) : (
           <>
             <p>Not churned{current ? ` · ${money(contractValueUSD(current))} contract in force` : ""}.</p>
-            <p>Recording churn ends the contract in this history from the date you pick, with its reasons. During the preview it does not change the account&apos;s live status or ARR, and does not close open opportunities.</p>
+            <p>{live
+              ? "Recording churn marks the account churned from the date you pick, takes its ARR to zero, and closes any open expansion opportunities as lost."
+              : "Recording churn ends the contract in this history from the date you pick, with its reasons. During the preview it does not change the account's live status or ARR, and does not close open opportunities."}</p>
             {canEdit && <LoopButton onClick={() => onRecord("churn")} quiet>Record churn</LoopButton>}
           </>
         )}
@@ -1055,7 +1063,7 @@ function RecordCardView({ r, before, after, open, onToggle, onUpdate, dirty, foo
           {fromHubspot && (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-bg-subtle px-3 py-2 font-body text-[12.5px] text-fg-muted">
               <Lock size={13} className="shrink-0" />
-              <span className="flex-1">Closed Won in HubSpot{r.channel ? ` via ${r.channel}` : ""}. Amount, licences, price and currency are HubSpot&apos;s and can&apos;t be changed here; change them in HubSpot. During the preview they are copied in by the import and are not refreshed by the sync yet. Modules, global library, service levels and dates are set here by CS.</span>
+              <span className="flex-1">Closed Won in HubSpot{r.channel ? ` via ${r.channel}` : ""}. Amount, licences, price and currency are HubSpot&apos;s and can&apos;t be changed here; change them in HubSpot. They are refreshed on every HubSpot sync. Modules, global library, service levels and dates are set here by CS.</span>
               {r.hubspotUrl && (
                 <a className="inline-flex items-center gap-1 font-semibold text-sirius hover:underline" href={r.hubspotUrl} target="_blank" rel="noreferrer">
                   Open in HubSpot <ExternalLink size={12} />

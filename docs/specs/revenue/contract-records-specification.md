@@ -17,8 +17,14 @@ from its contract records.
 | HubSpot (every Closed Won channel: Direct, Indirect, Jisr, FutureX, Tamkeen) | A sale's amount, licences, user price, complementary licences, closed-won date, Account Executive, currency |
 | CS, in Signal | Modules, modules the rollout starts with, global library (per provider: licences, start, expiry; "None" is a decision), support level and annual support amount, implementation level, AI course credits, contract start/end and renewal date, milestones, every renewal / expansion / downgrade / churn |
 
-Where HubSpot left a sale's money field blank, CS's value fills it. Where both have a
-value and they differ, HubSpot's is used and the difference is flagged at import.
+Where CS had already edited a sale's money field in Signal (a deal override), **the value
+CS entered is used** and the difference from HubSpot is flagged. Those edits are how
+expansions and corrections were recorded before contract records existed — for example a
+sale's user count raised to the total after its expansions — so they are the contract as
+it stands. *(Changed 2026-10-13 on the product owner's correction. HubSpot's value used to
+win, which showed Bank of Bahrain & Kuwait at its original 410 users instead of the 660 it
+has after expansions.)* A sale CS never edited takes HubSpot's values, and the HubSpot sync
+keeps them refreshed (§10).
 HubSpot's deal amount does **not** include support (confirmed 2026-10-08).
 
 ## 2. ARR
@@ -124,14 +130,16 @@ accounts $54,454 still counted today → $0.
    Contracts & deals card, which stays one click away.*
 3. **Status** — from records; manual status with reason and expiry; churn flow. *Partly
    built, inside the preview only (§8.2, §8.3): the status rules (`lib/contracts/status.ts`,
-   tested) and a status set by hand. Not built: making it the account's live status, and
-   the churn flow that closes open Expansion opportunities.*
+   tested) and a status set by hand. Both become the account's live status, and a churn
+   closes open Expansion opportunities, once the switch is on (§10).*
 4. **Expansion page Won → contract record.** *Built (§3). The Won form does not ask for
    licences or a separate start date; those are filled in on the record.*
-5. **Switch** — run both ARRs side by side for 2–4 weeks, then switch Today, Clients and
-   Insights, and stop syncing the HubSpot CS pipeline. *The side-by-side page is built
-   (§9). The switch itself, the churn flow that closes open Expansion opportunities, and
-   stopping the CS-pipeline sync are not built.*
+5. **Switch** — run both ARRs side by side, then switch Today, Clients and Insights. *Built
+   behind an off switch (§10): the side-by-side page (§9), the switch, live numbers from
+   records, the churn flow, and the HubSpot sync keeping sale records in step. Not done:
+   removing the HubSpot CS pipeline from the sync (its deals stop mattering for an account
+   with records once the switch is on, but are still fetched), and a "Renewal overdue"
+   value on the client row.*
 
 ## 8. The contract tab (phase 2, preview)
 
@@ -292,7 +300,11 @@ The first rule that fails is returned as the error message.
 Further refusals in the actions: a voided record cannot be edited or voided again; a void
 needs a reason; a HubSpot sale cannot be voided.
 
-### 8.5 What the preview deliberately does not do yet
+### 8.5 What the tab does not do while the switch is off
+
+Everything in this section describes the tab **before** the switch (§10) is turned on. Once
+it is on, the account's ARR, status and renewal date follow these records, and a churn
+recorded here closes the account's open Expansion opportunities.
 
 - **It changes nothing outside this tab.** The account's live ARR, status and renewal date
   on Today, Clients, the client profile, Insights and reports still come from HubSpot
@@ -347,3 +359,79 @@ linked from the contract tab's preview banner and is not in the Insights tabs.
   records side, so an overdue account always shows as a status difference. ARR from records
   is `arrOn` (§2) and status is `statusFromRecords` (§4), both as of today. A status set by
   hand is not applied here: the page compares what the records themselves give.
+
+## 10. The switch — Signal reads contract records (phase 5)
+
+**Status:** Partially verified. The rules are tested (`lib/contracts/live.test.ts`,
+`compare.test.ts`, `import.test.ts`). The switch was turned on and off by hand on the test
+DB on 2026-10-13 (below). It is **off in production** until a super admin turns it on.
+
+### 10.1 What it is
+
+A workspace setting (`workspace_config` key `contract_records_live`), off by default,
+turned on or off by a super admin from the top of the Contract check page
+(`SwitchControl.tsx` and `actions.ts` under `app/(app)/reports/contract-check`). The action
+checks super admin on the server, stores who flipped it and when, and re-materializes every
+account, so the numbers follow at once. Turning it off restores exactly the deal-based
+numbers: the deals are never changed.
+
+### 10.2 What changes when it is on
+
+`recomputeClient` (`lib/repo/drizzle.ts`) is the one place an account's ARR, previous ARR,
+renewal date and status are written, and everything else (Today, Clients, Insights,
+reports) reads those. With the switch on, an account **that has contract records** gets
+them from `liveFromRecords` (`lib/contracts/live.ts`):
+
+- **ARR** — the ledger as of today (§2). **Zero once churned**, whatever a churn record's
+  amount says.
+- **Previous ARR** — the ledger as of the first day of the current quarter.
+- **Renewal date** — of the contract in force, or of a renewal already recorded for the
+  term after it. None once churned.
+- **Status** — from the records (§4), with a status set by hand applied. The client row
+  has no "Renewal overdue" value, so an overdue account is stored as **Renewal due**; the
+  contract tab still shows it as overdue.
+- An account marked churned with the old "Mark as churned" button stays churned with zero
+  ARR even if it has no churn record.
+- An account with **no** contract records keeps its deal-based numbers.
+- Every contract-tab write (record, edit, void, status by hand) and every Expansion-page
+  win or removal re-materializes the account straight away.
+- **Churn:** recording a churn on the contract tab closes the account's open Expansion
+  opportunities as lost with the reason "Account churned" (`lib/contracts/churn-close.ts`)
+  and says how many it closed.
+- Edits on the old Contracts & deals card no longer move the numbers of an account that has
+  records.
+
+If the switch or the records can't be read, the recompute **fails and leaves the row as it
+was**. It never falls back to deals: a database hiccup must not make numbers flap between
+the two sources.
+
+### 10.3 HubSpot sync and sale records (on or off)
+
+After every HubSpot deal sync, `syncSaleContractRecords` (`lib/repo/drizzle.ts`, rule
+`planSaleSync` in `lib/contracts/import.ts`) keeps each account's **sale** records in step
+with its Direct / Indirect deals: a Closed Won sale with no record gets one, and an
+existing sale record has its HubSpot-owned fields refreshed (name, amount, licences,
+complementary licences, user price — the CS-entered value where CS had edited the deal,
+§1). Nothing CS owns is touched; renewals, expansions and churn are never created by the
+sync. It is logged in `contract_audit` (`hubspot_sync`) and never fails the sync.
+
+### 10.4 Contract check after the change
+
+The records side of the page is now exactly what the switch gives: a churned account
+compares as zero ARR, and "Renewal overdue" counts as the same status as "Renewal due".
+With the switch on, every account with records shows no difference.
+
+### 10.5 Checked by hand (test DB, 2026-10-13, as a super admin)
+
+- Turned on: 132 accounts updated; live ARR equalled ARR from records; churned accounts $0;
+  the page showed 0 differences.
+- Recorded a churn on an account with one open opportunity: the account became churned
+  with $0 ARR and no renewal date, and the opportunity was closed lost, "Account churned".
+- Turned off: live ARR returned to the exact earlier figure ($1,263,018) and churned
+  accounts to $54,454.
+- Re-ran the import with the §1 rule: Bank of Bahrain & Kuwait took the CS-entered users
+  and amount.
+
+Not exercised: a real HubSpot sync writing a new sale record (rule tested only); the
+refusal for non-super-admins (read in code); the 30-second cache across several server
+instances; behaviour under production load.

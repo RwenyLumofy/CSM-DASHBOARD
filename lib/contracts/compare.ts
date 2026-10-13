@@ -4,9 +4,13 @@
    (app/(app)/reports/contract-check) while both run in parallel, before the
    switch-over. Pure, tested in compare.test.ts.
 
-   ARR differs when the two are more than a dollar apart. Status differs when
-   the labels differ; "Renewal overdue" exists only on the records side, so an
-   overdue account always shows as a difference — that is the point of it.
+   The records side is what the switch would give the account
+   (lib/contracts/live.ts): a churned account is zero ARR whatever its churn
+   record's amount says, and "Renewal overdue" — which the client row can't
+   store — counts as the same status as "Renewal due". So after the switch an
+   account with records shows no difference here.
+
+   ARR differs when the two are more than a dollar apart.
    ========================================================================= */
 
 import { arrOn } from "./ledger";
@@ -29,12 +33,12 @@ export interface CompareRow {
 }
 
 export function compareAccount(client: { id: string; name: string; status: string; arr: number }, records: ContractView[], today: string): CompareRow {
-  const recordArr = arrOn(records, today);
   const recordStatus = statusFromRecords(records, today).key;
+  const recordArr = recordStatus === "churned" ? 0 : arrOn(records, today);
   const arrDiff = recordArr - client.arr;
   return {
     id: client.id, name: client.name, liveArr: client.arr, recordArr, arrDiff, arrDiffers: Math.abs(arrDiff) > 1,
-    liveStatus: client.status, recordStatus, statusDiffers: recordStatus !== client.status,
+    liveStatus: client.status, recordStatus, statusDiffers: (recordStatus === "overdue" ? "renewal" : recordStatus) !== client.status,
     counted: records.filter((r) => r.counted !== false).length, total: records.length,
   };
 }

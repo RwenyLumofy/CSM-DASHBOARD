@@ -27,10 +27,18 @@ test("support on the record, a voided record and a churn all show in the compari
   assert.equal(churned.statusDiffers, false);
 });
 
-test("an overdue renewal is a status difference, since today's status has no such label", () => {
+test("an overdue renewal matches an account shown as Renewal due, and differs from one shown as Active", () => {
   const row = compareAccount({ id: "a", name: "A", status: "active", arr: 10000 }, [rec({})], "2027-02-01");
   assert.equal(row.recordStatus, "overdue");
   assert.equal(row.statusDiffers, true);
+  assert.equal(compareAccount({ id: "a", name: "A", status: "renewal", arr: 10000 }, [rec({})], "2027-02-01").statusDiffers, false);
+});
+
+test("a churned account compares as zero ARR even when its churn record is for less than the contract", () => {
+  const row = compareAccount({ id: "a", name: "A", status: "churned", arr: 0 },
+    [rec({}), rec({ id: "c", kind: "churn", amount: 4000, start: "2026-05-01", renewal: null, end: null, milestones: {} })], today);
+  assert.equal(row.recordArr, 0);
+  assert.equal(row.arrDiffers, false);
 });
 
 test("totals split live and churned accounts; review order puts the biggest ARR gap first", () => {

@@ -70,17 +70,20 @@ test("a churned account with no churn date still ends at zero", () => {
   assert.ok(flags.some((f) => f.includes("no churn date")));
 });
 
-test("HubSpot owns a sale's amount: a CS edit is flagged, not imported", () => {
+test("a value CS entered on a sale wins over HubSpot's, and the difference is flagged", () => {
+  // How expansions were recorded before contract records: CS raised the sale's users and amount.
   const { records, flags } = buildContractRecords({
-    client: client({ properties: { __deal_overrides: { "hs-deal-1": { amount: 50_000, products: ["Develop"], supportLevel: "Level 2" } } } }),
-    deals: [deal({ hubspotDealId: "1", amount: 48_000, contractStartDate: "2026-01-15" })],
+    client: client({ properties: { __deal_overrides: { "hs-deal-1": { amount: 50_000, numberOfUsers: 660, products: ["Develop"], supportLevel: "Level 2" } } } }),
+    deals: [deal({ hubspotDealId: "1", amount: 48_000, numberOfUsers: 410, contractStartDate: "2026-01-15" })],
     wonOpportunities: [],
   });
   const sale = records[0];
-  assert.equal(sale.amount, 48_000);
-  assert.deepEqual(sale.modules, ["Develop"]); // CS-owned edits carry over
+  assert.equal(sale.amount, 50_000);
+  assert.equal(sale.licences, 660);
+  assert.deepEqual(sale.modules, ["Develop"]);
   assert.equal(sale.supportLevel, "Level 2");
   assert.ok(flags.some((f) => f.includes("amount is 50000 in Signal but 48000 in HubSpot")));
+  assert.ok(flags.some((f) => f.includes("numberOfUsers is 660 in Signal but 410 in HubSpot")));
 });
 
 test("a CS value fills a money field HubSpot left blank, without a flag", () => {
@@ -137,4 +140,18 @@ test("a re-run keeps imported records a person has edited or voided, and replace
   assert.deepEqual(plan.deleteIds, ["ctr-hs-1", "ctr-hs-9"]);
   assert.deepEqual(plan.insert.map((r) => r.id), ["ctr-hs-1", "ctr-hs-4"]);
   assert.deepEqual(plan.kept, ["ctr-hs-2", "ctr-exp-3"]);
+});
+
+test("a deal sync adds a new sale and refreshes only what HubSpot owns on an existing one", async () => {
+  const { planSaleSync } = await import("./import");
+  const sale = (id: string, over: Record<string, unknown> = {}) => ({ id, kind: "sale", name: "Sale", amount: 1000, licences: 10, complementary: null, pricePerUser: 100, ...over } as Parameters<typeof planSaleSync>[1][number]);
+  const plan = planSaleSync(
+    [
+      { id: "ctr-hs-1", name: "Sale", amount: 1000, licences: 10, complementary: null, pricePerUser: 100 }, // unchanged
+      { id: "ctr-hs-2", name: "Sale", amount: 1000, licences: 10, complementary: null, pricePerUser: 100 }, // HubSpot raised it
+    ],
+    [sale("ctr-hs-1"), sale("ctr-hs-2", { amount: 1500, licences: 15 }), sale("ctr-hs-3"), sale("ctr-hs-9", { kind: "renewal" })],
+  );
+  assert.deepEqual(plan.insert.map((r) => r.id), ["ctr-hs-3"]);
+  assert.deepEqual(plan.updates, [{ id: "ctr-hs-2", patch: { amount: 1500, licences: 15 } }]);
 });

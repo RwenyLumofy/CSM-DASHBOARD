@@ -7,9 +7,14 @@
 
      - Direct / Indirect Closed Won deals become SALES owned by HubSpot. Their
        money fields (amount, licences, price, complementary) are HubSpot's
-       values. Where HubSpot left one blank, CS's value fills it in; where both
-       have a value and they differ, HubSpot's is used and the difference is
-       flagged for review.
+       values — EXCEPT where CS had already edited the deal in Signal. Those
+       edits are how expansions and corrections were recorded before contract
+       records existed (a sale's user count raised to the total after its
+       expansions), so the value CS entered is the contract as it stands and
+       it wins. The difference from HubSpot is flagged for review. (Changed
+       2026-10-13 on the product owner's correction: HubSpot's value used to
+       win, which showed Bank of Bahrain & Kuwait at its original 410 users
+       instead of the 660 it has after expansions.)
      - Modules, global library, service levels, AI credits and dates are owned
        by CS, so CS's edits (deal overrides) ARE carried over.
      - HubSpot CS-pipeline deals become Signal records marked "imported":
@@ -130,13 +135,13 @@ export function buildContractRecords({ client, deals, wonOpportunities }: Import
     const isSale = kind === "sale";
     // HubSpot owns a sale's money. A CS value only fills a field HubSpot left blank.
     const blank = (v: unknown) => v === null || v === undefined || v === "";
-    const pick = <K extends keyof Deal>(k: K): Deal[K] =>
-      (isSale ? (blank(deal[k]) && k in ov ? ov[k as string] : deal[k]) : (k in ov ? ov[k as string] : deal[k])) as Deal[K];
+    // A value CS entered on the deal wins over HubSpot's, for every kind (see the header).
+    const pick = <K extends keyof Deal>(k: K): Deal[K] => ((k in ov && !blank(ov[k as string]) ? ov[k as string] : deal[k]) as Deal[K]);
     const csOwned = <K extends keyof Deal>(k: K): Deal[K] => ((k in ov ? ov[k as string] : deal[k]) as Deal[K]);
     if (isSale) {
       for (const k of ["amount", "numberOfUsers", "pricePerUser", "complementaryLicenses"] as const) {
         if (k in ov && !blank(ov[k]) && !blank(deal[k]) && Number(ov[k]) !== Number(deal[k])) {
-          flags.push(`${deal.name ?? deal.id}: ${k} is ${String(ov[k])} in Signal but ${String(deal[k])} in HubSpot; HubSpot's value is used.`);
+          flags.push(`${deal.name ?? deal.id}: ${k} is ${String(ov[k])} in Signal but ${String(deal[k])} in HubSpot; the value CS entered in Signal is used.`);
         }
       }
     }
@@ -249,4 +254,35 @@ export function planImportWrite(
     insert: records.filter((r) => !keep.has(r.id)),
     kept,
   };
+}
+
+/** The HubSpot-owned fields of a sale that the sync keeps in step with the deal. */
+type SaleOwned = { name: string; amount: number; licences: number | null; complementary: number | null; pricePerUser: number | null };
+
+/**
+ * What a HubSpot deal sync writes for one account's SALES: a sale with no
+ * record yet is inserted; an existing sale record gets only the HubSpot-owned
+ * fields that changed. Records of any other kind, and everything CS owns on a
+ * sale, are never touched.
+ */
+export function planSaleSync(
+  existing: ({ id: string } & SaleOwned)[],
+  sales: ImportedRecord[],
+): { insert: ImportedRecord[]; updates: { id: string; patch: Partial<SaleOwned> }[] } {
+  const byId = new Map(existing.map((e) => [e.id, e]));
+  const insert: ImportedRecord[] = [];
+  const updates: { id: string; patch: Partial<SaleOwned> }[] = [];
+  for (const s of sales) {
+    if (s.kind !== "sale") continue;
+    const e = byId.get(s.id);
+    if (!e) { insert.push(s); continue; }
+    const patch: Partial<SaleOwned> = {};
+    if (e.name !== s.name) patch.name = s.name;
+    if (e.amount !== s.amount) patch.amount = s.amount;
+    if (e.licences !== s.licences) patch.licences = s.licences;
+    if (e.complementary !== s.complementary) patch.complementary = s.complementary;
+    if (e.pricePerUser !== s.pricePerUser) patch.pricePerUser = s.pricePerUser;
+    if (Object.keys(patch).length) updates.push({ id: s.id, patch });
+  }
+  return { insert, updates };
 }
