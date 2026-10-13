@@ -8,10 +8,8 @@
    database rather than taken from the request. A record id in a request is not
    proof of ownership.
 
-   PREVIEW: until the contract rework is switched on, the tab is visible to
-   super admins only, and these actions refuse everyone else — the page gate is
-   not the permission. Remove `previewGate` at the switch-over; `denyClientWrite`
-   stays.
+   Who may write: whoever may edit the account — its CSM, admins and super
+   admins (`denyClientWrite`). The tab was super admins only until 2026-10-13.
 
    What these writes do NOT do yet: they don't change the account's live ARR,
    status or renewal date, and a churn here does not close Expansion
@@ -20,7 +18,7 @@
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";
-import { denyClientWrite, getCurrentUserEmail, isSuperAdmin } from "@/lib/auth";
+import { denyClientWrite, getCurrentUserEmail } from "@/lib/auth";
 import { hasDatabase } from "@/lib/config";
 import { getChurnTaxonomy } from "@/lib/data";
 import { churnReasonIds } from "@/lib/metrics/churn-taxonomy";
@@ -44,10 +42,7 @@ export interface ContractActionResult {
 const GONE = "That record no longer exists, or you don't have access to it.";
 
 async function previewGate(): Promise<string | null> {
-  if (!hasDatabase()) return "The database isn't configured.";
-  // Deliberately the per-account sentence, so nobody can tell the preview exists.
-  if (!(await isSuperAdmin())) return "You don't have permission to edit this account.";
-  return null;
+  return hasDatabase() ? null : "The database isn't configured.";
 }
 
 /** Record a renewal, downgrade or churn on an account. */

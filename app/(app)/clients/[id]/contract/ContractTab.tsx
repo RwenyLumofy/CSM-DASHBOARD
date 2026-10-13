@@ -4,12 +4,16 @@
    The contract tab — an account's contract history, read from contract
    records (docs/specs/revenue/contract-records-specification.md).
 
-   PREVIEW (phase 2): super admins only. Saves here are real — they write
-   contract_records through ./actions.ts, audited — but nothing else in Signal
-   reads those records yet. The account's live ARR, status and renewal date
-   still come from HubSpot deals until the switch-over, and this screen says so
-   rather than implying otherwise. The status shown is what the records WOULD
-   give; a churn recorded here does not close Expansion opportunities yet.
+   PREVIEW, open to everyone who can see the account. Saves here are real —
+   they write contract_records through ./actions.ts, audited — but nothing else
+   in Signal reads those records yet. The account's live ARR, status and renewal
+   date still come from HubSpot deals until the switch-over, and this screen says
+   so rather than implying otherwise. A churn recorded here does not close
+   Expansion opportunities yet.
+
+   `canEdit` (the account's CSM, admins, super admins) only decides which
+   controls render; without it the same screen is read-only. The server actions
+   enforce the permission again.
 
    Only Closed Won sales come from HubSpot. Renewals, downgrades and churn are
    recorded here; expansions are recorded on the Expansion page, so every
@@ -128,10 +132,15 @@ export type ContractTabProps = {
   churnReasons: ChurnReasonOption[];
   /** The status set by hand on this account, if one is stored (it may have expired). */
   override: StatusOverride | null;
+  /** May this user change the account? Decides what renders; the actions enforce it. */
+  canEdit: boolean;
+  /** May this user see Expansion? Without it the Expansion card and links are left out. */
+  showExpansion: boolean;
+  superAdmin: boolean;
   today: string;
 };
 
-export function ContractTab({ client, records, opportunities: opps, churnReasons, override, today: startDay }: ContractTabProps) {
+export function ContractTab({ client, records, opportunities: opps, churnReasons, override, canEdit, showExpansion, superAdmin, today: startDay }: ContractTabProps) {
   const router = useRouter();
   const [saving, startSaving] = useTransition();
   const [displayCcy, setDisplayCcy] = useState<Currency>("USD");
@@ -212,11 +221,12 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
     <ReasonLabels.Provider value={reasonLabels}>
     <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-7 px-4 py-6 sm:px-8 sm:py-10">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-dashed border-border bg-surface px-4 py-3 font-body text-[12.5px] leading-relaxed text-fg-muted">
-        <Badge tone="sirius">Preview · super admins only</Badge>
+        <Badge tone="sirius">Preview</Badge>
         <span className="min-w-0 flex-1 basis-80">
           Saves here are real and logged, but nothing else in Signal reads these records yet. The account&apos;s live ARR
           (<b className="text-fg">{money(client.arr)}</b>), status (<b className="text-fg">{client.status}</b>) and renewal date still come from HubSpot deals.
-          {" "}<Link href="/reports/contract-check" className="font-semibold text-sirius hover:underline">See every account side by side</Link>
+          {!canEdit && <> You can view this account&apos;s contract; only its CSM and admins can change it.</>}
+          {superAdmin && <>{" "}<Link href="/reports/contract-check" className="font-semibold text-sirius hover:underline">See every account side by side</Link></>}
         </span>
         <label className="flex items-center gap-1.5">
           <span className="font-semibold">Show amounts in</span>
@@ -231,12 +241,12 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
         <Link href={`/clients/${encodeURIComponent(client.id)}`} className="eyebrow w-fit hover:text-sirius">← Client profile</Link>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="font-display text-2xl font-bold leading-tight text-fg">{client.name}</h1>
-          <StatusControl status={status.key} auto={status.auto} manual={status.override} saving={saving}
+          {!canEdit ? <StatusPill status={status.key} /> : <StatusControl status={status.key} auto={status.auto} manual={status.override} saving={saving}
             onSave={(next, reason) => {
               if (next === "churned") { openDrawer("churn"); return; } // churn needs a date and reasons
               if (next === "auto") run(() => clearStatusOverrideAction(client.id), "Status returned to automatic.");
               else run(() => setStatusOverrideAction(client.id, next, reason), `Status set to ${STATUS[next].label} for ${OVERRIDE_DAYS} days.`);
-            }} />
+            }} />}
           <span className="font-body text-[11.5px] text-fg-subtle">{status.override ? "set by hand · contract tab only" : "from contract records"}</span>
         </div>
       </header>
@@ -261,7 +271,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
           {daysToRenewal != null && (
             <span className={cn("font-body text-[12px] font-semibold", daysToRenewal <= 90 ? "text-warning-fg" : "text-fg-subtle")}>
               {daysToRenewal >= 0 ? `In ${daysToRenewal} days` : `${-daysToRenewal} days overdue`}
-              {current && <> · <button onClick={() => viewRecord(current.id)} className="text-sirius hover:underline">Change on the contract</button></>}
+              {current && <> · <button onClick={() => viewRecord(current.id)} className="text-sirius hover:underline">{canEdit ? "Change on the contract" : "See the contract"}</button></>}
             </span>
           )}
         </div>
@@ -269,7 +279,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
 
       <OpenLoops
         status={status.key} current={current} renewalDate={renewalDate} daysToRenewal={daysToRenewal}
-        records={records} opps={opps} expansionHref={expansionAccountHref} clientId={client.id} today={today}
+        records={records} opps={opps} expansionHref={expansionAccountHref} clientId={client.id} today={today} canEdit={canEdit} showExpansion={showExpansion}
         onRecord={(kind) => openDrawer(kind)} onView={viewRecord}
       />
 
@@ -281,7 +291,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
             <div className="font-display text-sm font-bold text-fg">Contracts &amp; deals</div>
             <div className="caption">Every change to this account&apos;s contract, newest first. Each one moves ARR.</div>
           </div>
-          <div className="relative">
+          {canEdit && <div className="relative">
             <button
               onClick={() => setMenu((m) => !m)}
               className="inline-flex items-center gap-1.5 rounded-sm border border-sirius bg-sirius px-3.5 py-2 font-body text-[13px] font-semibold text-white transition-colors hover:bg-accent-hover"
@@ -293,6 +303,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
                 {(["renewal", "expansion", "downgrade", "churn"] as Kind[]).map((k) => {
                   const Icon = KIND[k].icon;
                   // Expansions are recorded in one place: the Expansion module.
+                  if (k === "expansion" && !showExpansion) return null;
                   if (k === "expansion") return (
                     <Link key={k} href={expansionAccountHref}
                       className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left font-body text-[13px] text-fg transition-colors hover:bg-bg-subtle">
@@ -313,7 +324,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
                 </div>
               </div>
             )}
-          </div>
+          </div>}
         </div>
 
         <div className="flex flex-wrap gap-1.5 px-5 pt-4">
@@ -330,7 +341,7 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
         <ol className="flex flex-col gap-3 p-5">
           {shown.length === 0 && <li className="rounded-lg border border-dashed border-border px-4 py-6 text-center font-body text-[13px] text-fg-subtle">Nothing recorded of this type yet.</li>}
           {shown.map(({ r, before, after }) => (
-            <RecordCard key={r.id} r={r} before={before} after={after} open={openId === r.id} saving={saving}
+            <RecordCard key={r.id} r={r} before={before} after={after} open={openId === r.id} saving={saving} canEdit={canEdit}
               onToggle={() => setOpenId((o) => (o === r.id ? null : r.id))}
               onSave={(patch) => run(() => updateContractRecordAction(r.id, patch), `Saved ${r.name}.`)}
               onVoid={(reason) => run(() => voidContractRecordAction(r.id, reason), `Voided ${r.name}.`)} />
@@ -572,9 +583,9 @@ function StatusPanel({ records, status, today, realToday, onToday }: {
 
 /** The renewal, expansion and churn work that's open on this account, where each
  *  one lives in Signal today, and the contract record that closes it. */
-function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps, expansionHref, clientId, today, onRecord, onView }: {
+function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps, expansionHref, clientId, today, canEdit, showExpansion, onRecord, onView }: {
   status: StatusKey; current: ContractRecord | undefined; renewalDate: string | null; daysToRenewal: number | null;
-  records: ContractRecord[]; opps: Opportunity[]; expansionHref: string; clientId: string | null; today: string;
+  records: ContractRecord[]; opps: Opportunity[]; expansionHref: string; clientId: string | null; today: string; canEdit: boolean; showExpansion: boolean;
   onRecord: (kind: Kind, opportunityId?: string) => void; onView: (id: string) => void;
 }) {
   const { money } = useMoney();
@@ -610,7 +621,7 @@ function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps,
                 </li>
               ))}
             </ul>
-            {done < items.length && <LoopButton onClick={() => onView(setupFor.id)}>Complete setup</LoopButton>}
+            {done < items.length && <LoopButton onClick={() => onView(setupFor.id)} quiet={!canEdit}>{canEdit ? "Complete setup" : "See the contract"}</LoopButton>}
           </Loop>
         );
       })()}
@@ -628,7 +639,7 @@ function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps,
             </p>
             {renewedNow ? (
               <LoopButton onClick={() => onView(renewedNow.id)} quiet>View the renewal record</LoopButton>
-            ) : (
+            ) : canEdit && (
               <div className="flex flex-wrap gap-1.5">
                 <LoopButton onClick={() => onRecord("renewal")}>Record renewal (1–5 years)</LoopButton>
                 <LoopButton onClick={() => onRecord("downgrade")} quiet>Downgrade</LoopButton>
@@ -640,7 +651,7 @@ function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps,
       </Loop>
 
       {/* Expansion */}
-      <Loop title="Expansion" icon={TrendingUp} where={`Expansion page · ${opps.length} opportunit${opps.length === 1 ? "y" : "ies"} for this account`} href={expansionHref} linkLabel="Open on Expansion"
+      {showExpansion && <Loop title="Expansion" icon={TrendingUp} where={`Expansion page · ${opps.length} opportunit${opps.length === 1 ? "y" : "ies"} for this account`} href={expansionHref} linkLabel="Open on Expansion"
         state={open.length ? "open" : won.length ? "done" : "none"}>
         {opps.length === 0 && <p>No opportunities on the Expansion page for this account.</p>}
         <ul className="flex flex-col gap-1.5">
@@ -657,7 +668,7 @@ function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps,
                   <span className="rounded-pill bg-bg-muted px-2 py-0.5 text-[11px] font-semibold text-fg-muted">{STAGE_LABEL[o.stage] ?? o.stage}{o.expectedArr ? ` · ${money(o.expectedArr)}` : ""}</span>
                 )}
 
-                {!churned && o.stage !== "closed"
+                {!churned && canEdit && o.stage !== "closed"
                   ? <LoopLink href={`/expansion?opportunity=${encodeURIComponent(o.id)}`}>Mark won on Expansion</LoopLink>
                   : <LoopLink href={`/expansion?opportunity=${encodeURIComponent(o.id)}`} quiet>Open on Expansion</LoopLink>}
                 {rec && <LoopButton onClick={() => onView(rec.id)} quiet>View record</LoopButton>}
@@ -672,7 +683,7 @@ function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps,
             Same opportunities on the client profile&apos;s Expansion card <ExternalLink size={11} />
           </Link>
         )}
-      </Loop>
+      </Loop>}
 
       {/* Churn */}
       <Loop title="Churn" icon={UserX} where="Client profile status · Churn report" href="/reports/churn" linkLabel="Open Churn report"
@@ -688,7 +699,7 @@ function OpenLoops({ status, current, renewalDate, daysToRenewal, records, opps,
           <>
             <p>Not churned{current ? ` · ${money(contractValueUSD(current))} contract in force` : ""}.</p>
             <p>Recording churn ends the contract in this history from the date you pick, with its reasons. During the preview it does not change the account&apos;s live status or ARR, and does not close open opportunities.</p>
-            <LoopButton onClick={() => onRecord("churn")} quiet>Record churn</LoopButton>
+            {canEdit && <LoopButton onClick={() => onRecord("churn")} quiet>Record churn</LoopButton>}
           </>
         )}
       </Loop>
@@ -916,8 +927,8 @@ function Select({ options, value, onChange }: { options: string[]; value: string
 
 /** A record in the contract history. Edits go into a draft and only apply on Save,
  *  which sends just the fields that changed. */
-function RecordCard({ r, before, after, open, saving, onToggle, onSave, onVoid }: {
-  r: ContractRecord; before: number; after: number; open: boolean; saving: boolean; onToggle: () => void;
+function RecordCard({ r, before, after, open, saving, canEdit, onToggle, onSave, onVoid }: {
+  r: ContractRecord; before: number; after: number; open: boolean; saving: boolean; canEdit: boolean; onToggle: () => void;
   onSave: (patch: Partial<ContractFields> & { counted?: boolean }) => void; onVoid: (reason: string) => void;
 }) {
   // Reset the draft only when the stored record really changes, not on every re-read,
@@ -932,7 +943,7 @@ function RecordCard({ r, before, after, open, saving, onToggle, onSave, onVoid }
     ...((draft.counted !== false) !== (r.counted !== false) ? { counted: draft.counted !== false } : {}),
   };
   const dirty = Object.keys(patch).length > 0;
-  const footer = r.voided ? null : (
+  const footer = r.voided || !canEdit ? null : (
     <>
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border-subtle pt-3 font-body text-[12.5px] text-fg-muted">
         <label className="inline-flex cursor-pointer items-center gap-2">
@@ -965,7 +976,7 @@ function RecordCard({ r, before, after, open, saving, onToggle, onSave, onVoid }
     </>
   );
   return (
-    <RecordCardView r={draft} before={before} after={after} open={open} onToggle={onToggle} dirty={dirty}
+    <RecordCardView r={draft} before={before} after={after} open={open} onToggle={onToggle} dirty={dirty} readOnly={!canEdit || !!r.voided}
       onUpdate={(p) => setDraft((d) => ({ ...d, ...p }))} footer={footer} />
   );
 }
@@ -982,9 +993,11 @@ function NumCell({ label, value, onChange, prefix }: { label: string; value: num
   );
 }
 
-function RecordCardView({ r, before, after, open, onToggle, onUpdate, dirty, footer }: {
+function RecordCardView({ r, before, after, open, onToggle, onUpdate, dirty, footer, readOnly }: {
   r: ContractRecord; before: number; after: number; open: boolean; onToggle: () => void; onUpdate: (p: Partial<ContractRecord>) => void;
   dirty: boolean; footer: React.ReactNode;
+  /** Fields are shown but can't be changed (no edit right, or a voided record). */
+  readOnly: boolean;
 }) {
   const { money, signedMoney, recordMoney } = useMoney();
   const k = KIND[r.kind];
@@ -1034,7 +1047,7 @@ function RecordCardView({ r, before, after, open, onToggle, onUpdate, dirty, foo
       </button>
 
       {open && (
-        <div className="border-t border-border-subtle px-4 pb-4 pt-3">
+        <fieldset disabled={readOnly} className="min-w-0 border-0 border-t border-border-subtle px-4 pb-4 pt-3">
           {fromHubspot && (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-bg-subtle px-3 py-2 font-body text-[12.5px] text-fg-muted">
               <Lock size={13} className="shrink-0" />
@@ -1145,7 +1158,7 @@ function RecordCardView({ r, before, after, open, onToggle, onUpdate, dirty, foo
             </div>
           )}
           {footer}
-        </div>
+        </fieldset>
       )}
     </li>
   );

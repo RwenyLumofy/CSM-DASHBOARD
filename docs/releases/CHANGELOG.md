@@ -16,6 +16,18 @@ limitations · commit.
 
 ---
 
+## 2026-10-13
+
+### Contract tab (preview): open to everyone who can see the account
+**Area:** Client Profile → `/clients/<id>/contract`, and the link to it on the client profile.
+**Roles affected:** Everyone. Before, only super admins could open or change it.
+**Before:** The page was a 404 unless the user was a super admin, and every write was refused for anyone else.
+**After:** Anyone who can see an account can open its contract tab from the link "Open the new contract tab · preview". The account's CSM, admins and super admins can edit records, record a renewal, downgrade or churn, void, and set the status by hand. Everyone else sees the same screen read-only. The Expansion card and links are left out for roles that can't see Expansion. The Contract check page stays super admins only.
+**Migration / data impact:** None.
+**Known limitations:** Still a preview: live ARR, status and renewal date come from HubSpot deals, and a churn recorded here does not close Expansion opportunities.
+**Verified:** Implementation read (`page.tsx`, `actions.ts`, `ContractTab.tsx` under `app/(app)/clients/[id]/contract`). Checked by hand on the test DB as a super admin, and with the read-only view forced locally. Not exercised with a real CSM, guest or out-of-scope sign-in; those gates are read in code only.
+**Docs:** [Contract records — specification §8.1](../specs/revenue/contract-records-specification.md#81-where-it-is-and-who-can-open-it) · [Client Profile → Contract tab (preview)](../product/client-profile/README.md#contract-tab-preview).
+
 ## 2026-10-12
 
 ### Contract check: every account's ARR and status today beside what its contract records give
@@ -109,7 +121,7 @@ edited a HubSpot sale's support amount and one-time fee (blank fee label refused
 3-year renewal (ARR stays the annual value, not summed), voided it, recorded a churn (ARR from
 records → 0), audit rows written. The page, actions and gates have no automated test.
 **Docs:** [Contract records — specification §8](../specs/revenue/contract-records-specification.md#8-the-contract-tab-phase-2-preview) ·
-[Client Profile → Contract tab (preview)](../product/client-profile/README.md#contract-tab-preview--super-admins-only).
+[Client Profile → Contract tab (preview)](../product/client-profile/README.md#contract-tab-preview).
 
 ## 2026-10-08
 

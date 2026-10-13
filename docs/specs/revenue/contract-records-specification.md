@@ -1,11 +1,10 @@
 # Contract records — specification
 
-**Status:** Phase 1 built (tables, import, comparison). Phase 2 built as a **preview for
-super admins only** (the contract tab, §8). Neither is in production yet: phase 1 is in an
-open PR and phase 2 depends on it. Outside the preview tab, nothing in Signal reads contract
-records — live ARR, status and renewal date still come from HubSpot deals.
-**Owner:** Product (Mahmood Malik) · **Decided:** 2026-10-04 → 2026-10-08
-**Prototype:** `/scratch-contracts` (local only, sample and real accounts, read-only)
+**Status:** Phases 1–4 and the side-by-side page are built and merged. The contract tab
+(§8) is a **preview open to everyone who can see the account** (since 2026-10-13; super
+admins only before). Outside the contract tab and the contract check page, nothing in
+Signal reads contract records — live ARR, status and renewal date still come from HubSpot
+deals.
 
 ## 1. The rule
 
@@ -116,8 +115,8 @@ accounts $54,454 still counted today → $0.
 1. **Foundations** — tables, import, comparison. *Built.*
 2. **Contract tab** — replaces Contracts & deals: history, Save on every edit, renewals
    (1–5 years, ARR per year), support, one-time fees, currencies, several libraries,
-   account setup checklist, open work. *Built as a preview for super admins only (§8). It
-   does not replace the Contracts & deals card yet; that card is unchanged.*
+   account setup checklist, open work. *Built as a preview, open to everyone who can see the
+   account (§8). It does not replace the Contracts & deals card yet; that card is unchanged.*
 3. **Status** — from records; manual status with reason and expiry; churn flow. *Partly
    built, inside the preview only (§8.2, §8.3): the status rules (`lib/contracts/status.ts`,
    tested) and a status set by hand. Not built: making it the account's live status, and
@@ -141,18 +140,26 @@ read end to end but have no test. Checked by hand on the test database on 2026-1
 
 - **Route:** `/clients/<id>/contract`
   (`app/(app)/clients/[id]/contract/page.tsx`, screen in `ContractTab.tsx`).
-- **Way in:** a link on the client profile, "Preview the new contract tab · super admins
-  only", rendered only for super admins (`app/(app)/clients/[id]/page.tsx`). There is no
-  sidebar entry.
-- **Read gate (server):** the page returns a 404 unless a database is configured **and**
-  the user is a super admin (`isSuperAdmin`). Everyone else, including admins and the
-  account's own CSM, gets the same 404 as a page that does not exist.
-- **Write gate (server):** every action in `app/(app)/clients/[id]/contract/actions.ts`
-  checks two things: the preview gate (database configured, super admin) and then
-  `denyClientWrite` on the record's **own** account, looked up from the database by record
-  id, not taken from the request. A non-super-admin is refused with the ordinary
-  "You don't have permission to edit this account." The preview gate is to be removed at
-  the switch-over; `denyClientWrite` stays.
+- **Way in:** a link on the client profile, "Open the new contract tab · preview"
+  (`app/(app)/clients/[id]/page.tsx`), shown to everyone who can open the profile. There
+  is no sidebar entry.
+- **Read gate (server):** the account's own visibility. The page loads the account with
+  the scoped `getClientById`, so an account the user can't see is a 404, as is a missing
+  database. *(Changed 2026-10-13 on the product owner's instruction — it was super admins
+  only.)*
+- **Who can change things:** whoever may edit the account — its CSM, admins and super
+  admins (`canEditClient`). Everyone else sees the same screen **read-only**: no Set
+  status, no Record change, no Save or Void, and the fields in an open record are disabled.
+  That only decides what renders; every action in
+  `app/(app)/clients/[id]/contract/actions.ts` checks `denyClientWrite` on the record's
+  **own** account, looked up from the database by record id, not taken from the request.
+- **Expansion:** the Expansion card, its links and the account's opportunities are passed
+  only to roles that may see Expansion (`canSeeExpansion`; not guests). Expansion records
+  already in the history are listed for everyone, as expansion deals are on the Contracts &
+  deals card.
+- **Checked:** by hand on the test DB on 2026-10-13, as a super admin (editing view) and
+  with the read-only view forced locally. A real sign-in as a CSM, a guest or a user
+  without access to the account was not exercised; those gates are read in code only.
 - **Tables missing:** if `contract_records` cannot be read, the page shows "The contract
   tables don't exist in this database yet." and names the migration and the import to run.
   This is the state of production until phase 1 is deployed.

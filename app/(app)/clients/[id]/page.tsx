@@ -319,13 +319,11 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
              exists and assert there is nothing in it — and the second half
              would be a claim the guest is not entitled to. The read layer
              returns nothing to them regardless. ─────────────────────────── */}
-      {/* Preview of the contract rework (phase 2). The page itself 404s for anyone
-          who is not a super admin; this link is only the way in. */}
-      {superAdmin && (
-        <Link href={`/clients/${client.id}/contract`} className="w-fit font-body text-[12.5px] font-semibold text-sirius hover:underline">
-          Preview the new contract tab · super admins only
-        </Link>
-      )}
+      {/* The contract rework's new tab, a preview open to everyone who can see this
+          account. Editing there needs the same right as editing here. */}
+      <Link href={`/clients/${client.id}/contract`} className="w-fit font-body text-[12.5px] font-semibold text-sirius hover:underline">
+        Open the new contract tab · preview
+      </Link>
 
       {canSeeExpansion(role) && (
         <ClientExpansionCard

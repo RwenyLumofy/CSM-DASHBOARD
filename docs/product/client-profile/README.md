@@ -157,7 +157,7 @@ not `property_definitions` rows, and none of it counts towards profile completen
 category's storage key is generated once and never follows a rename. See
 [tech-stack](tech-stack.md).
 
-### Contract tab (preview · super admins only)
+### Contract tab (preview)
 
 **Status:** Partially verified (validation and draft-to-patch rules tested in
 `lib/contracts/validate.test.ts` and `lib/contracts/view.test.ts`; page, actions and gates
@@ -170,15 +170,17 @@ A preview of the screen that is planned to replace the Contracts & deals card. I
 
 - **Route:** `/clients/[id]/contract` (`app/(app)/clients/[id]/contract/page.tsx`, screen
   in `ContractTab.tsx` beside it). Outside the app's
-  navigation; the only way in is the link **Preview the new contract tab · super admins
-  only** on the client profile, which is rendered for super admins only.
-- **Who can open it:** super admins. The page returns a 404 for everyone else (admins and
-  the account's CSM included) and when no database is configured. Every write is checked
-  again on the server: super admin, then `denyClientWrite` on the record's own account
-  (`app/(app)/clients/[id]/contract/actions.ts`).
+  navigation; the way in is the link **Open the new contract tab · preview** on the client
+  profile.
+- **Who can open it:** everyone who can see the account *(since 2026-10-13; super admins
+  only before)*. An account the user can't see is a 404.
+- **Who can change things:** the account's CSM, admins and super admins. Everyone else
+  sees it read-only. Every write is checked again on the server with `denyClientWrite` on
+  the record's own account (`app/(app)/clients/[id]/contract/actions.ts`). The Expansion
+  card and links are left out for roles that can't see Expansion.
 - **What it reads:** the account's **contract records** (`contract_records`), not HubSpot
   deals. If the tables are not in the database, the page says so and stops.
-- **What it shows:** a preview banner; the status the records give, which a super admin can also set by hand with a reason for 30 days (it changes this tab only);
+- **What it shows:** a preview banner; the status the records give, which someone who can edit the account can also set by hand with a reason for 30 days (it changes this tab only);
   a summary with **ARR from records** beside the account's live ARR; **Open work** cards
   (Account setup checklist, Renewal, Expansion, Churn); and the contract history, newest
   first.
