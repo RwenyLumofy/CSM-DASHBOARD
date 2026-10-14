@@ -18,6 +18,16 @@ limitations · commit.
 
 ## 2026-10-13
 
+### Weekly export of the client list to a Notion database
+**Area:** Integrations → new scheduled job `/api/cron/notion-sync` · Settings → Integrations → new "Notion export" section.
+**Roles affected:** Super admins can run the export on demand with "Sync to Notion now". Everyone who can open the Integrations tab sees when it last ran. Whoever has access to the Notion database sees the result.
+**Before:** Signal wrote to no outside system. Getting the client list into Notion meant copying it by hand.
+**After:** Every Sunday at 05:00 UTC (08:00 Riyadh) each client, churned included, is written to a Notion database as one row: name, status, segment, CSM, implementation owner, ARR and currency, health score and status, start and renewal dates, domain, country, industry, tags and a link back to Signal. Rows are matched on Signal ID; existing rows are updated, new clients are added, nothing is deleted. Columns the team adds in Notion are left alone.
+**Migration / data impact:** No schema change. The id of the Notion database and the result of the last run are remembered in `workspace_config` (`notion_clients_database_id`, `notion_clients_last_sync`). Needs `NOTION_TOKEN` and `NOTION_PARENT_PAGE_ID` in the environment; without them the job reports "skipped" and does nothing.
+**Known limitations:** One direction only: edits made in Notion to a synced column are overwritten the next Sunday. CSM and implementation owner are text, not Notion people. Health columns are the previous day's. No alert if a run fails; the "Last synced" time in Settings is the only sign.
+**Verified:** `lib/integrations/notion-clients.test.ts` (7 tests) covers the row mapping. **Not yet run against a real Notion workspace**; the calls to Notion are read in code only. The Settings section has not been seen rendered in a browser.
+**Docs:** [Integrations — Weekly client export to Notion](../product/integrations/README.md#weekly-client-export-to-notion).
+
 ### Contract records can become Signal's source for ARR, status and renewal date (switch, off by default)
 **Area:** Insights → Contract check (the switch) · every account's ARR, status and renewal date · Contract tab · Expansion · HubSpot sync.
 **Roles affected:** Super admins turn the switch on or off. Once on, everyone sees the numbers it produces.

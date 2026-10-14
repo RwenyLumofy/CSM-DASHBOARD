@@ -8,6 +8,10 @@ Three read-only source systems feed Signal — HubSpot, Intercom and Metabase �
 for action wording and Supabase Storage for attachments. Seven Vercel Cron jobs keep the
 data current. **Signal never writes back to any of them.**
 
+One integration goes the other way: a weekly export of the client list **to Notion**
+(added 2026-10-13). It is the only outside system Signal writes to. See
+[Weekly client export to Notion](#weekly-client-export-to-notion).
+
 ## Purpose
 
 Signal's value is that the account book is assembled once, on a schedule, instead of by a
@@ -22,7 +26,8 @@ Super Admins configure and trigger. Everyone consumes the result.
 - **Route:** `/settings?tab=integrations`
 - **API:** `POST /api/sync` (bearer `SYNC_SECRET`), `GET /api/sync` (which sources are
   configured)
-- **Cron:** seven routes under `/api/cron/`
+- **Cron:** eight routes under `/api/cron/` — seven that bring data in, one that exports
+  to Notion
 
 ## The sources
 
@@ -33,6 +38,7 @@ Super Admins configure and trigger. Everyone consumes the result.
 | **Metabase** | Product usage — seats, active users, adoption, WAU/MAU stickiness, feature adoption | `METABASE_URL`, `METABASE_API_KEY`, `METABASE_USAGE_CARD_ID` | Yes |
 | **Gemini** | Rewrites Action list wording only | `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-2.5-flash`) | Optional — templates work without it |
 | **Supabase Storage** | Client attachment hosting | `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Optional |
+| **Notion** | Nothing — it is a destination. Receives the client list weekly | `NOTION_TOKEN` plus `NOTION_PARENT_PAGE_ID` or `NOTION_DATABASE_ID` | Optional — the job reports "skipped" without them |
 
 Each integration is **independently live**: add only the tokens you have, and the rest stays
 empty. `lib/config.ts` → `integrations` reports which are configured.
@@ -50,6 +56,7 @@ empty. `lib/config.ts` → `integrations` reports which are configured.
 | `0 7 * * *` | `/api/cron/profile-completeness` | Completeness sweep → notifications |
 | `0 8 * * *` | `/api/cron/client-actions` | Regenerate the Action list |
 | `0 9 * * *` | `/api/cron/client-health` | Recompute health |
+| `0 5 * * 0` | `/api/cron/notion-sync` | Export the client list to Notion (Sundays only) |
 
 **The README is stale here.** It describes three crons throttled to once a day by the
 Vercel Hobby plan and links to `VERCEL-PLAN-CHANGES.md`, **which does not exist in the
@@ -143,6 +150,52 @@ other new logo, so they get `new_business` ARR events and arrive unowned, counte
   — consistent with the qualification rule, since such a company meets it. Whether this
   catch-up is desired has not been confirmed with the team.
 
+## Weekly client export to Notion
+
+**Status:** Implementation read; the row mapping is unit-tested
+(`lib/integrations/notion-clients.test.ts`). **Not yet run against a real Notion
+workspace** — no token has been configured, so the create, match and update calls are
+unverified end to end.
+
+**What it does.** Every Sunday at 05:00 UTC (`vercel.json`), `/api/cron/notion-sync` writes
+one Notion row per Signal client — **all clients, churned included**
+(`lib/integrations/notion-sync.ts` → `syncClientsToNotion`). One direction only: nothing is
+read from Notion back into Signal.
+
+**Which database.** In order: `NOTION_DATABASE_ID` if set; otherwise the id remembered in
+`workspace_config` under `notion_clients_database_id`; otherwise a database titled "Signal
+clients" is created under `NOTION_PARENT_PAGE_ID` and its id remembered
+(`resolveDatabase`). The parent page must be shared with the Notion integration first.
+
+**Columns written** (`lib/integrations/notion-clients.ts`): Name, Signal ID, Status,
+Segment, CSM, Implementation owner, ARR, Currency, Health score, Health status, Start date,
+Renewal date, Domain, Country, Industry, Tags, Open in Signal, Last synced.
+
+**Rules:**
+
+- **Rows are matched on Signal ID, not name.** A renamed client updates its row.
+- **Synced columns are overwritten every run.** An edit made in Notion to one of the
+  columns above is lost the following Sunday.
+- **Other columns are never touched.** A column the team adds in Notion is not sent, so it
+  survives.
+- **Nothing is deleted.** A churned client's row has its Status updated. A client removed
+  from Signal keeps its row, which simply stops updating ("Last synced" shows when).
+- **CSM and Implementation owner are plain text names**, not Notion people.
+- **Health columns are the previous day's**, because the export runs before that day's
+  health recompute at 09:00 UTC.
+- **"Open in Signal" is empty when `NEXT_PUBLIC_APP_URL` is unset.**
+- **One failing row does not stop the run.** The response counts created, updated, failed
+  and remaining, with up to ten error messages.
+
+**In Settings → Integrations** (`components/settings/NotionSyncManager.tsx`). A "Notion
+export" section shows when the export last ran (in UTC), how many clients were updated,
+added, failed or not reached, and a link to the database once one exists. The last run is
+recorded in `workspace_config` under `notion_clients_last_sync`, whether the cron or the
+button started it. Everyone who can open the tab sees the status. **Only super admins see
+the "Sync to Notion now" button**, and the server action behind it refuses anyone else
+(`app/(app)/settings/actions.ts` → `notionSyncNowAction`). The button runs exactly the
+Sunday job. *Not yet seen rendered in a browser — implementation read only.*
+
 ## Known data caveats (from README and code)
 
 - **ARR baseline.** HubSpot has no single "current ARR" property here, so the sync used
@@ -185,6 +238,7 @@ inputs. Profile completeness → notifications and Action list items.
 | Orchestration | `lib/integrations/sync.ts` |
 | Gemini | `lib/integrations/gemini.ts` |
 | Storage | `lib/integrations/supabase-storage.ts` |
+| Notion export | `lib/integrations/notion.ts`, `notion-clients.ts`, `notion-sync.ts`, `app/api/cron/notion-sync/route.ts`, `components/settings/NotionSyncManager.tsx` |
 | Support sync | `lib/support/sync.ts`, `survey-sync.ts` |
 | Routes | `app/api/sync/route.ts`, `app/api/cron/*/route.ts` |
 | Config | `lib/config.ts`, `.env.example`, `vercel.json` |
@@ -219,6 +273,10 @@ staleness badge outside the Usage tab, and no dashboard of run history.
    company record changes after deployment. Reactivations of existing rows, and companies
    fixed before deployment, still need a one-off `POST /api/add-account`. See
    [How the recurring sync discovers new accounts](#how-the-recurring-sync-discovers-new-accounts).
+
+8. **The Notion export has no failure alert.** A failed Sunday run is visible only as an
+   old "Last synced" time in Settings. A row deleted in Notion is recreated on the next run. If the run exceeds its time budget (260s) the clients not
+   reached are reported as `remaining` and wait until the next run.
 
 ## Open questions
 

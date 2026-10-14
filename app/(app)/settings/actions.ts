@@ -13,6 +13,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { authEnabled, hasDatabase } from "@/lib/config";
 import { isSuperAdmin } from "@/lib/auth";
 import { runSync } from "@/lib/integrations/sync";
+import { getNotionSyncStatus, syncClientsToNotion, type NotionLastRun } from "@/lib/integrations/notion-sync";
 
 export interface SyncActionResult {
   ok: boolean;
@@ -51,6 +52,32 @@ export async function syncNowAction(): Promise<SyncActionResult> {
       newDealCount: r.newDealCount,
       lastSyncedAt: r.lastSyncedAt,
     };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export interface NotionSyncActionResult {
+  ok: boolean;
+  error?: string;
+  lastRun?: NotionLastRun;
+  databaseUrl?: string | null;
+}
+
+/**
+ * Run the weekly Notion export now — super-admin only. It writes the whole
+ * client book, ARR included, to an outside system, and the CSM tiers only see
+ * their own accounts inside Signal, so it is not theirs to trigger.
+ */
+export async function notionSyncNowAction(): Promise<NotionSyncActionResult> {
+  if (!(await isSuperAdmin())) return { ok: false, error: "Only super-admins can sync to Notion." };
+  try {
+    const r = await syncClientsToNotion();
+    if (r.skipped) return { ok: false, error: r.skipped };
+    const { lastRun, databaseUrl } = await getNotionSyncStatus();
+    if (!lastRun) return { ok: false, error: "The sync ran but its result could not be read back." };
+    const firstError = r.errors?.[0];
+    return { ok: true, lastRun, databaseUrl, ...(firstError ? { error: firstError } : {}) };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
