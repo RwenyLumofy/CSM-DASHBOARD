@@ -27,6 +27,16 @@ export const env = {
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
   geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
 
+  // Notion — the weekly client export (lib/integrations/notion-sync.ts). The
+  // token plus EITHER a parent page (the database is created under it on the
+  // first run) OR the id of a database that already exists.
+  notionToken: process.env.NOTION_TOKEN ?? "",
+  notionParentPageId: process.env.NOTION_PARENT_PAGE_ID ?? "",
+  notionDatabaseId: process.env.NOTION_DATABASE_ID ?? "",
+
+  // Public base URL of the app, for links that leave it.
+  appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "",
+
   syncSecret: process.env.SYNC_SECRET ?? "",
   cronSecret: process.env.CRON_SECRET ?? "",
 
@@ -59,6 +69,7 @@ export const integrations = {
   metabase: () => env.metabaseUrl.length > 0 && (env.metabaseApiKey.length > 0 || env.metabaseUsername.length > 0),
   supabaseStorage: () => env.supabaseServiceRoleKey.length > 0 && env.supabaseAnonKey.length > 0 && hasDatabase(),
   gemini: () => env.geminiApiKey.length > 0,
+  notion: () => env.notionToken.length > 0 && (env.notionParentPageId.length > 0 || env.notionDatabaseId.length > 0),
 };
 
 /** Overall mode label used in the UI banner. */

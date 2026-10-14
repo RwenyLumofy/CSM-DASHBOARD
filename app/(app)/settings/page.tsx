@@ -3,6 +3,8 @@ import { FolderKanban, HeartPulse, Plug, Settings2, TrendingDown, Users, type Lu
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PropertiesManager } from "@/components/settings/PropertiesManager";
 import { SyncManager } from "@/components/settings/SyncManager";
+import { NotionSyncManager } from "@/components/settings/NotionSyncManager";
+import { getNotionSyncStatus } from "@/lib/integrations/notion-sync";
 import { MembersArea } from "@/components/settings/MembersArea";
 import { StakeholderTypesManager } from "@/components/settings/StakeholderTypesManager";
 import { AttachmentCategoriesManager } from "@/components/settings/AttachmentCategoriesManager";
@@ -316,6 +318,10 @@ async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
     const { getSyncCheckpoint } = await import("@/lib/repo/drizzle");
     lastSyncedAt = await withDbTimeout(getSyncCheckpoint("last_synced_at")).catch(() => null);
   }
+  let notion: Awaited<ReturnType<typeof getNotionSyncStatus>> = { lastRun: null, databaseUrl: null };
+  if (hasDatabase()) {
+    notion = await withDbTimeout(getNotionSyncStatus()).catch(() => notion);
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -328,6 +334,23 @@ async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
           initialLastSyncedAt={lastSyncedAt}
           hubspotConfigured={integrations.hubspot()}
           databaseConfigured={hasDatabase()}
+        />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Notion export"
+        description={
+          superAdmin
+            ? "Every Sunday the full client list is written to a Notion database. Rows are matched on Signal ID; columns you add in Notion are left alone, and edits to the synced columns are overwritten on the next run."
+            : "Every Sunday the full client list is written to a Notion database. Running it on demand is limited to super-admins."
+        }
+      >
+        <NotionSyncManager
+          isSuperAdmin={superAdmin}
+          configured={integrations.notion()}
+          databaseConfigured={hasDatabase()}
+          initialLastRun={notion.lastRun}
+          initialDatabaseUrl={notion.databaseUrl}
         />
       </SettingsSection>
     </div>
