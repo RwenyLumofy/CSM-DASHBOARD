@@ -894,3 +894,17 @@ export const contractAudit = pgTable("contract_audit", {
   after: jsonb("after"),
   at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("contract_audit_client_idx").on(t.clientId)]);
+
+/** A named bearer token for the read-only /api/v1 API. Only the SHA-256 of the
+ *  key is stored; the key itself is shown once, when it's created. */
+export const apiKeys = pgTable("api_keys", {
+  id: text("id").primaryKey(), // key-{uuid}
+  name: text("name").notNull(),
+  keyPrefix: text("key_prefix").notNull(), // "sig_" + first 8 secret chars, for display
+  keyHash: text("key_hash").notNull(), // hex SHA-256 of the full key
+  createdByEmail: text("created_by_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }), // null = active
+  revokedByEmail: text("revoked_by_email"),
+}, (t) => [uniqueIndex("api_keys_key_hash_idx").on(t.keyHash)]);

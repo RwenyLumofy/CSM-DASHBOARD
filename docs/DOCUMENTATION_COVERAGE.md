@@ -8,7 +8,10 @@ a document.
 `Deprecated`
 
 **Baseline established:** 2026-07-31 against commit `4214349` (branch `exec-dashboard`).
-**Last change pass:** 2026-10-04 against commit `d0d2362` plus the uncommitted working-tree
+**Last change pass:** 2026-10-18 against commit `9befb8a` plus the uncommitted working-tree
+change on `feat/public-api-v1` adding the **read-only integration API** (`/api/v1`, API keys
+in Settings → Integrations, `api_keys` table) — covering that change only.
+**Previous change pass:** 2026-10-04 against commit `d0d2362` plus the uncommitted working-tree
 change making **account-owner eligibility its own rule** (`canOwnAccounts`: everyone except
 a guest, so Super Admins and Admins are in the owner pickers, the clients-list owner filters
 and the assignment validators) — covering that change only. The source moved three times
@@ -52,7 +55,8 @@ implication — it simply has not been read again. Only rows the change touched 
 | Stakeholders | profile tab | [product/stakeholders](product/stakeholders/README.md) | Partially verified | 2026-07-31 | `4214349` | Profile field list not enumerated | Unassigned |
 | Project Management | profile tab | [product/projects](product/projects/README.md) | Partially verified | 2026-07-31 | `4214349` | Milestone/task field lists not enumerated | Unassigned |
 | Settings | `/settings` | [product/settings](product/settings/README.md) | Partially verified | 2026-07-31 (Tech stack categories section: 2026-09-10) | `4214349` (Tech stack categories: `22d85a8` + working-tree change) | Per-manager behaviour not documented individually. Only the Properties tab's Tech stack categories section, the `workspace_config` key table and the shared `stakeholder-config` route gate were re-verified on 2026-09-10 | Unassigned |
-| Integrations & sync | `/settings?tab=integrations` | [product/integrations](product/integrations/README.md) | Partially verified | 2026-07-31 | `4214349` | Per-integration field mapping not documented. HubSpot account-discovery section re-verified 2026-09-21 against uncommitted changes on `580e0b7`; rest of the document not re-verified | Unassigned |
+| Integrations & sync | `/settings?tab=integrations` | [product/integrations](product/integrations/README.md) | Partially verified | 2026-07-31 | `4214349` | Per-integration field mapping not documented. HubSpot account-discovery section re-verified 2026-09-21 against uncommitted changes on `580e0b7`; the read-API section and its cross-references added 2026-10-18 at `9befb8a` + working tree; rest of the document not re-verified | Unassigned |
+| Integrations → Signal API (v1) | `/api/v1/*` · keys at `/settings?tab=integrations` | [product/integrations/api-v1](product/integrations/api-v1.md) | Partially verified | 2026-10-18 | `9befb8a` + working-tree change (`feat/public-api-v1`) | Pure helpers `Verified` by `lib/api/api.test.ts` (9 tests). Route handlers, key lookup/revocation, `last_used_at` and the Settings section have no automated test — verified by reading plus a manual run on the test DB reported by the implementer; not run on Vercel. Settings section not seen rendered by the documenter | Unassigned |
 | Import | `/import` | [product/import](product/import/README.md) | Partially verified | 2026-07-31 | `4214349` | Full column list not enumerated | Unassigned |
 | Playbooks | `/playbooks` | [product/playbooks](product/playbooks/README.md) | **Deprecated** — verified non-functional | 2026-07-31 | `4214349` | — | Unassigned |
 | Notifications | sidebar bell, `/inbox` | — | **Missing** | — | — | Not yet documented as its own area | Unassigned |
@@ -68,13 +72,13 @@ implication — it simply has not been read again. Only rows the change touched 
 | Document | Status | Last verified | Commit | Known gaps |
 |---|---|---|---|---|
 | [PRODUCT_OVERVIEW.md](PRODUCT_OVERVIEW.md) | Partially verified | 2026-07-31 | `4214349` | — |
-| [PRODUCT_MAP.md](PRODUCT_MAP.md) | Verified | 2026-07-31 | `15329e3` | Page-section lists are summaries, not exhaustive. Only the `/use-cases` rows and the access table were re-read at this commit |
+| [PRODUCT_MAP.md](PRODUCT_MAP.md) | Verified | 2026-07-31 | `15329e3` | Page-section lists are summaries, not exhaustive. Only the `/use-cases` rows and the access table were re-read at this commit. The `/api/v1` rows and the API-key access row were added 2026-10-18 at `9befb8a` + working tree (`feat/public-api-v1`); nothing else re-read |
 | [GLOSSARY.md](GLOSSARY.md) | Partially verified | 2026-07-31 | `4214349` | Usage and support vocabulary thin. *Tech stack* and *Integration notes* added 2026-09-09 at `d45a6cd`; *Tech stack* revised and *Tech stack category* added 2026-09-10; nothing else re-read |
-| [data-model](data-model/README.md) | Partially verified | 2026-07-31 | `4214349` | Per-entity field lists incomplete; health tables not individually documented. The `tech_stack_*` keys were added to the JSONB inventory at `d45a6cd` and revised 2026-09-10 (the key set is now per workspace); `workspace_config.tech_stack_categories` added the same day |
+| [data-model](data-model/README.md) | Partially verified | 2026-07-31 | `4214349` | Per-entity field lists incomplete; health tables not individually documented. The `tech_stack_*` keys were added to the JSONB inventory at `d45a6cd` and revised 2026-09-10 (the key set is now per workspace); `workspace_config.tech_stack_categories` added the same day. The `ApiKey` entity (`api_keys`) added 2026-10-18 at `9befb8a` + working tree |
 | [architecture](architecture/README.md) | Partially verified | 2026-07-31 | `4214349` | `instrumentation.ts` unverified |
-| [known-limitations](known-limitations/README.md) | Partially verified | 2026-09-09 | `15329e3` | Carries outstanding-work and never-browser-tested sections. *Task edits leave no history* added to Auditability 2026-09-13 at `7c2e39f` + working-tree change, and rewritten the same day as *Most task edits leave no history* at `4621fc8` + working-tree change; nothing else re-read. The `scratch-*` row was re-counted at `d45a6cd` (26 tracked routes, 8 unguarded in production); the Testing section's "seven test files, 124 tests" is **stale** — 24 test files exist |
+| [known-limitations](known-limitations/README.md) | Partially verified | 2026-09-09 | `15329e3` | Carries outstanding-work and never-browser-tested sections. *Task edits leave no history* added to Auditability 2026-09-13 at `7c2e39f` + working-tree change, and rewritten the same day as *Most task edits leave no history* at `4621fc8` + working-tree change; nothing else re-read. The `scratch-*` row was re-counted at `d45a6cd` (26 tracked routes, 8 unguarded in production); the Testing section's "seven test files, 124 tests" is **stale** — 24 test files exist. Three Security-and-privacy rows added 2026-10-18 at `9befb8a` + working tree: the read API's missing rate limiting and per-key scopes, and `contract_records` without RLS; the Product-scope line amended for the internal API |
 | [contradictions](known-limitations/contradictions.md) | Verified | 2026-07-31 | `15329e3` | — |
-| [releases/CHANGELOG.md](releases/CHANGELOG.md) | Partially verified | 2026-10-04 | `d0d2362` + working-tree change | Covers 2026-07-26 to 2026-07-31 plus the 2026-09-09 and 2026-09-10 Tech stack entries, the two 2026-09-13 account tasks entries (editing; task history), the 2026-09-21 HubSpot discovery entry and the 2026-10-04 owner-eligibility entry. **2026-08-01 → 2026-09-08 is a gap** — roughly 40 commits with no entry. Backfill run figures are reported from an execution, not repo-verifiable |
+| [releases/CHANGELOG.md](releases/CHANGELOG.md) | Partially verified | 2026-10-04 | `d0d2362` + working-tree change | Covers 2026-07-26 to 2026-07-31 plus the 2026-09-09 and 2026-09-10 Tech stack entries, the two 2026-09-13 account tasks entries (editing; task history), the 2026-09-21 HubSpot discovery entry, the 2026-10-04 owner-eligibility entry, the 2026-10-13 entries and the 2026-10-18 read-API entry. **2026-08-01 → 2026-09-08 is a gap** — roughly 40 commits with no entry. Backfill run figures are reported from an execution, not repo-verifiable |
 | [BACKLOG.md](BACKLOG.md) | Verified | 2026-07-31 | `4214349` | — |
 
 ## Business rules
@@ -113,6 +117,7 @@ implication — it simply has not been read again. Only rows the change touched 
 | [0010](decisions/0010-transfer-the-universe-by-name-never-by-id.md) | Transfer by name, never by id | Accepted |
 | [0023](decisions/0023-a-tech-stack-is-a-list-per-category-written-through-on-every-chip.md) | A tech stack is a list per category, written through on every chip | Accepted; points 5 and "not admin-curatable" amended by 0024 |
 | [0024](decisions/0024-a-tech-stack-category-key-is-generated-once-and-never-follows-the-label.md) | A tech stack category key is generated once and never follows the label | Accepted |
+| [0025](decisions/0025-a-read-only-integration-api-with-hashed-keys-and-stable-shapes.md) | Read-only integration API; hashed keys issued by super admins; unscoped read; stable public shapes | Accepted |
 
 ## Pre-existing documents retained
 

@@ -23,6 +23,7 @@ but the reason is not, the record says *"Rationale requires confirmation from th
 | [0011](0011-split-compliance-out-of-readiness-and-transformation.md) | Split Compliance out of Readiness & Transformation | Accepted | 2026-08-01 |
 | [0023](0023-a-tech-stack-is-a-list-per-category-written-through-on-every-chip.md) | A tech stack is a list per category, written through on every chip | Accepted; points 5 and "not admin-curatable" amended by 0024 | 2026-09-09 |
 | [0024](0024-a-tech-stack-category-key-is-generated-once-and-never-follows-the-label.md) | A tech stack category key is generated once and never follows the label | Accepted | 2026-09-10 |
+| [0025](0025-a-read-only-integration-api-with-hashed-keys-and-stable-shapes.md) | Internal tools read Signal through a read-only API, with hashed keys issued by super admins and public shapes decoupled from internal types | Accepted | 2026-10-18 |
 
 > **This index is behind the folder.** Records `0018`, `0020`, `0021` and `0022` exist and
 > are not listed above; `0012`–`0017` and `0019` are referenced by other records but have no

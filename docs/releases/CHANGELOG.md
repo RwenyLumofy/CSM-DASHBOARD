@@ -16,6 +16,20 @@ limitations · commit.
 
 ---
 
+## 2026-10-18
+
+### Internal tools can read Signal through a read-only API (`/api/v1`)
+**Area:** Integrations → new API at `/api/v1` · Settings → Integrations → new "API keys" section.
+**Roles affected:** **Super admins** can create and revoke API keys; no other role sees the section or can call the actions. Whoever holds a key — an internal tool, not a person — can read every account. Nothing changes for CSMs, admins, operators or guests in the app.
+**Before:** Another tool could get Signal's account book only from the weekly Notion export or by querying the database directly.
+**After:** A super admin names a key ("n8n renewals workflow") and creates it; the key is shown once to copy. A tool sends it as `Authorization: Bearer sig_…` and can read: accounts (filter by status, segment, CSM, health tier, renewal window, name/domain), one account by id, upcoming renewals soonest first (churned and overdue excluded), account tasks (by status, account, owner) and expansion opportunities (by stage, outcome, account, owner). Lists are paged (100 by default, up to 500). Nothing can be written through the API. Revoking a key stops it immediately; the key stays listed as revoked with who revoked it and when.
+**Permission change:** `/api/v1/*` is exempt from the Clerk sign-in check; the API key is the only gate. A key's read access is **all accounts**, equivalent to a super admin's — which is why only super admins can issue one.
+**Migration / data impact:** New table `api_keys` (key hash, display prefix, name, creator, last used, revoked). **Must be created before use:** production — paste `drizzle/api-keys.sql` into the Supabase SQL editor; test database — `node scripts/add-api-keys-table.mjs`. Additive and idempotent; no existing table changes. Until it runs, the Settings section shows no keys and key creation fails.
+**Known limitations:** No rate limiting. No per-key scopes — every key reads everything the API serves. No request log beyond a last-used time. No key expiry or rename. Contacts, notes, the `properties` bag, support and usage detail are deliberately not exposed.
+**Verified:** `lib/api/api.test.ts` (9 tests) — key shape and hash, bearer parsing, `days_to_renewal`, the renewal filter excluding churned and overdue accounts, filter combination, paging, parameter validation, date formatting. Manual local run against the test database: valid key 200; missing, malformed, unknown and revoked key 401; bad parameter 400; unknown account 404; last-used stamped; revoke → 401. Route handlers and the Settings section have no automated test; not yet run on Vercel or production.
+**Commit:** uncommitted on `feat/public-api-v1` (base `9befb8a`) at the time of writing.
+**Docs:** [Signal API (v1)](../product/integrations/api-v1.md) · [decision 0025](../decisions/0025-a-read-only-integration-api-with-hashed-keys-and-stable-shapes.md).
+
 ## 2026-10-13
 
 ### Weekly export of the client list to a Notion database
