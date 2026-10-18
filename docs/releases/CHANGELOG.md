@@ -16,6 +16,17 @@ limitations · commit.
 
 ---
 
+## 2026-10-18
+
+### Usage sync restored after Lumofy dropped two legacy tables
+**Area:** Client Profile → Usage tab · scheduled job `/api/cron/usage-sync` (`lib/usage/queries.ts`).
+**Roles affected:** Everyone who reads the Usage tab, the adoption score, or anything built on `client_usage_snapshots`.
+**Before:** From 2026-09-30 16:16 UTC every usage sync failed (`relation "public.learning_items_enrollment" does not exist`). All accounts kept showing their last good numbers, now more than two weeks old, each with a sync error. The Usage tab's period filter failed outright.
+**After:** The sync runs again. Learning now reads only `learning_contentitemenrollment`. Performance cycles now read only `performance_cycles_*`. Lumofy's product database dropped the legacy `learning_items_enrollment`, `learning_items_learningitem` and `performance_management_cycle` tables on 2026-09-30, in both the AWS and KSA databases.
+**Migration / data impact:** No schema change. **Numbers change:** the legacy learning rows that had no copy in the content tables were not migrated, so they no longer exist anywhere Signal can read. Against the 2026-07-28 values, about half the tenants' lifetime learning enrollments are unchanged. The rest drop, by up to ~83% (for example 103,539 → 71,081 for one AWS tenant). Distinct-courses and the company / Lumofy / global split drop with them. Five tenants that only ran legacy performance cycles now show 0 PM cycles. Monthly trends and the period filter should change much less, since the missing legacy rows are older (not measured).
+**Known limitations:** The lost legacy history cannot be recovered from Metabase. If Lumofy kept an archive, it would have to be exposed to Metabase to restore those totals.
+**Verified:** `syncOneClientUsage` ran against the test database for 4 clients (2 AWS, 2 KSA); all four synced. The period filter query ran for 2 clients and returned results. Every table the usage queries reference was checked to exist in both Metabase databases.
+
 ## 2026-10-13
 
 ### Weekly export of the client list to a Notion database
