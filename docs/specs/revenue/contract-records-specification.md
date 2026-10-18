@@ -227,6 +227,25 @@ read end to end but have no test. Checked by hand on the test database on 2026-1
   contract, never counted toward ARR.
 - **Counts toward ARR** tick: untick to keep a record as history only. Saved with the
   other changes. This is available on HubSpot sales too.
+- **Global library takes a provider that is not suggested** *(since 2026-10-18)*. On a sale
+  or renewal, *Global library* is a chip field with an **Add provider** box. Suggested:
+  Go1, Opensesame, Udemy, Linkedin, Almentor, Entalaqa, Pluralsight, **EdX**, **Other**
+  (`LIBRARIES` in `ContractTab.tsx`). Enter adds, Escape discards the draft, blur also
+  adds. A typed value matching a shown chip selects that chip and keeps **its** spelling
+  (`edx` → *EdX*); an already-selected provider is never duplicated whatever the casing;
+  values are trimmed. The rule is `lib/contracts/chip-input.ts` (`addTypedChip`,
+  `sameChip`), tested in `lib/contracts/chip-input.test.ts` — 6 tests, the only tested part
+  of this change.
+  **No server change was required**: §8.4 already only requires a provider to be
+  non-empty (`validateRecord`), and a record's provider list is derived from
+  `Object.keys(libraryTerms)` (`toFields` in `lib/contracts/view.ts`), so a typed provider
+  gets its own terms row — licences, start, expiry — automatically.
+  **The Record drawer uses the same field.** `RecordDrawer` renders the shared `Chips` with
+  `allowCustom`, so an unsuggested provider can be typed while recording a **renewal** or a
+  **downgrade**. Its first button is `noneLabel` — **None** on a renewal, **No change** on a
+  downgrade — and a typed provider immediately gets its *«provider» licences* input; the
+  per-provider dates are set on the record after saving. The only non-typeable case is a
+  **saved expansion or downgrade record**, where *Global library* is a read-only `Cell`.
 
 **Void a record.** "Void this record…" needs a reason. The record stays in the history,
 struck through with who, when and why, and stops counting. There is no un-void on the

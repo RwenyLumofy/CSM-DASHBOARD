@@ -53,8 +53,16 @@ export const DEAL_FIELD_OPTION_KEYS: Record<string, string> = {
  * Built-in option lists for the deal-card select editors, mirrored from the
  * live HubSpot deal-property picklists. These are the immediate fallback so the
  * dropdowns are never empty before the first sync runs `reconcileDealSelectOptions`,
- * which then keeps the persisted definitions in lockstep with HubSpot. The
- * editor unions these with the synced definition's options + any stored value.
+ * which then keeps the persisted definitions in lockstep with HubSpot.
+ *
+ * FALLBACK, NOT A UNION. `optionsForDealField`
+ * (components/clients/ClientProfileTabs.tsx) reads these ONLY while the synced
+ * definition has no options at all; once it has any, it trusts the definition
+ * exclusively, so that removing a name in HubSpot actually removes it. A stored
+ * value is resolved for DISPLAY by `labelFor`, which is not the same as being
+ * offered. This header used to claim the editor merged the three, which made
+ * adding a name here look like a way to offer it — it is not, in any workspace
+ * that has synced once.
  */
 export const DEAL_FIELD_FALLBACK_OPTIONS: Record<string, string[]> = {
   // `modules` → "Module"
@@ -72,7 +80,15 @@ export const DEAL_FIELD_FALLBACK_OPTIONS: Record<string, string[]> = {
     "Internal Knowledge Base Development", "Individual Development Plans (IDPs)", "Other",
   ],
   // `global_libraries` → "Global library"
-  globalLibraryPackage: ["Go1", "Opensesame", "Udemy", "Linkedin", "Almentor", "Entalaqa", "Pluralsight", "None"],
+  // EdX is NOT in HubSpot's own `global_libraries` picklist (checked 2026-10-18:
+  // Go1, Opensesame, Udemy, Linkedin, Almentor, Entalaqa, Pluralsight, None).
+  // Listed here for parity with the Contract tab, but READ THIS BEFORE RELYING
+  // ON IT: optionsForDealField (components/clients/ClientProfileTabs.tsx) uses
+  // this list ONLY when the synced definition has no options at all, and trusts
+  // the definition exclusively once it has any. HubSpot seeds eight, so in a
+  // synced workspace the deal card will NOT offer EdX — the Contract tab's
+  // typeable field is where an unlisted provider gets recorded today.
+  globalLibraryPackage: ["Go1", "Opensesame", "Udemy", "Linkedin", "Almentor", "Entalaqa", "Pluralsight", "EdX", "None"],
   // `support_level` → "Support level"
   supportLevel: ["Level 1", "Level 2", "Level 3"],
   // `implementation_level` → "Implementation level"

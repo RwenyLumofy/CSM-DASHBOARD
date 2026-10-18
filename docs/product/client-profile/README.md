@@ -197,6 +197,40 @@ card as before.
 - **Expansion is not recorded here.** Every expansion control links to the
   [Expansion page](../expansion/README.md).
 
+**Global library accepts a provider that is not on the list** *(since 2026-10-18)*. On a
+**sale or renewal record**, the **Modules & global library · set by CS** group's *Global
+library* field is a chip field with an **Add provider** box: the suggested chips are Go1,
+Opensesame, Udemy, Linkedin, Almentor, Entalaqa, Pluralsight, **EdX** and **Other**, and
+anything else can be typed. Enter adds the typed provider, Escape abandons the draft, and
+moving focus away also adds it, so clicking straight onto **Save changes** does not lose
+what was typed. A typed value that matches a chip already shown selects **that chip**,
+keeping its spelling — typing `edx` selects *EdX* rather than adding a second, lowercase
+provider — and a provider already selected is not added twice whatever the casing. Values
+are trimmed. A typed provider gets its own **Terms per library** row (licences, start,
+expiry) like any other, because the providers on a record are derived from the terms map
+rather than from the suggested list. The rule is
+[`lib/contracts/chip-input.ts`](../../../lib/contracts/chip-input.ts) (`addTypedChip`,
+`sameChip`), tested in
+[`lib/contracts/chip-input.test.ts`](../../../lib/contracts/chip-input.test.ts) (6 tests).
+
+**The same field is in the Record drawer.** Recording a **renewal** or a **downgrade** uses
+the same typeable chip field (`RecordDrawer` renders the shared `Chips` with `allowCustom`),
+so a provider nobody has listed can be typed at the moment the renewal is recorded — which
+is when it usually appears. Its first button is **None** on a renewal and **No change** on a
+downgrade, and a typed provider immediately gets its own *«provider» licences* box; the
+record's per-provider dates are then set on the saved record ("Each library runs for the
+contract's term. Change a library's own dates on the record after saving").
+
+The one place the field is not typeable is a **saved expansion or downgrade record**, where
+*Global library* is a read-only `Cell` showing the providers or "No change" — there is
+nothing to type into. Verified by reading
+[`ContractTab.tsx`](../../../app/%28app%29/clients/[id]/contract/ContractTab.tsx).
+
+**The limit that remains: the suggested list is hardcoded and is not HubSpot's.** It does
+not read the synced `deal_global_libraries` options, so the two can drift apart silently.
+Typing is the escape hatch, not a fix. See
+[contradictions — three vocabularies for a global-library provider](../../known-limitations/contradictions.md#three-vocabularies-for-a-global-library-provider).
+
 **What it does not do.** Nothing else in Signal reads contract records yet. The account's
 ARR, status and renewal date in the header, Today, Clients and Insights still come from
 HubSpot deals, so a renewal, downgrade or churn recorded here changes this tab only. A
