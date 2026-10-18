@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { PopMenu } from "@/components/clients/projects/shared";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { currentQuarter, periodBounds } from "@/lib/metrics/arr";
+import { OVERDUE_GRACE } from "@/lib/contracts/status";
 import { isAtRisk, isJudged } from "@/lib/health/status";
 import { isAssessed } from "@/lib/metrics/health-evidence";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
@@ -53,7 +54,9 @@ function renewalBounds(filter: RenewalFilter, customStart: string, customEnd: st
   const today = new Date().toISOString().slice(0, 10);
   switch (filter) {
     case "all": return null;
-    case "overdue": return { start: "0000-01-01", end: today };
+    // Same rule as the "Renewal overdue" status: the date passed more than
+    // OVERDUE_GRACE days ago. Churned accounts are dropped in the row filter.
+    case "overdue": return { start: "0000-01-01", end: addDaysIso(today, -OVERDUE_GRACE) };
     case "this_quarter": return periodBounds(currentQuarter());
     case "next_quarter": return periodBounds(nextQuarterOf(currentQuarter()));
     case "next_30": return { start: today, end: addDaysIso(today, 30) };
@@ -272,6 +275,8 @@ export function ClientsTable({
       if (riskOnly && !(c.status !== "churned" && isAtRisk(c.health))) return false;
       if (renewalRange) {
         if (!c.renewalDate) return false;
+        // A churned account has no renewal left to chase.
+        if (renewal === "overdue" && c.status === "churned") return false;
         const d = c.renewalDate.slice(0, 10);
         if (d < renewalRange.start || d >= renewalRange.end) return false;
       }
@@ -302,7 +307,7 @@ export function ClientsTable({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [clients, query, tier, completenessFilter, completenessByClient, csm, statusFilter, renewalRange, channel, country, accountTier, mineOnly, riskOnly, currentUserEmail, sortKey, sortDir]);
+  }, [clients, query, tier, completenessFilter, completenessByClient, csm, statusFilter, renewal, renewalRange, channel, country, accountTier, mineOnly, riskOnly, currentUserEmail, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
