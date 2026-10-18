@@ -22,12 +22,19 @@
      and the platform's internal accounts (is_support / is_integration_user) —
      every tenant carries one internal@lumofy.com support user that otherwise
      inflates WAU/MAU/active by 1.
-   - "Learning" spans TWO co-equal tables: learning_items_enrollment (authored
-     items) and learning_contentitemenrollment (content catalog incl. Go1). The
-     same enrollment is mirror-written to both (shared primary key), so they are
-     combined with UNION (dedupe by id), never summed — a naive sum double-counts
-     by up to ~67% on tenants that use both. The item catalog behaves the same
-     way (learning_items_learningitem mirrors into learning_contentitem).
+   - "Learning" reads ONE table: learning_contentitemenrollment (content catalog
+     — course-builder, Docebo, Go1, edX, Coursera; joined to learning_contentitem
+     for content_type). Until 2026-09-30 it was UNIONed (dedupe by shared id)
+     with the legacy learning_items_enrollment / learning_items_learningitem
+     pair, which mirror-wrote the same enrollments. Lumofy DROPPED both legacy
+     tables on 2026-09-30 in both regional DBs, and their legacy-only rows were
+     NOT migrated into the content tables (verified 2026-10-18 against the
+     2026-07-28 snapshots: about half the tenants match exactly, the rest lose
+     up to ~83% of their lifetime learning counts). The legacy-only history is no
+     longer queryable anywhere Metabase can see, so lifetime learning totals
+     are now lower than before for tenants with older authored-item usage.
+   - The same upstream cleanup dropped the legacy performance_management_cycle
+     table, so PM cycles now read performance_cycles_* only (see below).
    ========================================================================= */
 
 /** Current-value snapshot: one row, one column per measure. */
@@ -59,37 +66,21 @@ SELECT
   (SELECT count(*) FROM public.org_structure_division WHERE environment_id = :ENV_ID) AS divisions,
   (SELECT count(*) FROM public.org_structure_legalentity WHERE environment_id = :ENV_ID) AS legal_entities,
   -- ── Employee Development ─────────────────────────────────────────────
-  -- Learning enrollments = UNION (dedup by id) of authored-item + content-item
-  -- enrollments; the two tables mirror the same enrollment on a shared id.
-  (SELECT count(*) FROM (
-     SELECT e.id FROM public.learning_items_enrollment e
-       JOIN public.users_lumofyuser u ON e.user_id = u.id
-       WHERE u.environment_id = :ENV_ID AND e.is_active = true
-     UNION
-     SELECT ce.id FROM public.learning_contentitemenrollment ce
-       JOIN public.users_lumofyuser u ON ce.user_id = u.id
-       WHERE u.environment_id = :ENV_ID
-   ) x) AS learning_enrollments,
-  (SELECT count(*) FROM (
-     SELECT e.id FROM public.learning_items_enrollment e
-       JOIN public.users_lumofyuser u ON e.user_id = u.id
-       WHERE u.environment_id = :ENV_ID AND e.is_active = true AND e.status = 'COMPLETED'
-     UNION
-     SELECT ce.id FROM public.learning_contentitemenrollment ce
-       JOIN public.users_lumofyuser u ON ce.user_id = u.id
-       WHERE u.environment_id = :ENV_ID AND ce.status = 'COMPLETED'
-   ) x) AS learning_completions,
+  -- Learning enrollments = content-catalog enrollments (the legacy
+  -- learning_items_* mirror was dropped 2026-09-30 — see header).
+  (SELECT count(*) FROM public.learning_contentitemenrollment ce
+     JOIN public.users_lumofyuser u ON ce.user_id = u.id
+     WHERE u.environment_id = :ENV_ID) AS learning_enrollments,
+  (SELECT count(*) FROM public.learning_contentitemenrollment ce
+     JOIN public.users_lumofyuser u ON ce.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND ce.status = 'COMPLETED') AS learning_completions,
   -- Distinct learning items the company's people have actually ENROLLED in,
   -- across every source (own-built + Lumofy library + external providers).
   -- (NOT the count of items authored in this env — that's misleadingly ~0-1
   -- for library-consuming tenants whose content lives in shared catalogs.)
-  (SELECT count(*) FROM (
-     SELECT DISTINCT ce.content_item_id::text AS item FROM public.learning_contentitemenrollment ce
-       JOIN public.users_lumofyuser u ON ce.user_id = u.id WHERE u.environment_id = :ENV_ID
-     UNION
-     SELECT DISTINCT e.learning_item_id::text FROM public.learning_items_enrollment e
-       JOIN public.users_lumofyuser u ON e.user_id = u.id WHERE u.environment_id = :ENV_ID AND e.is_active = true
-   ) x) AS learning_items_count,
+  (SELECT count(DISTINCT ce.content_item_id) FROM public.learning_contentitemenrollment ce
+     JOIN public.users_lumofyuser u ON ce.user_id = u.id
+     WHERE u.environment_id = :ENV_ID) AS learning_items_count,
   -- The company / Lumofy / global-library breakdown of these learning
   -- enrollments is computed separately in LEARNING_SPLIT_SQL (it needs a
   -- per-enrollment classifier that's too heavy to inline here).
@@ -179,26 +170,18 @@ SELECT
   (SELECT count(*) FROM public.skills_system_competencyassessment ca
      JOIN public.users_lumofyuser u ON ca.user_id = u.id
      WHERE u.environment_id = :ENV_ID AND ca.status = 'EVALUATED') AS ai_assessment_completed,
-  -- ── Performance Management (prefer newer table, else older) ──────────
-  (SELECT CASE
-     WHEN (SELECT count(*) FROM public.performance_cycles_cycle WHERE environment_id = :ENV_ID) > 0
-       THEN (SELECT count(*) FROM public.performance_cycles_cycle WHERE environment_id = :ENV_ID)
-     ELSE (SELECT count(*) FROM public.performance_management_cycle WHERE environment_id = :ENV_ID)
-   END) AS pm_cycles_configured,
-  -- Completed must read the SAME generation the configured CASE selected,
-  -- else a tenant migrated to the newer system always shows 0 completed.
-  (SELECT CASE
-     WHEN (SELECT count(*) FROM public.performance_cycles_cycle WHERE environment_id = :ENV_ID) > 0
-       THEN (SELECT count(DISTINCT c.id)
-               FROM public.performance_cycles_cycle c
-               JOIN public.performance_cycles_step s ON s.cycle_id = c.id
-               JOIN public.performance_cycles_cycleend ce ON ce.step_ptr_id = s.id
-              WHERE c.environment_id = :ENV_ID
-                AND c.creation_status = 'PUBLISHED'
-                AND ce.end_date < CURRENT_DATE)
-     ELSE (SELECT count(*) FROM public.performance_management_cycle
-             WHERE environment_id = :ENV_ID AND status IN ('ENDED', 'RELEASED'))
-   END) AS pm_cycles_completed,
+  -- ── Performance Management ───────────────────────────────────────────
+  -- performance_cycles_* only. Until 2026-09-30 this fell back to the legacy
+  -- performance_management_cycle table for tenants with no newer cycles; Lumofy
+  -- dropped that table upstream on 2026-09-30 (both regional DBs).
+  (SELECT count(*) FROM public.performance_cycles_cycle WHERE environment_id = :ENV_ID) AS pm_cycles_configured,
+  (SELECT count(DISTINCT c.id)
+     FROM public.performance_cycles_cycle c
+     JOIN public.performance_cycles_step s ON s.cycle_id = c.id
+     JOIN public.performance_cycles_cycleend ce ON ce.step_ptr_id = s.id
+    WHERE c.environment_id = :ENV_ID
+      AND c.creation_status = 'PUBLISHED'
+      AND ce.end_date < CURRENT_DATE) AS pm_cycles_completed,
   -- ── AI leverage & competencies ───────────────────────────────────────
   (SELECT count(*) FROM public.mappings_competence
      WHERE environment_id = :ENV_ID AND deleted_at IS NULL) AS competencies_total,
@@ -221,33 +204,18 @@ SELECT metric, month::date AS month, value FROM (
       AND u.deleted_at IS NULL AND u.is_support = false AND u.is_integration_user = false
     GROUP BY 1, 2
   UNION ALL
-  -- learning enrollments: dedup mirrored (items|content) rows by id, bucket by created_at
-  SELECT 'learning_enrollments', date_trunc('month', d), count(*)
-    FROM (
-      SELECT id, min(d) AS d FROM (
-        SELECT e.id, e.created_at AS d FROM public.learning_items_enrollment e
-          JOIN public.users_lumofyuser u ON e.user_id = u.id WHERE u.environment_id = :ENV_ID AND e.is_active = true
-        UNION ALL
-        SELECT ce.id, ce.created_at AS d FROM public.learning_contentitemenrollment ce
-          JOIN public.users_lumofyuser u ON ce.user_id = u.id WHERE u.environment_id = :ENV_ID
-      ) a GROUP BY id
-    ) dedup
-    WHERE d >= date_trunc('month', now()) - INTERVAL '11 month'
+  -- learning enrollments bucket by created_at, completions by completed_at
+  SELECT 'learning_enrollments', date_trunc('month', ce.created_at), count(*)
+    FROM public.learning_contentitemenrollment ce
+    JOIN public.users_lumofyuser u ON ce.user_id = u.id
+    WHERE u.environment_id = :ENV_ID AND ce.created_at >= date_trunc('month', now()) - INTERVAL '11 month'
     GROUP BY 1, 2
   UNION ALL
-  SELECT 'learning_completions', date_trunc('month', d), count(*)
-    FROM (
-      SELECT id, min(d) AS d FROM (
-        SELECT e.id, e.completed_at AS d FROM public.learning_items_enrollment e
-          JOIN public.users_lumofyuser u ON e.user_id = u.id
-          WHERE u.environment_id = :ENV_ID AND e.is_active = true AND e.status = 'COMPLETED' AND e.completed_at IS NOT NULL
-        UNION ALL
-        SELECT ce.id, ce.completed_at AS d FROM public.learning_contentitemenrollment ce
-          JOIN public.users_lumofyuser u ON ce.user_id = u.id
-          WHERE u.environment_id = :ENV_ID AND ce.status = 'COMPLETED' AND ce.completed_at IS NOT NULL
-      ) a GROUP BY id
-    ) dedup
-    WHERE d >= date_trunc('month', now()) - INTERVAL '11 month'
+  SELECT 'learning_completions', date_trunc('month', ce.completed_at), count(*)
+    FROM public.learning_contentitemenrollment ce
+    JOIN public.users_lumofyuser u ON ce.user_id = u.id
+    WHERE u.environment_id = :ENV_ID AND ce.status = 'COMPLETED' AND ce.completed_at IS NOT NULL
+      AND ce.completed_at >= date_trunc('month', now()) - INTERVAL '11 month'
     GROUP BY 1, 2
   UNION ALL
   -- pathways scoped by enrolled user's env (own + shared replicator pathways)
@@ -329,51 +297,29 @@ ORDER BY metric, month
  *
  * The 3 categories (per the product's content model):
  *   • company — courses the client built in its OWN course-builder (content_item
- *     env == this env), plus its own authored learning items.
+ *     env == this env).
  *   • lumofy  — Lumofy-curated library: DOCEBO content, and course-builder content
  *     authored in a shared "Lumofy Content Team" environment (env != this env).
  *   • global  — external marketplaces (Go1 / Coursera / edX …): content_type not
  *     in (COURSE_BUILDER, DOCEBO), which carry a NULL environment_id.
  *
  * Classification is by content_type (authoritative, on learning_contentitem).
- * Legacy enrollments that live ONLY in the old learning_items table (no content
- * catalog row, no content_type) are classified by their source ENVIRONMENT name:
- * a "Go1 …" env (or a null source env) = global; any other non-own env = Lumofy;
- * the client's own env = company. A MATERIALIZED CTE dedupes the two enrollment
- * tables by id (they mirror each other) so nothing is double-counted; priority
- * global > lumofy > company resolves any mixed signal on a shared id.
+ * (Until 2026-09-30 a second branch classified legacy learning_items_* rows by
+ * source-environment name and deduped them against these by id; those tables
+ * were dropped upstream — see the header.)
  */
 export const LEARNING_SPLIT_SQL = `
 WITH learn AS MATERIALIZED (
-  SELECT id,
-    CASE WHEN bool_or(is_global) THEN 'global' WHEN bool_or(is_lumofy) THEN 'lumofy' ELSE 'company' END AS category,
-    COALESCE(max(provider) FILTER (WHERE from_content AND provider IS NOT NULL), max(provider)) AS provider,
-    max(item_id::text) AS item_id,
-    bool_or(completed) AS completed
-  FROM (
-    -- Modern content-catalog enrollments (authoritative content_type)
-    SELECT ce.id, true AS from_content, ce.content_item_id AS item_id,
-      (ci.content_type NOT IN ('COURSE_BUILDER','DOCEBO')) AS is_global,
-      (ci.content_type = 'DOCEBO' OR (ci.content_type = 'COURSE_BUILDER' AND ci.environment_id IS DISTINCT FROM :ENV_ID)) AS is_lumofy,
-      CASE WHEN ci.content_type NOT IN ('COURSE_BUILDER','DOCEBO') THEN ci.content_type END AS provider,
-      (ce.status = 'COMPLETED') AS completed
-    FROM public.learning_contentitemenrollment ce
-      JOIN public.users_lumofyuser u ON ce.user_id = u.id
-      JOIN public.learning_contentitem ci ON ce.content_item_id = ci.id
-    WHERE u.environment_id = :ENV_ID
-    UNION ALL
-    -- Legacy authored-item enrollments (no content_type → classify by source env)
-    SELECT e.id, false AS from_content, e.learning_item_id AS item_id,
-      (ev.name_en_us ILIKE '%Go1%' OR li.environment_id IS NULL) AS is_global,
-      (li.environment_id IS DISTINCT FROM :ENV_ID AND NOT (ev.name_en_us ILIKE '%Go1%' OR li.environment_id IS NULL)) AS is_lumofy,
-      CASE WHEN (ev.name_en_us ILIKE '%Go1%' OR li.environment_id IS NULL) THEN 'GO1' END AS provider,
-      (e.status = 'COMPLETED') AS completed
-    FROM public.learning_items_enrollment e
-      JOIN public.users_lumofyuser u ON e.user_id = u.id
-      JOIN public.learning_items_learningitem li ON e.learning_item_id = li.id
-      LEFT JOIN public.environments_environment ev ON li.environment_id = ev.id
-    WHERE u.environment_id = :ENV_ID AND e.is_active = true
-  ) rows GROUP BY id
+  SELECT ce.id, ce.content_item_id AS item_id,
+    CASE WHEN ci.content_type NOT IN ('COURSE_BUILDER','DOCEBO') THEN 'global'
+         WHEN ci.content_type = 'DOCEBO' OR (ci.content_type = 'COURSE_BUILDER' AND ci.environment_id IS DISTINCT FROM :ENV_ID) THEN 'lumofy'
+         ELSE 'company' END AS category,
+    CASE WHEN ci.content_type NOT IN ('COURSE_BUILDER','DOCEBO') THEN ci.content_type END AS provider,
+    (ce.status = 'COMPLETED') AS completed
+  FROM public.learning_contentitemenrollment ce
+    JOIN public.users_lumofyuser u ON ce.user_id = u.id
+    JOIN public.learning_contentitem ci ON ce.content_item_id = ci.id
+  WHERE u.environment_id = :ENV_ID
 )
 -- 'items' = distinct learning items (courses) consumed, per category / provider.
 SELECT 'category' AS kind, category AS label, count(*) AS enrollments, count(*) FILTER (WHERE completed) AS completions, count(DISTINCT item_id) AS items
@@ -414,38 +360,17 @@ SELECT
      JOIN public.users_lumofyuser u ON ul.user_id = u.id
      WHERE u.environment_id = :ENV_ID AND ul.date >= :RANGE_START AND ul.date < :RANGE_END
        AND u.deleted_at IS NULL AND u.is_support = false AND u.is_integration_user = false) AS active_users,
-  (SELECT count(*) FROM (
-     SELECT e.id FROM public.learning_items_enrollment e
-       JOIN public.users_lumofyuser u ON e.user_id = u.id
-       WHERE u.environment_id = :ENV_ID AND e.is_active = true
-         AND e.created_at >= :RANGE_START AND e.created_at < :RANGE_END
-     UNION
-     SELECT ce.id FROM public.learning_contentitemenrollment ce
-       JOIN public.users_lumofyuser u ON ce.user_id = u.id
-       WHERE u.environment_id = :ENV_ID AND ce.created_at >= :RANGE_START AND ce.created_at < :RANGE_END
-   ) x) AS learning_enrollments,
-  (SELECT count(*) FROM (
-     SELECT e.id FROM public.learning_items_enrollment e
-       JOIN public.users_lumofyuser u ON e.user_id = u.id
-       WHERE u.environment_id = :ENV_ID AND e.is_active = true AND e.status = 'COMPLETED'
-         AND e.completed_at >= :RANGE_START AND e.completed_at < :RANGE_END
-     UNION
-     SELECT ce.id FROM public.learning_contentitemenrollment ce
-       JOIN public.users_lumofyuser u ON ce.user_id = u.id
-       WHERE u.environment_id = :ENV_ID AND ce.status = 'COMPLETED'
-         AND ce.completed_at >= :RANGE_START AND ce.completed_at < :RANGE_END
-   ) x) AS learning_completions,
+  (SELECT count(*) FROM public.learning_contentitemenrollment ce
+     JOIN public.users_lumofyuser u ON ce.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND ce.created_at >= :RANGE_START AND ce.created_at < :RANGE_END) AS learning_enrollments,
+  (SELECT count(*) FROM public.learning_contentitemenrollment ce
+     JOIN public.users_lumofyuser u ON ce.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND ce.status = 'COMPLETED'
+       AND ce.completed_at >= :RANGE_START AND ce.completed_at < :RANGE_END) AS learning_completions,
   -- Distinct items with at least one enrollment CREATED within the period.
-  (SELECT count(*) FROM (
-     SELECT DISTINCT ce.content_item_id::text AS item FROM public.learning_contentitemenrollment ce
-       JOIN public.users_lumofyuser u ON ce.user_id = u.id
-       WHERE u.environment_id = :ENV_ID AND ce.created_at >= :RANGE_START AND ce.created_at < :RANGE_END
-     UNION
-     SELECT DISTINCT e.learning_item_id::text FROM public.learning_items_enrollment e
-       JOIN public.users_lumofyuser u ON e.user_id = u.id
-       WHERE u.environment_id = :ENV_ID AND e.is_active = true
-         AND e.created_at >= :RANGE_START AND e.created_at < :RANGE_END
-   ) x) AS learning_items_count,
+  (SELECT count(DISTINCT ce.content_item_id) FROM public.learning_contentitemenrollment ce
+     JOIN public.users_lumofyuser u ON ce.user_id = u.id
+     WHERE u.environment_id = :ENV_ID AND ce.created_at >= :RANGE_START AND ce.created_at < :RANGE_END) AS learning_items_count,
   (SELECT count(DISTINCT e.development_pathway_id) FROM public.development_pathways_developmentpathwayenrollment e
      JOIN public.users_lumofyuser u ON e.user_id = u.id
      WHERE u.environment_id = :ENV_ID AND e.assigned_at >= :RANGE_START AND e.assigned_at < :RANGE_END) AS pathways_count,
@@ -538,68 +463,35 @@ SELECT
   (SELECT count(*) FROM public.reviews_customreviewresponse rr
      JOIN public.users_lumofyuser u ON rr.user_id = u.id
      WHERE u.environment_id = :ENV_ID AND rr.created_at >= :RANGE_START AND rr.created_at < :RANGE_END) AS survey_responses,
-  -- PM cycles: same newer/legacy branch-selector as SNAPSHOT_SQL (an account-
-  -- level, not period-level, fact — whichever system has ANY rows lifetime is
-  -- the one in use), but each branch's own COUNT is period-bound. "Completed"
-  -- is reinterpreted from "already past today" to "ends within this period"
-  -- (newer: performance_cycles_cycleend.end_date) or the legacy table's own
-  -- ended_at, both schema-verified.
-  (SELECT CASE
-     WHEN (SELECT count(*) FROM public.performance_cycles_cycle WHERE environment_id = :ENV_ID) > 0
-       THEN (SELECT count(*) FROM public.performance_cycles_cycle
-               WHERE environment_id = :ENV_ID AND created_at >= :RANGE_START AND created_at < :RANGE_END)
-     ELSE (SELECT count(*) FROM public.performance_management_cycle
-             WHERE environment_id = :ENV_ID AND created_at >= :RANGE_START AND created_at < :RANGE_END)
-   END) AS pm_cycles_configured,
-  (SELECT CASE
-     WHEN (SELECT count(*) FROM public.performance_cycles_cycle WHERE environment_id = :ENV_ID) > 0
-       THEN (SELECT count(DISTINCT c.id)
-               FROM public.performance_cycles_cycle c
-               JOIN public.performance_cycles_step s ON s.cycle_id = c.id
-               JOIN public.performance_cycles_cycleend ce ON ce.step_ptr_id = s.id
-              WHERE c.environment_id = :ENV_ID
-                AND c.creation_status = 'PUBLISHED'
-                AND ce.end_date >= :RANGE_START AND ce.end_date < :RANGE_END)
-     ELSE (SELECT count(*) FROM public.performance_management_cycle
-             WHERE environment_id = :ENV_ID AND status IN ('ENDED', 'RELEASED')
-               AND ended_at >= :RANGE_START AND ended_at < :RANGE_END)
-   END) AS pm_cycles_completed
+  -- PM cycles: same performance_cycles_* source as SNAPSHOT_SQL (the legacy
+  -- performance_management_cycle fallback was dropped upstream 2026-09-30),
+  -- period-bound. "Completed" is reinterpreted from "already past today" to
+  -- "ends within this period" (performance_cycles_cycleend.end_date).
+  (SELECT count(*) FROM public.performance_cycles_cycle
+     WHERE environment_id = :ENV_ID AND created_at >= :RANGE_START AND created_at < :RANGE_END) AS pm_cycles_configured,
+  (SELECT count(DISTINCT c.id)
+     FROM public.performance_cycles_cycle c
+     JOIN public.performance_cycles_step s ON s.cycle_id = c.id
+     JOIN public.performance_cycles_cycleend ce ON ce.step_ptr_id = s.id
+    WHERE c.environment_id = :ENV_ID
+      AND c.creation_status = 'PUBLISHED'
+      AND ce.end_date >= :RANGE_START AND ce.end_date < :RANGE_END) AS pm_cycles_completed
 `.trim();
 
 /** Same category/provider split as LEARNING_SPLIT_SQL, bounded to enrollments
- *  CREATED within [:RANGE_START, :RANGE_END) — added at each source branch,
- *  before the dedup CTE, so the same-id dedup/classification logic is
- *  untouched. */
+ *  CREATED within [:RANGE_START, :RANGE_END). */
 export const PERIOD_LEARNING_SPLIT_SQL = `
 WITH learn AS MATERIALIZED (
-  SELECT id,
-    CASE WHEN bool_or(is_global) THEN 'global' WHEN bool_or(is_lumofy) THEN 'lumofy' ELSE 'company' END AS category,
-    COALESCE(max(provider) FILTER (WHERE from_content AND provider IS NOT NULL), max(provider)) AS provider,
-    max(item_id::text) AS item_id,
-    bool_or(completed) AS completed
-  FROM (
-    SELECT ce.id, true AS from_content, ce.content_item_id AS item_id,
-      (ci.content_type NOT IN ('COURSE_BUILDER','DOCEBO')) AS is_global,
-      (ci.content_type = 'DOCEBO' OR (ci.content_type = 'COURSE_BUILDER' AND ci.environment_id IS DISTINCT FROM :ENV_ID)) AS is_lumofy,
-      CASE WHEN ci.content_type NOT IN ('COURSE_BUILDER','DOCEBO') THEN ci.content_type END AS provider,
-      (ce.status = 'COMPLETED') AS completed
-    FROM public.learning_contentitemenrollment ce
-      JOIN public.users_lumofyuser u ON ce.user_id = u.id
-      JOIN public.learning_contentitem ci ON ce.content_item_id = ci.id
-    WHERE u.environment_id = :ENV_ID AND ce.created_at >= :RANGE_START AND ce.created_at < :RANGE_END
-    UNION ALL
-    SELECT e.id, false AS from_content, e.learning_item_id AS item_id,
-      (ev.name_en_us ILIKE '%Go1%' OR li.environment_id IS NULL) AS is_global,
-      (li.environment_id IS DISTINCT FROM :ENV_ID AND NOT (ev.name_en_us ILIKE '%Go1%' OR li.environment_id IS NULL)) AS is_lumofy,
-      CASE WHEN (ev.name_en_us ILIKE '%Go1%' OR li.environment_id IS NULL) THEN 'GO1' END AS provider,
-      (e.status = 'COMPLETED') AS completed
-    FROM public.learning_items_enrollment e
-      JOIN public.users_lumofyuser u ON e.user_id = u.id
-      JOIN public.learning_items_learningitem li ON e.learning_item_id = li.id
-      LEFT JOIN public.environments_environment ev ON li.environment_id = ev.id
-    WHERE u.environment_id = :ENV_ID AND e.is_active = true
-      AND e.created_at >= :RANGE_START AND e.created_at < :RANGE_END
-  ) rows GROUP BY id
+  SELECT ce.id, ce.content_item_id AS item_id,
+    CASE WHEN ci.content_type NOT IN ('COURSE_BUILDER','DOCEBO') THEN 'global'
+         WHEN ci.content_type = 'DOCEBO' OR (ci.content_type = 'COURSE_BUILDER' AND ci.environment_id IS DISTINCT FROM :ENV_ID) THEN 'lumofy'
+         ELSE 'company' END AS category,
+    CASE WHEN ci.content_type NOT IN ('COURSE_BUILDER','DOCEBO') THEN ci.content_type END AS provider,
+    (ce.status = 'COMPLETED') AS completed
+  FROM public.learning_contentitemenrollment ce
+    JOIN public.users_lumofyuser u ON ce.user_id = u.id
+    JOIN public.learning_contentitem ci ON ce.content_item_id = ci.id
+  WHERE u.environment_id = :ENV_ID AND ce.created_at >= :RANGE_START AND ce.created_at < :RANGE_END
 )
 SELECT 'category' AS kind, category AS label, count(*) AS enrollments, count(*) FILTER (WHERE completed) AS completions, count(DISTINCT item_id) AS items
   FROM learn GROUP BY category
