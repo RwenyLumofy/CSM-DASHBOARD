@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
+import { addTypedChip } from "@/lib/contracts/chip-input";
 import { formatNumber } from "@/lib/format";
 import { CURRENCIES, USD_PER, contractValueUSD, toUSD, withArr, type Currency } from "@/lib/contracts/ledger";
 import { changedFields, libraryTerm, toFields, type ContractView, type LibraryTerm } from "@/lib/contracts/view";
@@ -81,7 +82,13 @@ const useReasonLabel = () => { const m = useContext(ReasonLabels); return (id: s
 // Mirrors the HubSpot picklists (lib/deal-overrides.ts DEAL_FIELD_FALLBACK_OPTIONS). A value
 // already on a record that isn't listed here is still shown and kept.
 const MODULES = ["Perform", "Develop", "Engage", "Other"];
-const LIBRARIES = ["Go1", "Opensesame", "Udemy", "Linkedin", "Almentor", "Entalaqa", "Pluralsight"];
+/* Suggested providers only — the field accepts anything typed (see Chips'
+   allowCustom). HubSpot's own `global_libraries` picklist is a separate,
+   narrower list that this page does not read, so a provider signed before it
+   reaches the CRM (EdX was the one that surfaced this) must still be
+   recordable here. Nothing server-side constrains the provider name:
+   validateRecord only requires it to be non-empty. */
+const LIBRARIES = ["Go1", "Opensesame", "Udemy", "Linkedin", "Almentor", "Entalaqa", "Pluralsight", "EdX", "Other"];
 const SUPPORT_LEVELS = ["Level 1", "Level 2", "Level 3"];
 const IMPLEMENTATION_LEVELS = ["Self-Serve", "Guided", "White Glove"];
 const STAGE_LABEL: Record<string, string> = { identified: "Identified", qualified: "Qualified", proposed: "Proposed", closed: "Closed" };
@@ -802,7 +809,7 @@ function SetupGroups({ r, onUpdate }: { r: ContractRecord; onUpdate: (p: Partial
           ) : <span className="font-body text-[12.5px] text-fg-subtle">Pick the contracted modules first.</span>}
         </EditField>
         <EditField label="Global library" wide>
-          <Chips options={LIBRARIES} value={r.library} noneLabel="None" noneOn={!!r.libraryDecided && r.library.length === 0}
+          <Chips options={LIBRARIES} value={r.library} allowCustom addLabel="Add provider" noneLabel="None" noneOn={!!r.libraryDecided && r.library.length === 0}
             onChange={(v) => onUpdate({
               library: v, libraryDecided: true,
               // Pin each kept provider's terms before the list changes, so removing the first one doesn't shift its dates onto another.
@@ -907,13 +914,36 @@ function EditField({ label, hint, wide, children }: { label: string; hint?: stri
   );
 }
 
-function Chips({ options, value, onChange, noneLabel, noneOn }: { options: string[]; value: string[]; onChange: (v: string[]) => void; noneLabel?: string; noneOn?: boolean }) {
+/**
+ * Pick from a suggested list, and — with `allowCustom` — type anything the list
+ * doesn't have. The suggestions are a convenience, not a vocabulary: a provider
+ * we have signed but never added to a picklist has to be recordable the day the
+ * contract is signed, not after a CRM change.
+ *
+ * A typed value matching an existing chip (ignoring case and surrounding space)
+ * selects that chip instead of adding a near-duplicate — "edx" and "EdX" as two
+ * providers on one account is a reporting problem, not two libraries.
+ */
+function Chips({ options, value, onChange, noneLabel, noneOn, allowCustom, addLabel = "Add" }: {
+  options: string[]; value: string[]; onChange: (v: string[]) => void;
+  noneLabel?: string; noneOn?: boolean; allowCustom?: boolean; addLabel?: string;
+}) {
+  const [draft, setDraft] = useState("");
   const chip = (on: boolean) => cn("inline-flex items-center gap-1 rounded-pill border px-2.5 py-1 font-body text-[12px] font-semibold transition-colors",
     on ? "border-sirius bg-accent-soft text-sirius" : "border-border text-fg-muted hover:text-fg");
+  const shown = [...new Set([...options, ...value])];
+
+  function add() {
+    // The matching rule lives in lib/contracts/chip-input.ts, with its tests.
+    const next = addTypedChip(shown, value, draft);
+    if (next) onChange(next);
+    setDraft("");
+  }
+
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap items-center gap-1.5">
       {noneLabel && <button type="button" onClick={() => onChange([])} className={chip(!!noneOn)}>{noneOn && <Check size={11} />}{noneLabel}</button>}
-      {[...new Set([...options, ...value])].map((o) => {
+      {shown.map((o) => {
         const on = value.includes(o);
         return (
           <button key={o} type="button" onClick={() => onChange(on ? value.filter((x) => x !== o) : [...value, o])} className={chip(on)}>
@@ -921,6 +951,25 @@ function Chips({ options, value, onChange, noneLabel, noneOn }: { options: strin
           </button>
         );
       })}
+      {allowCustom && (
+        <span className="inline-flex items-center gap-1 rounded-pill border border-dashed border-border px-2 py-0.5 focus-within:border-sirius">
+          <Plus size={11} className="shrink-0 text-fg-subtle" />
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            // Enter adds without submitting the card; Escape abandons the draft.
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); add(); }
+              else if (e.key === "Escape") { e.preventDefault(); setDraft(""); }
+            }}
+            // Clicking straight onto Save must not lose what was typed.
+            onBlur={add}
+            placeholder={addLabel}
+            aria-label={addLabel}
+            className="w-[11ch] bg-transparent py-0.5 font-body text-[12px] text-fg outline-none placeholder:text-fg-subtle"
+          />
+        </span>
+      )}
     </div>
   );
 }
@@ -1402,23 +1451,12 @@ function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, lice
 
           {!isChurn && (
             <Field label={isRenewal ? "Global library" : kind === "expansion" ? "Global library added" : "Global library removed"}>
-              <div className="flex flex-wrap gap-1.5">
-                <button type="button" onClick={() => setLibrary([])}
-                  className={cn("inline-flex items-center gap-1 rounded-pill border px-2.5 py-1 font-body text-[12px] font-semibold transition-colors",
-                    library.length === 0 ? "border-sirius bg-accent-soft text-sirius" : "border-border text-fg-muted hover:text-fg")}>
-                  {library.length === 0 && <Check size={11} />}{isRenewal ? "None" : "No change"}
-                </button>
-                {LIBRARIES.map((m) => {
-                  const on = library.includes(m);
-                  return (
-                    <button key={m} type="button" onClick={() => setLibrary((ls) => (ls.includes(m) ? ls.filter((x) => x !== m) : [...ls, m]))}
-                      className={cn("inline-flex items-center gap-1 rounded-pill border px-2.5 py-1 font-body text-[12px] font-semibold transition-colors",
-                        on ? "border-sirius bg-accent-soft text-sirius" : "border-border text-fg-muted hover:text-fg")}>
-                      {on && <Check size={11} />}{m}
-                    </button>
-                  );
-                })}
-              </div>
+              {/* The same typeable field as the setup group — a renewal is
+                  exactly when a provider nobody has listed yet gets added, so
+                  this row must not be the one place you cannot type one. */}
+              <Chips options={LIBRARIES} value={library} onChange={setLibrary}
+                allowCustom addLabel="Add provider"
+                noneLabel={isRenewal ? "None" : "No change"} noneOn={library.length === 0} />
               {library.length > 0 && (
                 <div className="mt-2 grid grid-cols-2 gap-2.5">
                   {library.map((p) => (

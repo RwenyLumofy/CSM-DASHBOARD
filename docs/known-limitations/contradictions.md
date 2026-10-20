@@ -215,6 +215,59 @@ without the page implementing it.
 
 ---
 
+## Three vocabularies for a global-library provider
+
+**Severity:** Medium — it decides which providers a CSM can pick, and the lists disagree.
+**Found 2026-10-18** while adding EdX, after the product owner asked why EdX was missing
+from the Contract tab.
+
+"Global library provider" has three separate option lists, and **no two are the same**:
+
+| Where | List | Read by |
+|---|---|---|
+| HubSpot's own `global_libraries` deal picklist | Go1, Opensesame, Udemy, Linkedin, Almentor, Entalaqa, Pluralsight, None — **no EdX** (checked live 2026-10-18) | The HubSpot sync, which copies it into the `deal_global_libraries` property definition (`reconcileDealSelectOptions`, [`lib/integrations/sync.ts:261`](../../lib/integrations/sync.ts)) |
+| [`lib/deal-overrides.ts:80`](../../lib/deal-overrides.ts) `DEAL_FIELD_FALLBACK_OPTIONS.globalLibraryPackage` | …Pluralsight, **EdX**, None | The deal card on the client profile — **only when the synced definition has no options** (see below) |
+| [`ContractTab.tsx:91`](../../app/%28app%29/clients/[id]/contract/ContractTab.tsx) `LIBRARIES` | …Pluralsight, **EdX**, **Other** | The Contract tab, and nothing else |
+
+**The Contract tab never reads HubSpot's list.** Its `LIBRARIES` array is hardcoded. Until
+2026-10-18 it happened to match the HubSpot picklist, which is why the drift was invisible;
+the EdX question is what exposed it. A provider added to or removed from the HubSpot
+picklist still does not reach this field. Typing a provider (added 2026-10-18) lets a CSM
+work around a missing name — it does **not** close the drift.
+
+**And a second, sharper conflict: the "union" that is not a union.**
+
+| Side | Says / does |
+|---|---|
+| [`lib/deal-overrides.ts:52-58`](../../lib/deal-overrides.ts) module header | *"The editor unions these with the synced definition's options + any stored value."* |
+| The `globalLibraryPackage` comment, **corrected 2026-10-18** | Now states the opposite of the header, and matches the consumer: the list is used *"ONLY when the synced definition has no options at all"*, HubSpot *"seeds eight, so in a synced workspace the deal card will NOT offer EdX"*, and the Contract tab's typeable field *"is where an unlisted provider gets recorded today"* |
+| [`ClientProfileTabs.tsx:3194-3208`](../../components/clients/ClientProfileTabs.tsx) `optionsForDealField`, the only consumer | **Either/or, never a union** — `fromDef.length > 0 ? fromDef : selectOpts(DEAL_FIELD_FALLBACK_OPTIONS[key])`, with its own comment: *"Fallback only when no options are seeded yet (pre-sync). Once the def has any options, trust it exclusively — merging the fallback would resurrect names the admin intentionally removed."* |
+
+So in any workspace where `deal_global_libraries` has synced options — which is every
+workspace after a first sync, because HubSpot's picklist has eight — the fallback list is
+**ignored entirely**, and **adding EdX to `DEAL_FIELD_FALLBACK_OPTIONS` has no effect on
+the deal card**. `selectOpts` is a plain map with no merge
+([`ClientProfileTabs.tsx:2356`](../../components/clients/ClientProfileTabs.tsx)); a stored
+value is only resolved for *display* by `labelFor`, not added to the selectable options.
+
+**Half of this is now resolved.** The 2026-10-18 change first added a comment repeating the
+union claim; that comment was corrected the same day and now describes the either/or
+behaviour accurately. **The module header above it still claims the union and was not
+touched**, so the file contradicts itself: a reader who stops at the header still concludes
+that a provider added to the array reaches the deal card.
+
+**Who must resolve it.** Product plus whoever owns the HubSpot deal properties. The real
+decisions are (a) whether the Contract tab should read `deal_global_libraries` instead of a
+hardcoded list, (b) whether EdX belongs in HubSpot's picklist, and (c) whether the stale
+union claim in the module header should be corrected to match `optionsForDealField`, or the
+editor changed to actually union. **Not decided here.**
+
+**Files:** `app/(app)/clients/[id]/contract/ContractTab.tsx` · `lib/deal-overrides.ts` ·
+`components/clients/ClientProfileTabs.tsx` · `lib/integrations/sync.ts` · Documented at
+[Client Profile → Contract tab](../product/client-profile/README.md#contract-tab-preview)
+
+---
+
 ## How to add to this file
 
 Only add a genuine conflict — two implementations, or an implementation that contradicts
