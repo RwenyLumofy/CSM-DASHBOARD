@@ -4,6 +4,8 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { PropertiesManager } from "@/components/settings/PropertiesManager";
 import { SyncManager } from "@/components/settings/SyncManager";
 import { NotionSyncManager } from "@/components/settings/NotionSyncManager";
+import { ApiKeysManager } from "@/components/settings/ApiKeysManager";
+import type { ApiKeySummary } from "@/lib/api/store";
 import { getNotionSyncStatus } from "@/lib/integrations/notion-sync";
 import { MembersArea } from "@/components/settings/MembersArea";
 import { StakeholderTypesManager } from "@/components/settings/StakeholderTypesManager";
@@ -46,7 +48,7 @@ export const maxDuration = 300;
      Properties    — the data model (client fields, vocabularies)
      Projects      — project options and templates
      Client health — component weights, bands, the CS Pulse, gates and rules
-     Integrations  — HubSpot data sync
+     Integrations  — HubSpot data sync, Notion export, API keys
 
    Visibility is unchanged: non-admins see only Properties (read-only) and
    Projects; Members, Client health and the config sections stay super-admin.
@@ -322,6 +324,16 @@ async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
   if (hasDatabase()) {
     notion = await withDbTimeout(getNotionSyncStatus()).catch(() => notion);
   }
+  // Super-admin only: a key reads every account. Empty (not an error) until
+  // drizzle/api-keys.sql has been run on this database.
+  let apiKeys: ApiKeySummary[] = [];
+  if (superAdmin && hasDatabase()) {
+    const { listApiKeys } = await import("@/lib/api/store");
+    apiKeys = await listApiKeys().catch((err) => {
+      console.warn("[settings] api_keys read failed:", err);
+      return [];
+    });
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -353,6 +365,15 @@ async function IntegrationsTab({ superAdmin }: { superAdmin: boolean }) {
           initialDatabaseUrl={notion.databaseUrl}
         />
       </SettingsSection>
+
+      {superAdmin && (
+        <SettingsSection
+          title="API keys"
+          description="Keys let internal tools (BI, automations, bots) read Signal over the read-only API at /api/v1. A key can read every account, so give each tool its own key and revoke it when the tool is retired."
+        >
+          <ApiKeysManager databaseConfigured={hasDatabase()} initialKeys={apiKeys} />
+        </SettingsSection>
+      )}
     </div>
   );
 }

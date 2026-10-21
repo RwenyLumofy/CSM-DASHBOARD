@@ -112,6 +112,16 @@ commit `8f00fed` after it served the whole staff directory to anonymous users.
 | `/api/admin/csm-users`, `/api/admin/properties`, `/api/admin/stakeholder-config` | Clerk session + role | Admin config |
 | `/api/import/clients` | Clerk session | Import execution |
 | `/api/churn-import`, `/api/add-account`, `/api/usage-refresh` | secret bearer, public to middleware | One-off backfills |
+| `GET /api/v1` | API key (`Authorization: Bearer sig_…`), **public to middleware** | Connection check for an integration key |
+| `GET /api/v1/accounts`, `/api/v1/accounts/[id]` | API key | Accounts — **unscoped**, all accounts |
+| `GET /api/v1/renewals` | API key | Upcoming renewals, soonest first |
+| `GET /api/v1/tasks` | API key | Account tasks (`today_tasks`) |
+| `GET /api/v1/expansion` | API key | Expansion opportunities |
+
+The `/api/v1/*` routes (added 2026-10-18) are the **read-only integration API** for internal
+tools. `/api/v1` and `/api/v1/(.*)` are excluded from Clerk in `middleware.ts`; `withApiKey` in
+`lib/api/http.ts` is the only gate. Keys are issued by super admins in Settings →
+Integrations. See [Signal API (v1)](product/integrations/api-v1.md).
 
 Cron routes are **excluded from Clerk protection** in
 [`middleware.ts:12-31`](../middleware.ts) — Vercel's scheduler has no session — and are
@@ -229,6 +239,7 @@ Enforced server-side. `seesAllClients` / `editsAllClients` / `canSeeClient` /
 | Use Case Universe — apply import, reset | **Yes** | **No** | No | No |
 | Settings → Members / Automations / Health / Churn | Yes | Yes | No | No |
 | Settings → Integrations secrets, full re-sync | **Yes** | No | No | No |
+| Settings → Integrations → API keys (create, revoke) | **Yes** | No | No | No |
 
 Scope can be narrowed further per user via `app_users.scope` (`all` / `assigned` /
 `selected`) and `user_account_grants`. **Super Admin can never be narrowed.**

@@ -13,7 +13,7 @@ does not live in a table at all.
 
 | Tier | What lives there | Why |
 |---|---|---|
-| **Tables** | Accounts, deals, contacts, notes, attachments, actions, projects, usage, ARR events, users | Normal relational data |
+| **Tables** | Accounts, deals, contacts, notes, attachments, actions, projects, usage, ARR events, users, API keys | Normal relational data |
 | **`clients.properties` JSONB** | CS Pulse, health snapshot, stakeholder profiles and links, stakeholder mappings, use-case implementations, deal overrides, deal dates, tech stack | Account-scoped product state that inherits the account's permission scope for free, and can change shape without a migration |
 | **`workspace_config` key–value** | Use-case taxonomy, health formula, assignment config, churn taxonomy, role labels, per-user Today triage | Workspace configuration with no natural table, added without migrations |
 
@@ -113,6 +113,25 @@ Profile's account-tasks panel reads the *same rows*: one dataset, two views.
 `client_usage_monthly` (history). `syncError` holds the last failure **without clobbering
 the last-good snapshot**, so a transient Metabase hiccup never blanks the tab. A stale or
 missing row still falls back to a live fetch.
+
+### ApiKey
+**Represents:** a named credential that lets one internal tool read Signal through the
+read-only API at `/api/v1`. Added 2026-10-18.
+**Table:** `api_keys` (`lib/db/schema.ts` → `apiKeys`; DDL `drizzle/api-keys.sql`).
+**Key fields:** `id` (`key-{uuid}`) · `name` (what it is for) · `key_prefix` (`sig_` + 8
+characters, display only) · `key_hash` (hex SHA-256 of the full key, unique) ·
+`created_by_email`, `created_at` · `last_used_at` (stamped at most once a minute) ·
+`revoked_at`, `revoked_by_email` (null = active).
+**Ownership and permissions:** created and revoked by super admins only
+(`app/(app)/settings/api-key-actions.ts`). Not editable.
+**Lifecycle:** active → revoked, permanently. Rows are never deleted, so the record of who
+had access survives revocation. **The key itself is never stored** — it is shown once.
+**Security:** row-level security is enabled with no policies, so Supabase's anon and
+authenticated roles cannot read the hashes through PostgREST.
+**Applied by:** pasting `drizzle/api-keys.sql` into the Supabase SQL editor (production) or
+`scripts/add-api-keys-table.mjs` (test database) — outside the drizzle migration sequence,
+like the other hand-maintained SQL files.
+**Related:** [Signal API (v1)](../product/integrations/api-v1.md).
 
 ### PropertyDefinition
 Admin-defined client fields, grouped (`contract`, `product`), rendered on the profile's
@@ -218,6 +237,8 @@ the correction back.
 
 `drizzle/0000_goofy_unicorn.sql` … `0004_add_client_notes.sql`, plus hand-maintained
 `health-tables.sql`, `health-analytics-views.sql`, `stakeholder-tables.sql`.
+*(Not re-verified as a full list since 2026-07-31. Added 2026-10-18: `drizzle/api-keys.sql`,
+applied by hand — see [ApiKey](#apikey).)*
 
 ⚠️ **`drizzle/meta` is stale.** `npm run db:generate` emits a **full-schema baseline**
 rather than an incremental; applying it would clash with live tables. Use the reviewed

@@ -21,6 +21,13 @@ const isPublic = createRouteMatcher([
   // Force-refresh one client's Metabase usage snapshot (same secret check).
   "/api/usage-refresh(.*)",
   "/api/cron(.*)",
+  // Read-only integration API for internal tools. No Clerk session exists for a
+  // machine caller; every handler authenticates its own API key through
+  // withApiKey() in lib/api/http.ts, and that is the only gate on these routes.
+  // Exactly /api/v1 and paths under it — not "/api/v1(.*)", which would also
+  // open any future /api/v10 or /api/v1-internal.
+  "/api/v1",
+  "/api/v1/(.*)",
   // NOTHING UNDER /scratch-* BELONGS HERE. /scratch-wf was public and shipped
   // for longer than the rest, on the assumption it was safe because
   // getClients() is role-scoped. It wasn't: buildTodaySnapshot() also calls

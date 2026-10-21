@@ -8,9 +8,16 @@ Three read-only source systems feed Signal — HubSpot, Intercom and Metabase �
 for action wording and Supabase Storage for attachments. Seven Vercel Cron jobs keep the
 data current. **Signal never writes back to any of them.**
 
-One integration goes the other way: a weekly export of the client list **to Notion**
-(added 2026-10-13). It is the only outside system Signal writes to. See
-[Weekly client export to Notion](#weekly-client-export-to-notion).
+Two things go the other way — Signal's data leaving Signal:
+
+- A weekly export of the client list **to Notion** (added 2026-10-13). It is the only
+  outside system Signal writes to. See
+  [Weekly client export to Notion](#weekly-client-export-to-notion).
+- A **read-only API at `/api/v1`** (added 2026-10-18) that internal tools — BI, n8n, a
+  Slack bot — call with a key a super admin issues. Signal writes nothing anywhere for it;
+  the caller pulls. It also accepts no writes: nothing a tool sends can change Signal data.
+  See [Read-only API for internal tools](#read-only-api-for-internal-tools) and the full
+  [Signal API (v1)](api-v1.md) document.
 
 ## Purpose
 
@@ -28,6 +35,9 @@ Super Admins configure and trigger. Everyone consumes the result.
   configured)
 - **Cron:** eight routes under `/api/cron/` — seven that bring data in, one that exports
   to Notion
+- **Read API:** `GET /api/v1`, `/api/v1/accounts`, `/api/v1/accounts/{id}`,
+  `/api/v1/renewals`, `/api/v1/tasks`, `/api/v1/expansion` — bearer API key, no Clerk
+  session ([api-v1](api-v1.md))
 
 ## The sources
 
@@ -196,6 +206,23 @@ the "Sync to Notion now" button**, and the server action behind it refuses anyon
 (`app/(app)/settings/actions.ts` → `notionSyncNowAction`). The button runs exactly the
 Sunday job. *Not yet seen rendered in a browser — implementation read only.*
 
+## Read-only API for internal tools
+
+**Status:** Partially verified. Pure helpers are unit-tested (`lib/api/api.test.ts`);
+routes and key storage were read end to end and run manually against the test database,
+not under automated test. Added 2026-10-18 (uncommitted on `feat/public-api-v1` at the time
+of writing).
+
+A super admin creates a named key in **Settings → Integrations → API keys**; the key is
+shown once and only its SHA-256 is stored. A tool sends it as `Authorization: Bearer sig_…`
+to `/api/v1/*` and can read **every** account, renewal, account task and expansion
+opportunity — keys are not scoped. `GET` only. Contacts, notes, the `properties` bag and
+support/usage detail are deliberately not exposed. No rate limiting.
+
+Endpoints, parameters, response fields, errors, paging and examples:
+[Signal API (v1)](api-v1.md). Why it is built this way:
+[decision 0025](../../decisions/0025-a-read-only-integration-api-with-hashed-keys-and-stable-shapes.md).
+
 ## Known data caveats (from README and code)
 
 - **ARR baseline.** HubSpot has no single "current ARR" property here, so the sync used
@@ -216,6 +243,9 @@ Sunday job. *Not yet seen rendered in a browser — implementation read only.*
 - **View integration status:** everyone (Integrations tab is ungated at the tab level).
 - **Secrets and full re-sync:** Super Admin only.
 - **Cron and backfill routes:** bearer secret; no user session involved.
+- **API keys (create, list, revoke):** super admin only — section rendered only for super
+  admins, and `isSuperAdmin()` re-checked in `app/(app)/settings/api-key-actions.ts`.
+- **`/api/v1` reads:** any active API key; reads are unscoped. See [api-v1](api-v1.md#permissions).
 
 ## Automations and side effects
 
@@ -226,7 +256,7 @@ inputs. Profile completeness → notifications and Action list items.
 
 `sync_checkpoints` · `clients` · `client_deals` · `client_contacts` · `client_emails` ·
 `client_meetings` · `client_usage_snapshots` · `client_usage_monthly` ·
-`survey_responses` · `arr_events`.
+`survey_responses` · `arr_events` · `api_keys` (API key hashes — see [api-v1](api-v1.md#data-model)).
 
 ## Technical implementation
 
@@ -239,6 +269,7 @@ inputs. Profile completeness → notifications and Action list items.
 | Gemini | `lib/integrations/gemini.ts` |
 | Storage | `lib/integrations/supabase-storage.ts` |
 | Notion export | `lib/integrations/notion.ts`, `notion-clients.ts`, `notion-sync.ts`, `app/api/cron/notion-sync/route.ts`, `components/settings/NotionSyncManager.tsx` |
+| Read API (`/api/v1`) | `app/api/v1/*/route.ts`, `lib/api/http.ts`, `keys.ts`, `store.ts`, `read.ts`, `serialize.ts`, `components/settings/ApiKeysManager.tsx`, `app/(app)/settings/api-key-actions.ts` — see [api-v1](api-v1.md#technical-implementation) |
 | Support sync | `lib/support/sync.ts`, `survey-sync.ts` |
 | Routes | `app/api/sync/route.ts`, `app/api/cron/*/route.ts` |
 | Config | `lib/config.ts`, `.env.example`, `vercel.json` |
@@ -277,6 +308,9 @@ staleness badge outside the Usage tab, and no dashboard of run history.
 8. **The Notion export has no failure alert.** A failed Sunday run is visible only as an
    old "Last synced" time in Settings. A row deleted in Notion is recreated on the next run. If the run exceeds its time budget (260s) the clients not
    reached are reported as `remaining` and wait until the next run.
+9. **The read API has no rate limiting, no per-key scopes and no request log.** Any active
+   key reads every account; only `last_used_at` records use. See
+   [api-v1 → Known limitations](api-v1.md#known-limitations).
 
 ## Open questions
 
@@ -287,9 +321,14 @@ staleness badge outside the Usage tab, and no dashboard of run history.
 ## Source references
 
 `lib/integrations/*` · `lib/config.ts` · `vercel.json` · `middleware.ts` ·
-`app/api/sync/route.ts` · `app/api/cron/*` · `README.md` · `lib/deal-overrides.ts`
+`app/api/sync/route.ts` · `app/api/cron/*` · `README.md` · `lib/deal-overrides.ts` ·
+`lib/api/*` · `app/api/v1/*` (read API, 2026-10-18)
 
 ---
 
 **Documentation status:** Partially verified
 **Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+*(The "Read-only API for internal tools" section and its entries in Summary, Entry points,
+Permissions, Data model, Technical implementation and Known limitations were added
+2026-10-18 against `9befb8a` + uncommitted working-tree change on `feat/public-api-v1`.
+The rest of the document was not re-verified in that pass.)*
