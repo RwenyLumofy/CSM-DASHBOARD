@@ -2,6 +2,9 @@
 
 **Status:** Partially verified (formulas read end to end; **no tests**)
 **Last verified:** 2026-07-31 · **Commit:** `4214349`
+*R1a and inconsistency 6 were added 2026-10-22 against `b5d3401` + working-tree change on
+`feat/hubspot-sales-only`, after reading `recomputeClientBody` end to end. No other rule in
+this document was re-verified in that pass.*
 
 ---
 
@@ -24,6 +27,46 @@ in-app and never come from HubSpot.
 
 **Code.** `withRunningBalance`, `deriveClientArr` in
 [`lib/metrics/arr.ts`](../../lib/metrics/arr.ts). **Tests.** None.
+
+---
+
+## R1a — The materialised ARR on a client row is tracked deals + non-HubSpot events
+
+**Status:** Partially verified — `recomputeClientBody` read end to end; **no tests**.
+
+**Definition.** R1 describes the ledger. The figure actually **stored** on the client row,
+and read by the clients directory, the profile, Insights and the health inputs, is computed
+differently:
+
+```
+arr = Σ(amount of every tracked deal)            // deal overrides applied first
+    + Σ(amount of every arr_event whose source is NOT "hubspot")
+```
+
+`previousArr` is the same sum restricted to deals closed, and events effective, on or before
+the current quarter's start. A deal counts as tracked unless `tracked` is explicitly `false`.
+
+**Why both.** HubSpot-sourced `new_business` events are excluded from the second sum
+precisely because the deals themselves are already in the first — counting both would double
+the sale. Import baselines and every manual movement live in the ledger.
+
+**Consequence — a tracked deal is live ARR, whatever pipeline it came from.** Until
+2026-10-22 the sync also surfaced CS-pipeline deals, and a *Renewed* or *Expanded* one arrived
+`tracked = true`, **on top of** the sale it replaced. The account counted both until a CSM
+unticked the superseded deal by hand. That is why renewals have historically been handled by
+unticking: the untick, not the renewal, is what moves the number.
+
+**What changed on 2026-10-22, and what did not.** The sync no longer pulls CS-pipeline deals
+([decision 0026](../decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md)),
+so no new renewal, expansion, downgrade or churn arrives from HubSpot. **The CS-pipeline deals
+already synced were deliberately left in place and still count** — in the local production
+clone, 21 tracked CS deals across 19 accounts, $371,720. **No ARR moved on that date**, and an
+account double-counted by a renewal that synced before the change still needs the superseded
+deal unticked manually. Retiring those rows belongs to the contract-records switch-over
+([contract records — specification §10](../specs/revenue/contract-records-specification.md#10-the-switch--signal-reads-contract-records-phase-5)).
+
+**Code.** `recomputeClientBody` in [`lib/repo/drizzle.ts`](../../lib/repo/drizzle.ts).
+**Tests.** None.
 
 ---
 
@@ -179,6 +222,15 @@ its churn event falls.
    own lifecycle.
 5. **"Renewal ARR requiring attention"** is used as a concept in the forward outlook but was
    not traced to a single definition in this pass.
+6. **Two ARR formulas coexist** (R1 and R1a). The documented model is the ledger balance; the
+   stored number is tracked deals plus non-HubSpot events. They agree only while every sale
+   has a matching HubSpot `new_business` event and no deal has been untracked without a
+   compensating event — which is exactly what unticking a superseded renewal does. Nothing
+   reconciles them, and no test asserts either.
+7. **Nothing raises ARR on a renewal any more.** Since 2026-10-22 no renewal arrives from
+   HubSpot, and contract records do not feed live ARR until the switch is on, so a renewal's
+   increase has to be entered by hand. An expansion can be added deliberately from the
+   [Expansion board](../product/expansion/README.md); a renewal has no equivalent path.
 
 ## Open questions
 
@@ -191,4 +243,5 @@ its churn event falls.
 
 `lib/metrics/arr.ts` · `lib/metrics/retention.ts` · `lib/metrics/movement.ts` ·
 `lib/metrics/exec.ts` · `lib/db/schema.ts:96-125` (`arr_snapshots`, `arr_events`) ·
-`README.md`
+`lib/repo/drizzle.ts` (`recomputeClientBody` — the stored figure, R1a) ·
+`lib/integrations/hubspot.ts` (which deals reach an account at all) · `README.md`

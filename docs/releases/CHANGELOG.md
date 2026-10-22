@@ -16,6 +16,32 @@ limitations · commit.
 
 ---
 
+## 2026-10-22
+
+### HubSpot now gives Signal the sale and nothing else; renewals, expansions, downgrades and churn are Signal's
+**Area:** Integrations → HubSpot sync · Client Profile → Contracts & deals card (its Renewal, Expansion, Confirmed Churn and Downgrade tabs) · profile completeness badge and the gaps it reports · Action list items for missing fields. Not yet committed — working tree on `feat/hubspot-sales-only`, off `main` (`b5d3401`).
+**Roles affected:** Nobody gains or loses a permission. CSMs and admins see the completeness badge stop reacting to renewals, and will stop seeing new renewal / expansion / downgrade / churn rows appear from HubSpot. Super admins own the leftover clean-up described under *Known limitations*.
+**Before:** The sync pulled Direct Sales Closed Won, Indirect Sales Closed Won **and** four CS-pipeline stages — Renewed, Expanded, Confirmed Churned, Downgraded. Two things went wrong with that, both seen on live data on 2026-10-22 on one production account:
+- **An empty renewal turned a complete account red.** HubSpot holds licences, user price and contract length on a CS renewal deal and nothing else. Because a per-deal field counted as missing when *any* tracked deal lacked it, that one deal reported **ten** red gaps on an account that previously had none: Module, Use case, Global library, Global library licenses, AI course credits, Support level, Implementation level, Contract start, Launch date, Kick-off meeting. The CSM saw a fully-filled account marked incomplete, with ten Action-list items to match.
+- **The renewal double-counted the account's ARR.** It arrived ticked, on top of the sale it replaced, and stayed that way until somebody unticked the superseded deal by hand.
+**After:** The product owner's decision — *"we agree that we will only pull closed won deals from Hubspot, the rest will be done from Signal"* — is now what the sync does.
+- **The sync surfaces Closed Won sales only** (Direct and Indirect). No new CS-pipeline deal reaches an account.
+- **Renewals, expansions, downgrades and churn are recorded in Signal**: on the account's **Contract tab**, and on the **Expansion board** for expansion opportunities. Recording a renewal there pre-fills modules, global library and its licences, and support level from the contract in force, and carries the implementation level forward — which is why moving renewals into Signal fixes the empty-renewal problem at the root instead of hiding it.
+- **The completeness badge now judges the account's tracked sales**, falling back to all of its tracked deals when it has no tracked sale. A renewal no longer creates gaps; a real gap on the sale is still reported. The 2026-07-05 "any tracked deal" rule still applies *within* the judged set.
+**Migration / data impact:** **None, deliberately.** No schema change, no backfill, no recompute. **CS-pipeline deals already synced are left exactly as they are** — still on their accounts, still ticked, still counted in ARR (in the local production clone: 21 tracked CS deals, 19 accounts, $371,720). Stripping them would have dropped that ARR across 19 accounts and stopped renewals raising ARR at all, because contract records do not feed live ARR until the contract-records switch is on. **No account's ARR moved on this date**, and **no completeness badge changes retroactively** — the new scope was simulated against all 132 accounts in the clone with zero severity changes.
+**Known limitations:**
+- **The double-count already in production is not fixed by this.** An account whose renewal synced before the change still counts both the sale and the renewal until a CSM **unticks the superseded deal by hand** on the Contracts & deals card. The account that triggered this change is expected to be in that state right now; that could not be confirmed, because the local clone predates the renewal and production reads were blocked in the session.
+- **Nothing raises ARR on a renewal any more.** No renewal arrives from HubSpot, and contract records are not yet the live source, so a renewal's increase has to be entered by hand. Expansions have a deliberate path ("Add this to the account's ARR now" on the Expansion board); renewals have none.
+- **Retiring the leftover CS deal rows is owed work**, tied to the contract-records switch-over.
+- **A CS-only account can never read "complete":** HubSpot records an acquisition channel on the original sale, never on a renewal, so *Acquisition Channel* stays a yellow gap. Pre-existing for those accounts; neither caused nor hidden by this change.
+- **A deal moved into the CS pipeline in HubSpot now simply stops appearing** — no new row, no warning.
+- **Completeness still reads deals, never contract records**, so a renewal recorded in Signal neither fills nor creates a gap.
+**Verified:** [`lib/profile-completeness.test.ts`](../../lib/profile-completeness.test.ts) — **5 tests, the first this module has ever had**: a complete sale is complete; an empty CS renewal beside a complete sale does not make the account red (the regression); a CS-only account is still judged, and is yellow for *Acquisition Channel* only; a real gap on the sale is still reported when a CS deal is present; client-level gaps are unaffected. Whole suite **400/400 pass**; `tsc --noEmit` clean. The implementer also simulated the new scope against all 132 clone accounts (zero severity changes) and reproduced the ten gaps before the change and "complete" after, using the renewal deal exactly as HubSpot holds it. **Not verified:** the sync change itself has no test — it was read end to end only; no browser check of the badge; production's current state is inferred, not read.
+**Commit:** uncommitted working tree on `feat/hubspot-sales-only`, off `b5d3401`.
+**Docs:** [decision 0026](../decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md) · [Integrations → Which HubSpot deals the sync pulls](../product/integrations/README.md#which-hubspot-deals-the-sync-pulls--and-which-it-no-longer-does) · [profile completeness R2a](../business-rules/profile-completeness.md#r2a--the-judged-set-is-the-accounts-tracked-sales-with-a-fallback) · [ARR R1a](../business-rules/arr-and-revenue-movement.md#r1a--the-materialised-arr-on-a-client-row-is-tracked-deals--non-hubspot-events) · [known limitations](../known-limitations/README.md#data-quality-and-modelling).
+
+---
+
 ## 2026-10-18
 
 ### Internal tools can read Signal through a read-only API (`/api/v1`)

@@ -126,6 +126,17 @@ account's deals into five tabs: **Sales** (any non-CS pipeline), **Renewal**, **
 row count. The card is shown when the account has at least one HubSpot deal **or** at least
 one Won Expansion-page opportunity.
 
+**The four CS-pipeline tabs are history only, as of 2026-10-22.** The HubSpot sync no longer
+pulls CS-pipeline deals, so these tabs keep the rows already synced and gain no new ones; what
+happens after a sale is recorded on the [Contract tab](#contract-tab-preview) and the
+[Expansion page](../expansion/README.md)
+([decision 0026](../../decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md)).
+The rows that are there are unchanged and **still counted in the account's ARR**, and the
+**tracked checkbox is still how a superseded deal is taken out of it** — an account whose
+renewal synced before the change counts both the sale and the renewal until a CSM unticks one.
+The tabs, their grouping and the checkbox are untouched by the change; only the supply of new
+rows stopped.
+
 **Expansion tab.** Since 2026-10-08 it lists two kinds of row:
 
 1. **Won opportunities from the [Expansion page](../expansion/README.md)**, listed first.
@@ -139,7 +150,8 @@ one Won Expansion-page opportunity.
    checkbox**: their ARR reaches the account through the ARR ledger when "ARR recorded" is
    ticked on the Expansion page (see [Expansion](../expansion/README.md)). They count in the
    tab's number.
-2. **HubSpot CS-pipeline expansion deals**, listed below, while that sync still runs.
+2. **HubSpot CS-pipeline expansion deals**, listed below. **No new ones arrive** — that sync
+   stopped on 2026-10-22 — so this is whatever was synced before then.
 
 With neither, the empty state reads "Expansions are recorded on the Expansion page. Once one
 is won, it appears here." This follows the 2026-10-04/08 product decision that only Closed
@@ -377,3 +389,8 @@ document was not re-read in that pass and keeps its earlier verification date.
 **Information architecture item 5 (`AccountTasks`) revised 2026-09-13 against `7c2e39f` plus
 the working-tree change that makes tasks editable.** Nothing else in this document was
 re-read in that pass.
+
+**The Contracts & deals card's CS-pipeline paragraph and its Expansion-tab item 2 were
+revised 2026-10-22 against `b5d3401` plus the working-tree change on `feat/hubspot-sales-only`
+that stops the sync pulling CS-pipeline deals.** The card's own code was not changed and was
+not re-read; nothing else in this document was re-read in that pass.

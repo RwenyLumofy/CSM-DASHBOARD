@@ -268,6 +268,58 @@ editor changed to actually union. **Not decided here.**
 
 ---
 
+## ~~The HubSpot sync comments describe a CS pipeline it no longer pulls~~ — RESOLVED
+
+**Opened and resolved on 2026-10-22**, all against `b5d3401` + working-tree changes on
+`feat/hubspot-sales-only`. Kept as a record because the sync's comments were the only
+description of its scope, and `tsc --noEmit` passed throughout — no tool objected to either
+the stale comments or the dead set, so nothing but a reader would have caught them.
+
+What was corrected, in four places in `lib/integrations/hubspot.ts`:
+
+- `fetchClientEngagement`'s **JSDoc**, its **step-1 filter comment** and its
+  **deal-shaping-loop comment** all now say *"Direct/Indirect Closed Won — sales only"*.
+- `classifyCsCategory`'s header now states that only the churned-account import reads CS
+  deals (`fetchChurnedAcquisition`, attaching them `tracked = false`), while the recurring
+  sync pulls sales only.
+- **`CS_NON_ARR_STAGES` was deleted** — built and never read, since the churn import writes
+  `tracked = false` unconditionally and never consulted it.
+
+**Do not "fix" the remaining CS mentions in that file — they are correct.**
+`ChurnedCompanyImport`'s field documentation (*"Direct/Indirect Closed Won + CS
+Renewed/Expanded/Confirmed-Churned/Downgraded"*), the baseline-priority note beside it, and
+the tier comment inside `fetchChurnedAcquisition` all describe the **one-off churned-account
+import**, which still reads historical CS deals on purpose and is not part of the recurring
+sync. The `WON_DEAL_STAGES` header also names the CS stages, deliberately, to record why they
+were dropped. Verified 2026-10-22: one occurrence of *"CS Renewed/Expanded"* remains in the
+file and it is the churn import's.
+
+**Files:** `lib/integrations/hubspot.ts` · documented at
+[Integrations → Which HubSpot deals the sync pulls](../product/integrations/README.md#which-hubspot-deals-the-sync-pulls--and-which-it-no-longer-does)
+· [decision 0026](../decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md)
+
+---
+
+## ~~Profile completeness has two scope rules in one module header~~ — RESOLVED
+
+**Opened and resolved on 2026-10-22**, both against `b5d3401` + working-tree changes on
+`feat/hubspot-sales-only`. The header of `lib/profile-completeness.ts` had kept the
+2026-07-05 rule unqualified (*"a per-deal field counts as missing if ANY of the account's
+TRACKED deals lacks it"*) after `setupDeals` narrowed the judged set to the account's tracked
+sales, so a reader who stopped at the header concluded that a tracked CS renewal was judged —
+the behaviour the change had just removed.
+
+**Now** the header states the scope in two parts: **which** deals are judged (2026-10-22 —
+tracked sales, with the fallback, pointing at `setupDeals`) and **within** that set
+(2026-07-05 — any judged deal missing a field makes it missing). Re-read 2026-10-22; the file
+matches
+[profile completeness R2 and R2a](../business-rules/profile-completeness.md#r2--scope-rule-any-deal-in-the-judged-set-not-all),
+which are unchanged.
+
+**Files:** `lib/profile-completeness.ts` · `lib/profile-completeness.test.ts`
+
+---
+
 ## How to add to this file
 
 Only add a genuine conflict — two implementations, or an implementation that contradicts

@@ -205,17 +205,26 @@ reference its id and a hard delete would silently orphan their records.
 (contract, product, …) and rendered on the profile's General information tab.
 
 **Deal** — a HubSpot deal synced onto the account, carrying contract fields (licences,
-price per user, contract length, modules, dates).
+price per user, contract length, modules, dates). Since 2026-10-22 the sync pulls **Closed Won
+sales only** (Direct and Indirect); CS-pipeline rows synced before then are still there. What
+happens after the sale is a **contract record** or an **expansion opportunity**, not a deal
+([decision 0026](decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md)).
 
 **Deal override** — an in-app edit layered over a synced deal field. Signal **never writes
 back to HubSpot**; it stores the override and applies it on read. `lib/deal-overrides.ts`.
 
-**Tracked deal** — an active deal that counts for profile completeness and contract
-fields.
+**Tracked deal** — an active deal (`tracked` is not `false`) that counts towards the
+account's ARR and supplies its contract fields. Unticking a superseded deal is how a
+renewal avoids double-counting ARR.
+
+**Judged set** (profile completeness) — the deals an account's **setup** is assessed on: its
+tracked **sales**, or all of its tracked deals when it has no tracked sale. A revenue
+movement is not a contract setup.
+[Profile completeness R2a](business-rules/profile-completeness.md#r2a--the-judged-set-is-the-accounts-tracked-sales-with-a-fallback).
 
 **Profile completeness** — a two-tier data-quality check: **red** (must-have) and
 **yellow** (nice-to-have, evaluated only once red is clear). A per-deal field is missing
-if *any* tracked deal lacks it. `lib/profile-completeness.ts`.
+if *any* deal in the judged set lacks it. `lib/profile-completeness.ts`.
 
 **Sync** — the HubSpot → Intercom → Metabase → database pipeline. Read-only in all three
 directions.
