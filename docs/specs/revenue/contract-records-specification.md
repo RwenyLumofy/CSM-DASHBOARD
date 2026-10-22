@@ -12,6 +12,14 @@ deals.
 expansions, downgrades and churn — is recorded in Signal. An account's ARR is read
 from its contract records.
 
+> **The sync now enforces the first sentence** (2026-10-22). Until then this rule described
+> contract records while the HubSpot sync kept pulling CS-pipeline Renewed, Expanded,
+> Confirmed Churned and Downgraded deals. It no longer does
+> ([decision 0026](../../decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md)).
+> The second sentence is still **not** live outside this tab: CS-pipeline deals already
+> synced were deliberately left in place and are still what an account's live ARR is summed
+> from, so the switch-over in §10 — and retiring those rows — remains outstanding.
+
 | Owned by | Fields |
 |---|---|
 | HubSpot (every Closed Won channel: Direct, Indirect, Jisr, FutureX, Tamkeen) | A sale's amount, licences, user price, complementary licences, closed-won date, Account Executive, currency |

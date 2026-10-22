@@ -148,7 +148,11 @@ is due tomorrow. One number cannot say both, and collapsing them loses the diffe
     twice upserts the same row and never double-counts. The account's ARR is recomputed.
   - **Removal.** Unticking, reopening the opportunity (moving a closed one back to a stage),
     or deleting it removes that row and recomputes the account's ARR.
-  - **Refusal — same expansion already counted through HubSpot.** If the account has a
+  - **Refusal — same expansion already counted through HubSpot.** Still live, and still
+    reachable: the sync stopped pulling CS-pipeline deals on 2026-10-22
+    ([decision 0026](../../decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md)),
+    but the check reads the deal rows **already stored**, which were deliberately left in
+    place. If the account has a
     **ticked** HubSpot CS-pipeline deal in the `expansion` category whose close date is within
     **60 days** of the Won date, the entry is refused with an explanation (adding it would
     count the expansion twice). From the record, nothing changes and the reason is shown.
@@ -310,3 +314,7 @@ That is the gap the page exists to close, not a bug.
 board* only (Partially verified). The rest of this document was not re-read.
 **Change pass 2026-10-08 (ARR recorded → ledger)** against `main` (`4ddbe7c`) + this change: the "ARR recorded" business rule, Permissions, Integrations → ARR ledger, Currency and
 Implementation only. The rest of this document was not re-read.
+**Change pass 2026-10-22 (HubSpot sales-only sync)** against `b5d3401` + the working-tree
+change on `feat/hubspot-sales-only`: one qualification on the "same expansion already counted
+through HubSpot" refusal — the sync no longer pulls CS-pipeline deals, the refusal reads the
+rows already stored and is unchanged. Nothing else in this document was re-read.

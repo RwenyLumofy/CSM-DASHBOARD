@@ -44,13 +44,10 @@ const PIPELINES = [
   { id: INDIRECT_SALES_PIPELINE, wonStage: INDIRECT_SALES_CLOSED_WON, label: "indirect" as const },
 ];
 
-/** CS-pipeline stages that must be surfaced on the account but kept out of ARR
- *  (inserted tracked=false). Confirmed Churned + Downgraded. */
-const CS_NON_ARR_STAGES = new Set<string>([CS_PIPELINE_CONFIRMED_CHURNED, CS_PIPELINE_DOWNGRADED]);
-
 /** Classify a CS-pipeline deal's stage into its Contracts & deals tab bucket.
- *  "renewal" is the catch-all/fallback (matches CS_PIPELINE_RENEWED and any
- *  other CS stage that reaches WON_DEAL_STAGES in the future). */
+ *  "renewal" is the catch-all/fallback. Only the churned-account import reads
+ *  CS deals now (fetchChurnedAcquisition, which attaches them tracked=false);
+ *  the recurring sync pulls sales only — see WON_DEAL_STAGES. */
 function classifyCsCategory(dealstage: string | null | undefined): "renewal" | "expansion" | "confirmed_churn" | "downgraded" {
   if (dealstage === CS_PIPELINE_EXPANDED) return "expansion";
   if (dealstage === CS_PIPELINE_CONFIRMED_CHURNED) return "confirmed_churn";
@@ -112,15 +109,31 @@ const DEAL_PROPERTIES = [
   "use_case_brief",
 ];
 
-/** Pipeline id → qualifying stages — for surfacing deals on the client profile. */
+/**
+ * Pipeline id → qualifying stages — for surfacing deals on the client profile.
+ *
+ * SALES ONLY. HubSpot owns the Closed Won sale and nothing else (product
+ * owner, 2026-10-22): renewals, expansions, downgrades and churn are recorded
+ * in Signal, on the Contract tab and the Expansion board.
+ *
+ * The CS pipeline (Renewed / Expanded / Confirmed Churned / Downgraded) used
+ * to be pulled in here too. Two things it did badly, both seen live:
+ *   - a CS Renewed deal arrives carrying almost nothing (HubSpot holds licences
+ *     and price on it, not modules / library / support / implementation /
+ *     kick-off / launch), and because a per-deal field counts as missing when
+ *     ANY tracked deal lacks it, one renewal turned a fully-filled account red
+ *     (MEP, 2026-10-22). Signal's own renewal flow inherits those fields from
+ *     the current contract instead.
+ *   - it arrives tracked, on top of the sale it replaces, so the account's ARR
+ *     double-counts until a human unticks the superseded deal.
+ *
+ * Rows already synced from the CS pipeline are deliberately left alone — they
+ * still carry live ARR until contract records become its source. This only
+ * stops NEW ones arriving.
+ */
 const WON_DEAL_STAGES = new Map<string, { stages: string[]; label: "direct" | "indirect" | "cs" }>([
   [DIRECT_SALES_PIPELINE,   { stages: [DIRECT_SALES_CLOSED_WON],                       label: "direct"   }],
   [INDIRECT_SALES_PIPELINE, { stages: [INDIRECT_SALES_CLOSED_WON],                     label: "indirect" }],
-  // CS: Renewed/Expanded (revenue, tracked) + Confirmed-Churned/Downgraded
-  // (loss records, surfaced but inserted tracked=false — see the deal-shaping
-  // loop in fetchClientEngagement and CS_NON_ARR_STAGES). This is what makes a
-  // future account's churn/downgrade deal appear so the CSM can mark it churned.
-  [CS_PIPELINE,             { stages: [CS_PIPELINE_RENEWED, CS_PIPELINE_EXPANDED, CS_PIPELINE_CONFIRMED_CHURNED, CS_PIPELINE_DOWNGRADED], label: "cs" }],
 ]);
 
 // ---- Company properties --------------------------------------------------
@@ -807,7 +820,7 @@ export class HubSpotClient {
   /**
    * Pull the FULL engagement footprint for each tracked company — contacts,
    * emails, and meetings associated with (a) the company itself, (b) its
-   * qualifying deals (Direct/Indirect Closed Won + CS Renewed/Expanded), and
+   * qualifying deals (Direct/Indirect Closed Won — sales only), and
    * (c) each of its contacts (where most emails/meetings actually live). All
    * three sources are merged and deduped by object id, so it reflects the real
    * volume of activity. Everything is keyed to the in-app clientId.
@@ -822,7 +835,7 @@ export class HubSpotClient {
     if (companyIds.length === 0) return empty;
 
     // 1. company → deals, read deal props, keep only qualifying deals
-    //    (Direct/Indirect Closed Won + CS Renewed/Expanded).
+    //    (Direct/Indirect Closed Won — sales only, see WON_DEAL_STAGES).
     const coDeals = await this.fetchAllAssociations("companies", "deals", companyIds);
     const dealCompany = new Map<string, string>();
     for (const [coId, ids] of coDeals) for (const id of ids) if (!dealCompany.has(id)) dealCompany.set(id, coId);
@@ -984,7 +997,7 @@ export class HubSpotClient {
       }
     }
 
-    // Qualifying deals (Direct/Indirect Closed Won + CS Renewed/Expanded).
+    // Qualifying deals (Direct/Indirect Closed Won — sales only).
     const deals: Deal[] = [];
     for (const dId of qualDealIds) {
       const p = dealProps.get(dId) ?? {};
@@ -1034,15 +1047,14 @@ export class HubSpotClient {
         aiCourseCredits: num(p.custom_ai_course_development_credits, "custom_ai_course_development_credits"),
         // Sales → CSM handover brief (free text); empty until sales fills it in.
         accountBrief: p.use_case_brief?.trim() || null,
-        // CS-pipeline stage -> Contracts & deals tab bucket. Direct/Indirect
-        // deals don't use this for tab grouping (the Sales tab is pipeline-
-        // based), but "renewal" is a harmless default for them too.
-        category: won.label === "cs" ? classifyCsCategory(p.dealstage) : "renewal",
-        // Confirmed-Churned / Downgraded CS deals are loss records: surface them
-        // on the account but keep them tracked=false so their amount never adds
-        // to the account's ARR (recomputeClient sums tracked deals). All other
-        // qualifying deals keep the column default (tracked=true).
-        tracked: won.label === "cs" && CS_NON_ARR_STAGES.has(p.dealstage ?? "") ? false : undefined,
+        // Only sales reach this loop now (see WON_DEAL_STAGES). The Sales tab
+        // groups by pipeline, not by this column, so "renewal" stays as the
+        // harmless default it has always been for a Direct/Indirect deal.
+        // classifyCsCategory still exists for the one-off churned-account
+        // import, which reads historical CS deals on purpose — see
+        // lib/integrations/churn-import.ts.
+        category: "renewal",
+        // tracked keeps the column default (true): a Closed Won sale is revenue.
         createdAt: now,
       });
     }

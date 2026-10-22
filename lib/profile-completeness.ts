@@ -11,10 +11,14 @@
               nagged about yellow gaps.
    An account with everything filled in is "none" (no badge).
 
-   Scope rule (per the user, 2026-07-05): a per-deal field counts as missing
-   if ANY of the account's TRACKED (active) deals lacks it — not just all of
-   them. An account with zero tracked deals is missing every per-deal field
-   by definition.
+   Scope rule, in two parts:
+     WHICH deals are judged (2026-10-22) — an account's tracked SALES, falling
+       back to all its tracked deals when it has no tracked sale. See
+       setupDeals() below for why a renewal is not a contract setup, and why
+       the fallback is load-bearing.
+     WITHIN that set (per the user, 2026-07-05) — a per-deal field counts as
+       missing if ANY judged deal lacks it, not just all of them. An account
+       with no deals to judge is missing every per-deal field by definition.
    ========================================================================= */
 
 import type { Client, Deal } from "@/lib/types";
@@ -123,11 +127,36 @@ function isMissing(field: FieldCheck, client: Client, trackedDeals: Deal[], deal
   });
 }
 
+/**
+ * The deals an account's setup is judged on: its tracked SALES.
+ *
+ * A CS-pipeline deal (renewal, expansion, downgrade, churn) is a revenue
+ * movement, not a contract setup. HubSpot holds licences and price on one and
+ * nothing else — no modules, library, support or implementation level, no
+ * kick-off or launch — so judging it against the sale fields reported a
+ * fully-filled account as red the day a renewal synced (MEP, 2026-10-22).
+ * Signal stopped pulling CS deals that same day (lib/integrations/hubspot.ts),
+ * but the rows already synced stay on their accounts, so this scope is what
+ * keeps them from being read as gaps.
+ *
+ * FALLING BACK MATTERS. 17 of the 19 accounts carrying a tracked CS deal have
+ * no tracked sale left at all — the sale was untracked when its renewal
+ * replaced it, which is how a renewal avoids double-counting ARR today. For
+ * them the CS deal IS the current contract and carries the curated fields, so
+ * dropping CS deals outright would have turned 17 complete accounts red.
+ * Judge the sales when there are any; otherwise judge what the account has.
+ */
+function setupDeals(trackedDeals: Deal[]): Deal[] {
+  const sales = trackedDeals.filter((d) => d.pipeline !== "cs");
+  return sales.length > 0 ? sales : trackedDeals;
+}
+
 export function computeProfileCompleteness(
   client: Client,
   trackedDeals: Deal[],
   dealDates: DealDatesMap,
 ): ProfileCompleteness {
+  trackedDeals = setupDeals(trackedDeals);
   const missingRed = RED_FIELDS.filter((f) => isMissing(f, client, trackedDeals, dealDates))
     .map((f) => ({ key: f.key, label: f.label }));
   if (missingRed.length > 0) return { severity: "red", missingRed, missingYellow: [] };

@@ -43,7 +43,7 @@ Super Admins configure and trigger. Everyone consumes the result.
 
 | Source | Provides | Configured by | Independently live? |
 |---|---|---|---|
-| **HubSpot** | Customer list (`lifecyclestage = customer` **and** `customer_type = arr`), owner (CSM), firmographics, deals and contract fields, the ARR baseline, contacts | `HUBSPOT_ACCESS_TOKEN`, `HUBSPOT_PORTAL_ID` | Yes |
+| **HubSpot** | Customer list (`lifecyclestage = customer` **and** `customer_type = arr`), owner (CSM), firmographics, **Closed Won sales only** and their contract fields, the ARR baseline, contacts | `HUBSPOT_ACCESS_TOKEN`, `HUBSPOT_PORTAL_ID` | Yes |
 | **Intercom** | Open/snoozed/closed tickets, first-response time, CSAT (conversation ratings, 4–5 = satisfied), NPS via Surveys | `INTERCOM_ACCESS_TOKEN`, `INTERCOM_REGION` | Yes |
 | **Metabase** | Product usage — seats, active users, adoption, WAU/MAU stickiness, feature adoption | `METABASE_URL`, `METABASE_API_KEY`, `METABASE_USAGE_CARD_ID` | Yes |
 | **Gemini** | Rewrites Action list wording only | `GEMINI_API_KEY`, `GEMINI_MODEL` (default `gemini-2.5-flash`) | Optional — templates work without it |
@@ -106,6 +106,58 @@ middleware for the same reason and gated by `SYNC_SECRET`/`CRON_SECRET` bearer c
   logos triggered `runAssignment`, which no longer exists.)*
 - **Malformed numbers are not silently discarded** (commit `86e5e4f`).
 - `sync_checkpoints` records how far the last run got.
+
+### Which HubSpot deals the sync pulls — and which it no longer does
+
+**Status:** Partially verified — `WON_DEAL_STAGES` and the deal-shaping loop in
+`fetchClientEngagement` read end to end; **no test covers the sync**. The scope change was
+verified only through its effect on profile completeness
+([`lib/profile-completeness.test.ts`](../../../lib/profile-completeness.test.ts)). Added
+2026-10-22 against `b5d3401` + working-tree change on `feat/hubspot-sales-only`.
+
+**Since 2026-10-22 the recurring sync surfaces Closed Won sales only** — Direct Sales Closed
+Won and Indirect Sales Closed Won. HubSpot owns the sale; **renewals, expansions, downgrades
+and churn are recorded in Signal**, on the
+[Contract tab](../client-profile/README.md#contract-tab-preview) and the
+[Expansion board](../expansion/README.md). Product owner's decision, recorded as
+[decision 0026](../../decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md).
+
+| Pipeline / stage | Before 2026-10-22 | Now |
+|---|---|---|
+| Direct Sales → Closed Won | Pulled, `tracked` | Pulled, `tracked` |
+| Indirect Sales → Closed Won | Pulled, `tracked` | Pulled, `tracked` |
+| CS → Renewed | Pulled, `tracked` (category `renewal`) | **Not pulled** |
+| CS → Expanded | Pulled, `tracked` (category `expansion`) | **Not pulled** |
+| CS → Confirmed Churned | Pulled, `tracked = false` (category `confirmed_churn`) | **Not pulled** |
+| CS → Downgraded | Pulled, `tracked = false` (category `downgraded`) | **Not pulled** |
+
+**Why.** Two failures of the CS-pipeline sync, both seen live on 2026-10-22:
+
+- **An empty renewal made a complete account red.** HubSpot holds licences, user price and
+  contract length on a CS renewal and nothing else, and a per-deal field counted as missing
+  when *any* tracked deal lacked it — so one renewal reported ten red gaps on an account that
+  had none. Signal's own renewal flow inherits those fields from the contract in force
+  instead. See [profile completeness R2a](../../business-rules/profile-completeness.md#r2a--the-judged-set-is-the-accounts-tracked-sales-with-a-fallback).
+- **A renewal double-counted ARR.** It arrived tracked, on top of the sale it replaced, and
+  stayed that way until a human unticked the superseded deal. See
+  [ARR R1a](../../business-rules/arr-and-revenue-movement.md#r1a--the-materialised-arr-on-a-client-row-is-tracked-deals--non-hubspot-events).
+
+**What this change does not do.** It stops **new** CS deals arriving. Rows already synced are
+left exactly as they are — still on their accounts, still tracked, still counted in ARR.
+Nothing was stripped, re-tracked or recalculated, so **no ARR moved**. See
+[known limitations](../../known-limitations/README.md#data-quality-and-modelling).
+
+**Still reads CS deals, on purpose:** the one-off churned-account import
+(`POST /api/churn-import` → `lib/integrations/churn-import.ts` → `fetchChurnedAcquisition`),
+which reads a churned company's whole deal history, CS stages included, and inserts every row
+`tracked = false`. It is not part of the recurring sync and was deliberately left alone. See
+[Churn](../churn/README.md).
+
+**So the CS-pipeline stages are still named in `lib/integrations/hubspot.ts`, correctly** — in
+the churn import's own types and classifier, and in the `WON_DEAL_STAGES` header that records
+why the recurring sync dropped them. The genuinely stale comments were corrected on
+2026-10-22 and a dead stage set deleted; what is left should not be tidied away with them.
+See [contradictions](../../known-limitations/contradictions.md#the-hubspot-sync-comments-describe-a-cs-pipeline-it-no-longer-pulls--resolved).
 
 ### How the recurring sync discovers new accounts
 
@@ -229,6 +281,14 @@ Endpoints, parameters, response fields, errors, paging and examples:
   `total_revenue` as a baseline. Current ARR is now the **ARR event ledger** balance;
   HubSpot only contributes `new_business` events (Closed Won in Direct/Indirect pipelines).
   See [arr-and-revenue-movement](../../business-rules/arr-and-revenue-movement.md).
+- **A synced deal row is itself ARR.** The figure stored on a client row is the sum of its
+  **tracked deals** plus its non-HubSpot ledger events, so which deals the sync surfaces
+  directly decides an account's ARR — and the CS-pipeline rows pulled before 2026-10-22 still
+  count. See [ARR R1a](../../business-rules/arr-and-revenue-movement.md#r1a--the-materialised-arr-on-a-client-row-is-tracked-deals--non-hubspot-events).
+- **The sync brings in sales only** (since 2026-10-22). Anything that happened after the sale
+  has to be recorded in Signal; it will not appear because someone moved a HubSpot deal into
+  the CS pipeline. See
+  [Which HubSpot deals the sync pulls](#which-hubspot-deals-the-sync-pulls--and-which-it-no-longer-does).
 - **NRR/GRR history.** On first sync `previousArr = arr`, so NRR ≈ 100% until
   `arr_snapshots` accrues real history.
 - **Intercom NPS** is not native to Intercom; it comes from Intercom Surveys. CSAT is
@@ -311,6 +371,16 @@ staleness badge outside the Usage tab, and no dashboard of run history.
 9. **The read API has no rate limiting, no per-key scopes and no request log.** Any active
    key reads every account; only `last_used_at` records use. See
    [api-v1 → Known limitations](api-v1.md#known-limitations).
+10. **CS-pipeline deals pulled before 2026-10-22 are still there, still tracked, still ARR.**
+    The sync stopped pulling them; it did not clean up. In the local production clone, 21
+    tracked CS deals across 19 accounts, $371,720 — and an account whose renewal synced
+    without the superseded sale being unticked is **double-counted until someone unticks it
+    by hand** on the Contracts & deals card. Retiring the rows belongs to the
+    contract-records switch-over, not to the sync change.
+11. **A deal moved into the CS pipeline in HubSpot now disappears from Signal's view** —
+    quietly. A deal already synced keeps its stored row (nothing deletes it), but a stage
+    change into CS produces no new row and no warning. Whether a previously synced row is
+    *updated* when its stage moves out of the qualifying set was not traced in this pass.
 
 ## Open questions
 
@@ -332,3 +402,8 @@ staleness badge outside the Usage tab, and no dashboard of run history.
 Permissions, Data model, Technical implementation and Known limitations were added
 2026-10-18 against `9befb8a` + uncommitted working-tree change on `feat/public-api-v1`.
 The rest of the document was not re-verified in that pass.)*
+*("Which HubSpot deals the sync pulls — and which it no longer does", the HubSpot row in
+The sources, two Known data caveats and limitations 10–11 were added 2026-10-22 against
+`b5d3401` + uncommitted working-tree change on `feat/hubspot-sales-only`. Nothing else in the
+document was re-verified in that pass; in particular the schedule, the discovery paths and
+the Notion export were not re-read.)*
