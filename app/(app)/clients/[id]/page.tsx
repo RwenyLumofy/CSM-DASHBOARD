@@ -191,6 +191,8 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
   // what the CSM sees/sets on the deal card, not the raw HubSpot-synced value.
   const overridesByDeal = dealOverridesMap(props);
   const effectiveTrackedDeals = trackedDeals.map((d) => applyDealOverrides(d, overridesByDeal[d.id]));
+  // Completeness reads every deal, tracked or not — see lib/profile-completeness.ts.
+  const effectiveAllDeals = deals.map((d) => applyDealOverrides(d, overridesByDeal[d.id]));
   // Upcoming renewal = nearest (effective contract start + 1yr) across all tracked
   // deals that is still in the future — uses CSM overrides where set, so the header
   // nudges the CSM toward the soonest renewal to plan for.
@@ -231,7 +233,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
     pulseLabels,
   );
 
-  const completeness = computeProfileCompleteness(client, effectiveTrackedDeals, dealDates);
+  const completeness = computeProfileCompleteness(client, effectiveAllDeals, dealDates);
   // Onboarding period (averaged across the account's deals) as a header badge —
   // computed live from the deals + milestone dates the page already has. The
   // badge is a live-state chip, so it's shown ONLY while the account is still

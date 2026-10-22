@@ -967,7 +967,9 @@ async function recomputeClientHealthBody(clientId: string): Promise<HealthTierTr
 
   const onboarding = computeOnboardingPeriod(tracked, dealDates);
   const useCasesRollup = computeUseCasesRollup(tracked);
-  const { severity } = computeProfileCompleteness(client, tracked, dealDates);
+  // Completeness reads every deal, tracked or not (lib/profile-completeness.ts);
+  // onboarding and the use-case rollup stay on the tracked ones.
+  const { severity } = computeProfileCompleteness(client, deals.map((d) => applyDealOverrides(d, overrides[d.id])), dealDates);
 
   // Dynamic import: lib/usage/index.ts is `"server-only"`-guarded, and this
   // file (unlike lib/actions/*) is imported directly by plain Node scripts

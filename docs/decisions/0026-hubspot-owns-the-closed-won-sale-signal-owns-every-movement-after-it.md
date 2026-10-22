@@ -1,6 +1,7 @@
 # 0026. HubSpot owns the Closed Won sale; Signal owns every movement after it
 
-**Status:** Accepted
+**Status:** Accepted · **point 3 superseded the same day by
+[0027](0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md)**
 **Date:** 2026-10-22
 **Affected product areas:** Integrations and sync (HubSpot) · Client Profile → Contracts &
 deals card and Contract tab · Expansion · Profile completeness · ARR and revenue movement ·
@@ -55,10 +56,14 @@ from Hubspot, the rest will be done from Signal"*.
    the engagement sync ([`lib/integrations/hubspot.ts`](../../lib/integrations/hubspot.ts)).
 2. **Renewals, expansions, downgrades and churn are recorded in Signal** — on the Contract
    tab and the Expansion board.
-3. **Profile completeness judges an account's tracked sales**, falling back to all of its
-   tracked deals when it has no tracked sale
-   ([`lib/profile-completeness.ts`](../../lib/profile-completeness.ts) → `setupDeals`). The
-   2026-07-05 "any tracked deal" rule still holds *within* the judged set.
+3. ~~**Profile completeness judges an account's tracked sales**, falling back to all of its
+   tracked deals when it has no tracked sale (`setupDeals`). The 2026-07-05 "any tracked deal"
+   rule still holds *within* the judged set.~~ **Superseded the same day by
+   [0027](0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md):** this did not
+   fix the account it was written for, whose original sale had been **untracked** so the
+   fallback judged the renewal. A per-deal field is now missing only when **no** deal on the
+   account holds it — every deal, tracked or not — and `setupDeals` is deleted. The rest of
+   this record stands.
 4. **CS-pipeline deals already synced are left exactly as they are** — untouched, still
    tracked, still carrying ARR. Nothing strips or re-tracks them.
 5. **The one-off churned-account import still reads historical CS deals on purpose.** It is
@@ -78,7 +83,9 @@ from Hubspot, the rest will be done from Signal"*.
   Rejected on the data: **17 of the 19** accounts holding a tracked CS deal have no tracked
   sale left, because the sale was untracked when its renewal replaced it. For them the CS
   deal *is* the current contract and carries the curated fields, so ignoring CS deals would
-  have turned 17 complete accounts red — the same regression in the opposite direction.
+  have turned 17 complete accounts red — the same regression in the opposite direction. *That
+  same fact went on to defeat the tracked-sales rule itself; see
+  [0027](0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md).*
 - **Exclude the CS renewal from the completeness check only, and keep syncing it.** Rejected:
   it fixes the badge and leaves the ARR double-count, and it keeps two systems producing the
   same facts.
@@ -93,7 +100,7 @@ from Hubspot, the rest will be done from Signal"*.
 - A renewal recorded in Signal starts from the contract in force, so the setup fields are
   present instead of empty.
 - An account's completeness badge reflects its contract setup, not whichever revenue movement
-  synced last.
+  synced last. *(Achieved, but by 0027's rule rather than by point 3 of this one.)*
 - One place records what happened after the sale.
 
 **Makes hard / commits Signal to.**
@@ -120,25 +127,32 @@ from Hubspot, the rest will be done from Signal"*.
   (Direct and Indirect only; its header records the decision and both failure modes) and the
   deal-shaping loop in `fetchClientEngagement`. `fetchChurnedAcquisition` in the same file
   keeps its own CS classification for the churn import.
-- [`lib/profile-completeness.ts`](../../lib/profile-completeness.ts) — `setupDeals`, and its
-  header recording why the fallback exists.
-- [`lib/profile-completeness.test.ts`](../../lib/profile-completeness.test.ts) — 5 tests, the
-  first this module has had: the regression, the fallback, a real gap still reported, and
-  client-level gaps unaffected.
+- [`lib/profile-completeness.ts`](../../lib/profile-completeness.ts) — `setupDeals` as this
+  record shipped it. **No longer in the file:** deleted the same day by
+  [0027](0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md), whose rule and
+  reasoning the module header now carries.
+- [`lib/profile-completeness.test.ts`](../../lib/profile-completeness.test.ts) — 5 tests as
+  this record shipped it, the first this module had. Now **7**, rewritten for 0027's rule;
+  three of the originals survive unchanged.
 - [`app/(app)/clients/[id]/contract/ContractTab.tsx`](../../app/%28app%29/clients/[id]/contract/ContractTab.tsx)
   — `RecordDrawer` inheriting the setup fields when a renewal is recorded.
 - Written rule this implements:
   [contract records — specification §1](../specs/revenue/contract-records-specification.md#1-the-rule).
 - Business rules affected:
-  [profile completeness R2a](../business-rules/profile-completeness.md#r2a--the-judged-set-is-the-accounts-tracked-sales-with-a-fallback)
+  [profile completeness R2](../business-rules/profile-completeness.md#r2--scope-rule-every-deal-on-the-account-and-a-field-is-missing-only-when-none-holds-it)
+  (R2a, this record's point 3, is kept there as a superseded section)
   · [ARR and revenue movement R1a](../business-rules/arr-and-revenue-movement.md#r1a--the-materialised-arr-on-a-client-row-is-tracked-deals--non-hubspot-events).
 
 ## Superseded decisions
 
-None. It **implements** the 2026-10-04/08 product decision already recorded as the rule in
-the contract-records specification, and **qualifies** the 2026-07-05 completeness scope rule
-(profile completeness R2) rather than replacing it: "any tracked deal" still holds within the
-judged set.
+None superseded by this record. It **implements** the 2026-10-04/08 product decision already
+recorded as the rule in the contract-records specification.
+
+**Superseded *by*:** point 3 only, by
+[0027](0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md), the same day. This
+record had *qualified* the 2026-07-05 completeness scope rule rather than replacing it ("any
+tracked deal" still holding within the judged set); 0027 **replaces** that rule outright. Points
+1, 2, 4 and 5 are unaffected.
 
 ---
 

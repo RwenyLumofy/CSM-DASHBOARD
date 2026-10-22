@@ -197,7 +197,11 @@ card as before.
 - **What it shows:** a preview banner; the status the records give, which someone who can edit the account can also set by hand with a reason for 30 days (it changes this tab only);
   a summary with **ARR from records** beside the account's live ARR; **Open work** cards
   (Account setup checklist, Renewal, Expansion, Churn); and the contract history, newest
-  first.
+  first. The **Account setup** card counts eight items on the **current** record and is a
+  *record-level* check — not the same indicator as the profile-completeness badge, which is
+  account-level and reads deals rather than contract records
+  ([the two compared](#the-profile-completeness-badge-is-an-account-level-indicator)). It is
+  hidden once the account is churned.
 - **What can be done:** edit a record in a draft and **Save changes** or **Cancel**; tick
   or untick **Counts toward ARR**; **Void this record…** with a required reason (voided,
   never deleted); record a **renewal** (1–5 years, optionally a different ARR per year,
@@ -271,6 +275,39 @@ Account status · health tier (admin-named) · churn reason (from the taxonomy) 
 profile-completeness severity (red / yellow / none) · project and task statuses
 (config-driven) · use-case implementation status (exploring / planning / live / paused /
 completed).
+
+### The profile-completeness badge is an account-level indicator
+
+**Status:** Verified (implementation read end to end; the rule has 7 tests) · 2026-10-22,
+`f8b8d4c` + working-tree change on `fix/completeness-reads-the-sale`
+
+The badge beside the account name reports **red** (must-have data missing), **yellow**
+(nice-to-have missing, shown only once red is clear) or nothing. Since **2026-10-22** a
+per-deal field counts as missing **only when no deal on the account holds a value for it** —
+every deal, tracked or not, sale or revenue movement. One deal holding the value answers for
+the account, which means the badge says *"do we know this about the account"*, **not** *"is
+this deal filled in"*. A new deal left blank is not flagged while an earlier deal carries the
+same field. Client-level fields (CSM assignee, Implementation assignee, industry, country,
+employees) are read off the client record as they always were. Full rule, the trade it accepts
+and the alternatives rejected:
+[profile completeness R2](../../business-rules/profile-completeness.md#r2--scope-rule-every-deal-on-the-account-and-a-field-is-missing-only-when-none-holds-it)
+· [decision 0027](../../decisions/0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md).
+
+**This badge and the Contract tab's "Account setup" checklist are different indicators, and
+they will disagree.** That is by design, and nothing in the product explains it to the person
+looking at both:
+
+| | Profile-completeness badge | Contract tab → *Account setup* |
+|---|---|---|
+| **Question** | Does the account know this, anywhere? | Is **this contract record** filled in? |
+| **Reads** | Every HubSpot **deal** on the account, plus client fields | The **current contract record** (the sale, or the renewal once one exists) |
+| **Field list** | 16 red + 9 yellow, including licences, user price, use case, AI credits, contract start, and the five client fields | 8 items, including *Modules you start with* and *Support amount*, which the badge does not check |
+| **Output** | red / yellow / none, plus one Action-list item per gap | "*n* of 8 filled in", with a **Complete setup** link into the record |
+| **Code** | [`lib/profile-completeness.ts`](../../../lib/profile-completeness.ts) | `setupChecklist` in [`ContractTab.tsx`](../../../app/%28app%29/clients/%5Bid%5D/contract/ContractTab.tsx) |
+
+Two of the checklist's eight items — *Kick-off date* and *Launch date* — are satisfied by the
+**first** contract record that holds them, so the checklist is not strictly per-record either.
+An account can show a green badge beside an incomplete checklist, or the reverse.
 
 ## Business rules
 

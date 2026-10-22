@@ -217,14 +217,18 @@ back to HubSpot**; it stores the override and applies it on read. `lib/deal-over
 account's ARR and supplies its contract fields. Unticking a superseded deal is how a
 renewal avoids double-counting ARR.
 
-**Judged set** (profile completeness) — the deals an account's **setup** is assessed on: its
-tracked **sales**, or all of its tracked deals when it has no tracked sale. A revenue
-movement is not a contract setup.
-[Profile completeness R2a](business-rules/profile-completeness.md#r2a--the-judged-set-is-the-accounts-tracked-sales-with-a-fallback).
+**Judged set** (profile completeness) — **retired term.** Between the morning and the
+afternoon of 2026-10-22 completeness judged a chosen subset of an account's deals (its tracked
+sales, with a fallback). It no longer chooses: every deal on the account is read. Use
+*profile completeness* below.
 
-**Profile completeness** — a two-tier data-quality check: **red** (must-have) and
-**yellow** (nice-to-have, evaluated only once red is clear). A per-deal field is missing
-if *any* deal in the judged set lacks it. `lib/profile-completeness.ts`.
+**Profile completeness** — a two-tier, **account-level** data-quality check: **red**
+(must-have) and **yellow** (nice-to-have, evaluated only once red is clear). A per-deal field
+is missing only when **no** deal on the account holds a value for it — every deal, tracked or
+not, sale or revenue movement. One deal holding it answers for the account, so this badge does
+**not** tell you whether a particular deal is filled in; the Contract tab's *Account setup*
+checklist is the record-level indicator. `lib/profile-completeness.ts`,
+[profile completeness R2](business-rules/profile-completeness.md#r2--scope-rule-every-deal-on-the-account-and-a-field-is-missing-only-when-none-holds-it).
 
 **Sync** — the HubSpot → Intercom → Metabase → database pipeline. Read-only in all three
 directions.

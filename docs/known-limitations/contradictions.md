@@ -309,14 +309,50 @@ TRACKED deals lacks it"*) after `setupDeals` narrowed the judged set to the acco
 sales, so a reader who stopped at the header concluded that a tracked CS renewal was judged —
 the behaviour the change had just removed.
 
-**Now** the header states the scope in two parts: **which** deals are judged (2026-10-22 —
-tracked sales, with the fallback, pointing at `setupDeals`) and **within** that set
-(2026-07-05 — any judged deal missing a field makes it missing). Re-read 2026-10-22; the file
-matches
-[profile completeness R2 and R2a](../business-rules/profile-completeness.md#r2--scope-rule-any-deal-in-the-judged-set-not-all),
-which are unchanged.
+**It was resolved** by stating the scope in two parts: **which** deals are judged (tracked
+sales, with the fallback, pointing at `setupDeals`) and **within** that set (2026-07-05 — any
+judged deal missing a field makes it missing).
+
+**Both halves are now gone.** Later the same day the whole scope rule was replaced — every
+deal on the account is read, and a field is missing only when none holds it
+([R2](../business-rules/profile-completeness.md#r2--scope-rule-every-deal-on-the-account-and-a-field-is-missing-only-when-none-holds-it),
+[decision 0027](../decisions/0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md)) —
+and `setupDeals` is deleted. The header was rewritten with it. This entry stays closed; the
+**residual** stale sentence left in the same header is the separate open entry below.
 
 **Files:** `lib/profile-completeness.ts` · `lib/profile-completeness.test.ts`
+
+---
+
+## ~~The profile-completeness module header opens with the rule it replaced~~ — RESOLVED
+
+**Opened and resolved on 2026-10-22**, both against `f8b8d4c` + working-tree changes on
+`fix/completeness-reads-the-sale`.
+
+The header of `lib/profile-completeness.ts` was rewritten that afternoon to state the current
+rule — *"a per-deal field is missing only when NO deal on the account holds a value — every
+deal, tracked or not, sale or movement"* — but its **severity-tier description, eight lines
+above, was not**, and still stated the 2026-07-05 rule the change had just removed ("ANY red
+field on ANY tracked deal"). Both sentences sat in the same comment block, so a reader who
+stopped at the tier table concluded that a single blank renewal still turned an account red.
+Two smaller leftovers pointed the same way: the `requiredWhen` doc comment described per-deal
+excusal rather than narrowing the asked set, and the `legacyFallback` comment said a value
+counts as present *"for every tracked deal"*.
+
+**Now** all three are corrected, and re-read in the file on 2026-10-22:
+
+- the **tier table** no longer states a scope — "red" says a missing red field makes the whole
+  account red and points at the scope rule below for *when* a field counts as missing, so the
+  block no longer contradicts itself;
+- **`requiredWhen`** describes narrowing which deals the date is asked of, and that the field is
+  not missing when no deal is asked — which is what `isMissing` does;
+- **`legacyFallback`** states that **no field defines one today**, so the branch is unreachable,
+  and the "for every tracked deal" phrasing is gone. The file now carries that fact itself,
+  rather than only this documentation set noticing it.
+
+**Files:** `lib/profile-completeness.ts` · documented at
+[profile completeness R2 and R3](../business-rules/profile-completeness.md#r2--scope-rule-every-deal-on-the-account-and-a-field-is-missing-only-when-none-holds-it)
+· [decision 0027](../decisions/0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md)
 
 ---
 
