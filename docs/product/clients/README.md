@@ -121,8 +121,8 @@ active, churned beating everything, and the no-tracked-deals ARR fallback.
 
 - **Visibility scoping** — see [permissions](../../business-rules/permissions-and-scoping.md).
   `getClients()` is already role-scoped, so everything downstream inherits it.
-- **Profile completeness** — a per-deal field counts as missing if *any* tracked deal lacks
-  it; red gates yellow. See
+- **Profile completeness** — a per-deal field counts as missing only when **no** deal on the
+  account holds it (every deal, tracked or not, since 2026-10-22); red gates yellow. See
   [profile-completeness](../../business-rules/profile-completeness.md).
 - **Owner reassignment is Super Admin only**, server-enforced.
 

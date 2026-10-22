@@ -24,7 +24,8 @@ but the reason is not, the record says *"Rationale requires confirmation from th
 | [0023](0023-a-tech-stack-is-a-list-per-category-written-through-on-every-chip.md) | A tech stack is a list per category, written through on every chip | Accepted; points 5 and "not admin-curatable" amended by 0024 | 2026-09-09 |
 | [0024](0024-a-tech-stack-category-key-is-generated-once-and-never-follows-the-label.md) | A tech stack category key is generated once and never follows the label | Accepted | 2026-09-10 |
 | [0025](0025-a-read-only-integration-api-with-hashed-keys-and-stable-shapes.md) | Internal tools read Signal through a read-only API, with hashed keys issued by super admins and public shapes decoupled from internal types | Accepted | 2026-10-18 |
-| [0026](0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md) | HubSpot owns the Closed Won sale; Signal owns every movement after it | Accepted | 2026-10-22 |
+| [0026](0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md) | HubSpot owns the Closed Won sale; Signal owns every movement after it | Accepted; **point 3 (completeness) superseded by 0027** | 2026-10-22 |
+| [0027](0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md) | A completeness gap belongs to the account, not to a deal row | Accepted; **supersedes 0026 point 3 and the 2026-07-05 scope rule** | 2026-10-22 |
 
 > **This index is behind the folder.** Records `0018`, `0020`, `0021` and `0022` exist and
 > are not listed above; `0012`–`0017` and `0019` are referenced by other records but have no

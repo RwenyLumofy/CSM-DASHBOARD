@@ -3,22 +3,26 @@
    (and super-admins, for the urgent tier) get nudged to fill it in.
 
    Two severity tiers:
-     red    — must-have data. Missing ANY red field on ANY tracked deal (or
-              at the client level) makes the whole account "red". The target
-              state for a red account is to become at least yellow.
+     red    — must-have data. A missing red field makes the whole account
+              "red" (see the scope rule below for when a field counts as
+              missing). The target state for a red account is to become at
+              least yellow.
      yellow — nice-to-have data. Only evaluated once every red field is
               filled — an account already missing red data doesn't also get
               nagged about yellow gaps.
    An account with everything filled in is "none" (no badge).
 
-   Scope rule, in two parts:
-     WHICH deals are judged (2026-10-22) — an account's tracked SALES, falling
-       back to all its tracked deals when it has no tracked sale. See
-       setupDeals() below for why a renewal is not a contract setup, and why
-       the fallback is load-bearing.
-     WITHIN that set (per the user, 2026-07-05) — a per-deal field counts as
-       missing if ANY judged deal lacks it, not just all of them. An account
-       with no deals to judge is missing every per-deal field by definition.
+   Scope rule (2026-10-22, replacing the 2026-07-05 "any tracked deal lacking
+   it" rule): a per-deal field is missing only when NO deal on the account
+   holds a value — every deal, tracked or not, sale or movement. An account
+   with no deals at all is missing every per-deal field by definition.
+
+   The rule it replaces asked whether every tracked deal was complete. That
+   stopped describing reality once a deal row could be a revenue movement
+   rather than a contract: a renewal carrying only licences and price made a
+   fully-filled account red. Judging the sale instead failed the opposite way
+   on 16 accounts whose curated setup lives on the renewal. See
+   computeProfileCompleteness for the evidence and the trade this accepts.
    ========================================================================= */
 
 import type { Client, Deal } from "@/lib/types";
@@ -51,13 +55,14 @@ type FieldCheck =
       label: string;
       scope: "dealDate";
       dateKey: string;
-      /** When present and false for a deal, that deal never counts this date
-       *  as missing — e.g. a global library date isn't required on a deal
-       *  that has no global library at all. */
+      /** Narrows which deals the date is asked of — e.g. a global library
+       *  date is asked only of a deal that has a global library. When no deal
+       *  on the account is asked, the field is not missing. */
       requiredWhen?: (deal: Deal) => boolean;
       /** Account-wide fallback: if this returns a real value, the field
-       *  counts as present for every tracked deal. Not used by launch_date —
-       *  see that field's own comment below for why. Kept as a general
+       *  counts as present whatever the deals hold. NO FIELD DEFINES ONE
+       *  TODAY, so this branch is unreachable — launch_date deliberately does
+       *  not use it (see that field's own comment below). Kept as a general
        *  capability for any future dealDate field that genuinely needs one. */
       legacyFallback?: (client: Client) => unknown;
     };
@@ -114,54 +119,62 @@ export const FIELD_SEVERITY: Record<string, "red" | "yellow"> = {
   ...Object.fromEntries(YELLOW_FIELDS.map((f) => [f.key, "yellow" as const])),
 };
 
-/** Is `field` missing for this account, given its tracked deals + per-deal dates? */
-function isMissing(field: FieldCheck, client: Client, trackedDeals: Deal[], dealDates: DealDatesMap): boolean {
+/**
+ * Is `field` missing for this account — i.e. does NO deal on it hold a value?
+ *
+ * The question the badge answers is "do we know this about the account", so
+ * one deal holding the value is enough. See the header for why this replaced
+ * "any deal lacking it makes it missing".
+ */
+function isMissing(field: FieldCheck, client: Client, deals: Deal[], dealDates: DealDatesMap): boolean {
   if (field.scope === "client") return !hasValue(field.get(client));
-  if (trackedDeals.length === 0) return true; // no deal to ever hold this field
-  if (field.scope === "deal") return trackedDeals.some((d) => !hasValue(field.get(d)));
+  if (deals.length === 0) return true; // no deal to ever hold this field
+  if (field.scope === "deal") return !deals.some((d) => hasValue(field.get(d)));
   // scope === "dealDate"
   if (field.legacyFallback && hasValue(field.legacyFallback(client))) return false;
-  return trackedDeals.some((d) => {
-    if (field.requiredWhen && !field.requiredWhen(d)) return false;
-    return !hasValue(dealDates[d.id]?.[field.dateKey]);
-  });
+  // `requiredWhen` narrows which deals the date is even asked of (a global
+  // library date is asked only of a deal that has a library). When no deal is
+  // asked, nothing is missing.
+  const asked = field.requiredWhen ? deals.filter((d) => field.requiredWhen!(d)) : deals;
+  if (asked.length === 0) return false;
+  return !asked.some((d) => hasValue(dealDates[d.id]?.[field.dateKey]));
 }
 
 /**
- * The deals an account's setup is judged on: its tracked SALES.
+ * `deals` is EVERY deal on the account — tracked or not, sale or movement.
  *
- * A CS-pipeline deal (renewal, expansion, downgrade, churn) is a revenue
- * movement, not a contract setup. HubSpot holds licences and price on one and
- * nothing else — no modules, library, support or implementation level, no
- * kick-off or launch — so judging it against the sale fields reported a
- * fully-filled account as red the day a renewal synced (MEP, 2026-10-22).
- * Signal stopped pulling CS deals that same day (lib/integrations/hubspot.ts),
- * but the rows already synced stay on their accounts, so this scope is what
- * keeps them from being read as gaps.
+ * Not just the tracked ones, and not a chosen subset. Which row happens to
+ * hold a value is an artefact of how the account was recorded, and both
+ * narrower rules were tried against the whole book and failed:
  *
- * FALLING BACK MATTERS. 17 of the 19 accounts carrying a tracked CS deal have
- * no tracked sale left at all — the sale was untracked when its renewal
- * replaced it, which is how a renewal avoids double-counting ARR today. For
- * them the CS deal IS the current contract and carries the curated fields, so
- * dropping CS deals outright would have turned 17 complete accounts red.
- * Judge the sales when there are any; otherwise judge what the account has.
+ *   - judging only tracked deals (until 2026-10-22) made an account red the
+ *     day a renewal synced carrying licences and price and nothing else;
+ *   - judging the account's sale instead turned 16 complete accounts red,
+ *     because for those the curated setup lives on the RENEWAL — their sale
+ *     was untracked when the renewal replaced it, which is how a renewal
+ *     avoids double-counting ARR today.
+ *
+ * So neither row is reliably "the" source, and the badge's question is about
+ * the ACCOUNT: do we know its modules, its library, when it launched? One deal
+ * holding the value answers that, whichever row it is.
+ *
+ * THE TRADE, stated plainly: a value present on an older deal now satisfies
+ * the check for a newer one, so a brand-new deal left blank is not flagged
+ * while an earlier deal carries the same field. That is deliberate — the
+ * alternative reports gaps in data the team demonstrably has. Per-record
+ * completeness is the Contract tab's "Account setup" checklist, which judges
+ * one contract record at a time.
  */
-function setupDeals(trackedDeals: Deal[]): Deal[] {
-  const sales = trackedDeals.filter((d) => d.pipeline !== "cs");
-  return sales.length > 0 ? sales : trackedDeals;
-}
-
 export function computeProfileCompleteness(
   client: Client,
-  trackedDeals: Deal[],
+  deals: Deal[],
   dealDates: DealDatesMap,
 ): ProfileCompleteness {
-  trackedDeals = setupDeals(trackedDeals);
-  const missingRed = RED_FIELDS.filter((f) => isMissing(f, client, trackedDeals, dealDates))
+  const missingRed = RED_FIELDS.filter((f) => isMissing(f, client, deals, dealDates))
     .map((f) => ({ key: f.key, label: f.label }));
   if (missingRed.length > 0) return { severity: "red", missingRed, missingYellow: [] };
 
-  const missingYellow = YELLOW_FIELDS.filter((f) => isMissing(f, client, trackedDeals, dealDates))
+  const missingYellow = YELLOW_FIELDS.filter((f) => isMissing(f, client, deals, dealDates))
     .map((f) => ({ key: f.key, label: f.label }));
   if (missingYellow.length > 0) return { severity: "yellow", missingRed: [], missingYellow };
 

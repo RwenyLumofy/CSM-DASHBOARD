@@ -42,10 +42,10 @@ export default async function ClientsPage({
   for (const c of clients) {
     const overrides = dealOverridesMap(c.properties);
     const dealDates = ((c.properties?.[DEAL_DATES_KEY] as DealDatesMap | undefined) ?? {});
-    const tracked = (dealsByClient.get(c.id) ?? [])
-      .filter((d) => d.tracked !== false)
-      .map((d) => applyDealOverrides(d, overrides[d.id]));
-    completenessByClient.set(c.id, computeProfileCompleteness(c, tracked, dealDates));
+    // EVERY deal, not just the tracked ones — completeness asks what the
+    // account knows, and an untracked deal still holds what it was told.
+    const all = (dealsByClient.get(c.id) ?? []).map((d) => applyDealOverrides(d, overrides[d.id]));
+    completenessByClient.set(c.id, computeProfileCompleteness(c, all, dealDates));
   }
 
   return (

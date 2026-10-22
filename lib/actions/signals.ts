@@ -34,6 +34,9 @@ import { REMEDY_BY_RULE, REMEDY_BY_REASON, describeGap } from "@/lib/health/sign
 export interface SignalInputs {
   client: Client;
   trackedDeals: Deal[];
+  /** Every deal on the account, tracked or not — completeness reads this set
+   *  (lib/profile-completeness.ts), so the signal and the badge agree. */
+  allDeals: Deal[];
   dealDates: DealDatesMap;
   /** Live usage payload (from getClientUsage). Dormancy signals fire only when
    *  status === "ok"; an unavailable/unlinked account is skipped, not flagged
@@ -89,7 +92,7 @@ export function detectSignals(inputs: SignalInputs): ActionSignal[] {
   // Reuses the existing red-gates-yellow philosophy: a client with must-have
   // gaps gets a per-red-field action; only once those are clear do the
   // nice-to-have fields surface (as low-priority actions).
-  const comp = computeProfileCompleteness(client, trackedDeals, dealDates);
+  const comp = computeProfileCompleteness(client, inputs.allDeals, dealDates);
   for (const f of comp.missingRed) {
     out.push({
       category: "incomplete_profile",

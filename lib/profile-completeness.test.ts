@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { computeProfileCompleteness } from "./profile-completeness";
 import type { Client, Deal } from "@/lib/types";
 
-/* WHICH DEALS AN ACCOUNT'S SETUP IS JUDGED ON.
+/* WHICH DEALS AN ACCOUNT'S SETUP IS JUDGED ON: all of them, tracked or not,
+   and a field is missing only when NO deal holds it.
 
    The case these tests exist for (MEP, 2026-10-22): a fully-filled account
    turned red the day a CS-pipeline renewal synced from HubSpot carrying only
@@ -62,7 +63,25 @@ test("an empty CS renewal alongside a complete sale does NOT make the account re
   assert.equal(r.severity, "none", `unexpected gaps: ${r.missingRed.map((f) => f.label).join(", ")}`);
 });
 
-test("when the only tracked deal is a CS one, it is still judged — the 17-account case", () => {
+test("an untracked sale still answers for the account — the MEP case", () => {
+  // Production, 2026-10-22: the 2025 sale had been UNTRACKED so its ARR would
+  // not be counted on top of the renewal that replaced it. That left the
+  // renewal as the only tracked deal, and it carries no kick-off, launch,
+  // library dates, contract start or AI credits — so the badge reported six
+  // gaps in data the account plainly had, sitting on the sale.
+  const untrackedSale = sale({ tracked: false });
+  const r = computeProfileCompleteness(client(), [untrackedSale, csRenewal()], DATES);
+  assert.equal(r.severity, "none", `unexpected gaps: ${r.missingRed.map((f) => f.label).join(", ")}`);
+});
+
+test("a field no deal holds is still reported", () => {
+  // The rule relaxes WHERE a value may live, not WHETHER it must exist.
+  const r = computeProfileCompleteness(client(), [sale({ supportLevel: null }), csRenewal()], DATES);
+  assert.equal(r.severity, "red");
+  assert.deepEqual(r.missingRed.map((f) => f.label), ["Support level"]);
+});
+
+test("when the only deal is a CS one, it still answers — the 16-account case", () => {
   // Their sale was untracked at renewal, so the CS deal IS the current contract.
   const complete = csRenewal({
     products: ["Perform"], useCases: ["Product Knowledge"], globalLibraryPackage: ["Go1"],
@@ -85,10 +104,22 @@ test("when the only tracked deal is a CS one, it is still judged — the 17-acco
   assert.ok(empty.missingRed.some((f) => f.label === "Module"));
 });
 
-test("a gap on the sale is still reported when a CS deal is present", () => {
-  const r = computeProfileCompleteness(client(), [sale({ supportLevel: null }), csRenewal()], DATES);
-  assert.equal(r.severity, "red");
-  assert.deepEqual(r.missingRed.map((f) => f.label), ["Support level"]);
+test("a renewal carrying the setup answers for a sale that does not", () => {
+  // The mirror of the MEP case, and why judging the sale was not the fix: for
+  // 16 accounts the curated setup lives on the renewal, not the sale.
+  const bareSale = sale({
+    products: [], useCases: [], globalLibraryPackage: [], globalLibraryLicenses: null,
+    aiCourseCredits: null, contractStartDate: null, supportLevel: null, implementationLevel: null,
+    tracked: false,
+  });
+  const filledRenewal = csRenewal({
+    products: ["Perform"], useCases: ["Product Knowledge"], globalLibraryPackage: ["Go1"],
+    globalLibraryLicenses: 850, aiCourseCredits: 0, contractStartDate: "2026-01-01",
+    supportLevel: "Level 2", implementationLevel: "Guided",
+  });
+  const dates = { "hs-deal-2": { launch_date: "2026-01-05", kickoff_meeting_date: "2026-01-02", global_library_start_date: "2026-01-01", global_library_expiry_date: "2027-01-01" } };
+  const r = computeProfileCompleteness(client(), [bareSale, filledRenewal], dates);
+  assert.deepEqual(r.missingRed, []);
 });
 
 test("client-level gaps are unaffected by the scope rule", () => {

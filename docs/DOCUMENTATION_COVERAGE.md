@@ -8,17 +8,32 @@ a document.
 `Deprecated`
 
 **Baseline established:** 2026-07-31 against commit `4214349` (branch `exec-dashboard`).
-**Last change pass:** 2026-10-22 against commit `b5d3401` plus the uncommitted working-tree
-change on branch `feat/hubspot-sales-only` — **HubSpot now gives Signal the Closed Won sale and
-nothing else**; renewals, expansions, downgrades and churn are recorded in Signal, and profile
-completeness judges an account's tracked **sales** (falling back to all its tracked deals when
-it has no tracked sale). Covering that change only. The pass also recorded two things it did
+**Last change pass:** 2026-10-22 (afternoon) against commit `f8b8d4c` plus the uncommitted
+working-tree change on branch `fix/completeness-reads-the-sale` — **the completeness badge now
+asks what the account knows, not what one deal row holds**. A per-deal field is missing only
+when **no** deal on the account holds it (every deal, tracked or not), replacing both the
+2026-07-05 "any tracked deal" rule and the tracked-sales rule that shipped the same morning in
+PR #35. Covering that change only. The pass recorded the trade it accepts (a value on an older
+deal satisfies the check for a newer one, so a blank new deal is not flagged), the fact that
+the profile badge and the Contract tab's *Account setup* checklist are different indicators
+that will disagree, and four corrections to the brief it was given — among them that
+`setupChecklist`'s kick-off and launch items are satisfied by the *first* contract record that
+holds them rather than being purely per-record. One contradiction it opened — the module header
+still stating the rule the change removed, plus two stale field comments — was **fixed in code
+the same day** and is retired as RESOLVED; the `legacyFallback` branch being unreachable is now
+stated in the file itself. New decision record **0027**; **0026 point 3 is superseded**.
+**Previous change pass:** 2026-10-22 (morning) against commit `b5d3401` plus an uncommitted
+working-tree change on branch `feat/hubspot-sales-only` — **HubSpot now gives Signal the Closed
+Won sale and nothing else**; renewals, expansions, downgrades and churn are recorded in Signal,
+and profile completeness judged an account's tracked **sales** (falling back to all its tracked
+deals when it had no tracked sale) — *that half was superseded the same day, see above.*
+Covering that change only. The pass also recorded two things it did
 not fix: the CS-pipeline deals already synced are **deliberately** left carrying live ARR,
 with one production account expected to be double-counted until a human unticks the superseded
 deal. A second finding from that pass — the sync's own comments, a now-dead
 `CS_NON_ARR_STAGES`, and a profile-completeness header stating two rules that disagreed — was
 **fixed in code the same day**, and both contradictions entries are retired as RESOLVED.
-**Previous change pass:** 2026-10-18 against commit `9befb8a`, two independent passes merged
+**Earlier change pass:** 2026-10-18 against commit `9befb8a`, two independent passes merged
 together. (1) Branch `feat/typeable-global-library`: the Contract tab's **Global library**
 field made typeable, with **EdX** and **Other** added to its suggested providers. That pass
 also recorded a contradiction it uncovered rather than fixed: *global-library provider* has
@@ -106,7 +121,7 @@ implication — it simply has not been read again. Only rows the change touched 
 | ARR, revenue movement, retention | [arr-and-revenue-movement](business-rules/arr-and-revenue-movement.md) | Partially verified | 2026-07-31 (R1a: 2026-10-22) | `4214349` (R1a: `b5d3401` + working-tree change) | No tests; "renewal requiring attention" untraced. **R1a added 2026-10-22** after reading `recomputeClientBody`: the figure stored on a client row is tracked deals + non-HubSpot events, which is **not** the ledger balance R1 describes — two coexisting formulas, nothing reconciles them (inconsistency 6), and leftover CS-pipeline deals still count. Also records that nothing raises ARR on a renewal any more (inconsistency 7). Only R1a was verified in that pass; R2–R10 were not re-read |
 | Health scoring, at-risk | [health-scoring](business-rules/health-scoring.md) | **Contradictory** | 2026-07-31 | `4214349` | Two systems; at-risk definition unresolved |
 | Churn | [churn](business-rules/churn.md) | Partially verified | 2026-07-31 | `4214349` | Full default taxonomy not enumerated |
-| Profile completeness | [profile-completeness](business-rules/profile-completeness.md) | Partially verified (**R2a `Verified`**) | 2026-07-31 (R2a: 2026-10-22) | `4214349` (R2a: `b5d3401` + working-tree change) | Full field list not enumerated. **R2a (the judged set — tracked sales, falling back to all tracked deals) added 2026-10-22 and is the first `Verified` rule here**: `lib/profile-completeness.test.ts`, 5 tests, the module's first. They cover R2a only — the field lists (R3), the severity gate (R1), `requiredWhen`, `legacyFallback` and every downstream consumer (R4, R5) remain untested. Completeness reads deals and never contract records (inconsistency 5) |
+| Profile completeness | [profile-completeness](business-rules/profile-completeness.md) | Partially verified (**R2 `Verified`**) | 2026-07-31 (R2 and R3's refinements: 2026-10-22) | `4214349` (R2: `f8b8d4c` + working-tree change) | Full field list not enumerated. **R2 — the scope rule — is the only `Verified` rule here**: `lib/profile-completeness.test.ts`, 7 tests, the module's first. Rewritten twice on 2026-10-22: the morning's **R2a** (tracked sales, with a fallback; PR #35) is kept as a superseded section, and R2 now reads **every** deal on the account, a field missing only when none holds it ([decision 0027](decisions/0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md)). The tests cover R2 only — the field lists (R3), the severity gate (R1), `requiredWhen`, `legacyFallback` and every downstream consumer (R4, R5) remain untested. Completeness reads deals and never contract records (inconsistency 5); the badge and the Contract tab's *Account setup* checklist disagree by design (inconsistency 6) |
 | Assignment and routing | [assignment](business-rules/assignment.md) | **Stale** | 2026-07-31 | `4214349` | No tests. **No `lib/assignment/` directory exists at `d0d2362`** — every path the document cites under it is gone (11 of `docs-check`'s errors). Whether the engine moved, was removed or was never merged was not investigated; the rules were not re-read. A note added 2026-10-04 flags this and points candidate eligibility at R6b. Needs an audit, not a patch |
 | Use-case associations | [use-case-associations](business-rules/use-case-associations.md) | Partially verified | 2026-07-31 | `15329e3` | Two taxonomies unresolved. **R2, R2a and R7a are now `Verified`** (tested); R1's four invariants and every server action remain untested |
 | Account-owner eligibility | [permissions-and-scoping R6b](business-rules/permissions-and-scoping.md#r6b--who-may-be-an-owner-everyone-except-a-guest) | **Verified** (predicate) | 2026-10-04 | `d0d2362` + working-tree change | Everyone except a guest may own. The predicate `canOwnAccounts` has 5 tests; `getTeamMembers`, the owner pickers, the clients-list owner filters and `assignCsmOwner` / `assignImplementationOwner` are read-only-verified and untested. Who may *perform* an assignment is R6, unchanged |
@@ -135,7 +150,8 @@ implication — it simply has not been read again. Only rows the change touched 
 | [0023](decisions/0023-a-tech-stack-is-a-list-per-category-written-through-on-every-chip.md) | A tech stack is a list per category, written through on every chip | Accepted; points 5 and "not admin-curatable" amended by 0024 |
 | [0024](decisions/0024-a-tech-stack-category-key-is-generated-once-and-never-follows-the-label.md) | A tech stack category key is generated once and never follows the label | Accepted |
 | [0025](decisions/0025-a-read-only-integration-api-with-hashed-keys-and-stable-shapes.md) | Read-only integration API; hashed keys issued by super admins; unscoped read; stable public shapes | Accepted |
-| [0026](decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md) | HubSpot owns the Closed Won sale; Signal owns every movement after it. Completeness judges tracked sales; already-synced CS deals deliberately untouched | Accepted |
+| [0026](decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md) | HubSpot owns the Closed Won sale; Signal owns every movement after it; already-synced CS deals deliberately untouched | Accepted; **point 3 (completeness judges tracked sales) superseded by 0027 the same day** |
+| [0027](decisions/0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md) | A completeness gap belongs to the account, not to a deal row — every deal is read, and a field is missing only when none holds it | Accepted; supersedes 0026 point 3 and the 2026-07-05 scope rule |
 
 ## Pre-existing documents retained
 
@@ -156,10 +172,13 @@ implication — it simply has not been read again. Only rows the change touched 
   Signal pinned by tests written specifically for the invariant rather than for the module.
   A fourth, **permissions R6b (who may be an account owner), reached `Verified` on
   2026-10-04** — and is the first *permission* rule in the product with a test behind it.
-  Its answer is "everyone except a guest".
-- **16 decision records on disk** — 11 indexed, plus `0023` (written 2026-09-09) and four
-  earlier records the index does not list. See
-  [decisions/README](decisions/README.md).
+  Its answer is "everyone except a guest". A fifth, **profile completeness R2 (which deals
+  answer for an account), reached `Verified` on 2026-10-22** — rewritten twice that day, with
+  its superseded first version kept beside it as R2a.
+- **17 decision records on disk** — 13 indexed (`0027` added 2026-10-22), plus four earlier
+  records (`0018`, `0020`–`0022`) the index does not list. See
+  [decisions/README](decisions/README.md). One record is **partly superseded**: `0026` point 3,
+  by `0027`, the same day.
 - **1 area verified non-functional** and documented as such.
 - **Zero product areas at `Verified`** except `PRODUCT_MAP` and `contradictions` — a direct
   consequence of a test suite that barely touches a server action, a page, or a permission

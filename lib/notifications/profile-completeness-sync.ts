@@ -65,11 +65,10 @@ export async function syncProfileCompletenessNotifications(now: Date = new Date(
   for (const client of clients) {
     const overrides = dealOverridesMap(client.properties);
     const dealDates = ((client.properties?.[DEAL_DATES_KEY] as DealDatesMap | undefined) ?? {});
-    const tracked = (dealsByClient.get(client.id) ?? [])
-      .filter((d) => d.tracked !== false)
-      .map((d) => applyDealOverrides(d, overrides[d.id]));
+    // Every deal, tracked or not — the same set the badge reads.
+    const all = (dealsByClient.get(client.id) ?? []).map((d) => applyDealOverrides(d, overrides[d.id]));
 
-    const { severity, missingRed, missingYellow } = computeProfileCompleteness(client, tracked, dealDates);
+    const { severity, missingRed, missingYellow } = computeProfileCompleteness(client, all, dealDates);
 
     if (severity === "red") {
       summary.red++;

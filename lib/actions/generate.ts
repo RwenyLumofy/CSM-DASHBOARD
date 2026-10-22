@@ -50,13 +50,13 @@ function stakeholdersOf(client: Client) {
 }
 
 /** Assemble the pure-function inputs for one client (fetches usage + contacts). */
-async function buildInputs(client: Client, trackedDeals: Deal[], dealDates: DealDatesMap, board: ProjectDetail[], config: ProjectConfig, model: HealthModelVersion): Promise<SignalInputs> {
+async function buildInputs(client: Client, trackedDeals: Deal[], allDeals: Deal[], dealDates: DealDatesMap, board: ProjectDetail[], config: ProjectConfig, model: HealthModelVersion): Promise<SignalInputs> {
   const { getContactsByClient } = await import("@/lib/repo/drizzle");
   const [usage, contacts] = await Promise.all([
     getClientUsage(client.id).catch(() => ({ status: "error" as const, message: "usage fetch failed" })),
     getContactsByClient(client.id).catch(() => []),
   ]);
-  return { client, trackedDeals, dealDates, usage, contacts, stakeholders: stakeholdersOf(client), projectDeadlines: computeProjectDeadlines(board, config), model };
+  return { client, trackedDeals, allDeals, dealDates, usage, contacts, stakeholders: stakeholdersOf(client), projectDeadlines: computeProjectDeadlines(board, config), model };
 }
 
 /** Detect → enrich → reconcile for one already-loaded client. Returns the
@@ -65,9 +65,10 @@ async function generateForClient(client: Client, deals: Deal[], board: ProjectDe
   const { reconcileClientActionsDb } = await import("@/lib/repo/drizzle");
   const overrides = dealOverridesMap(client.properties);
   const dealDates = (client.properties?.[DEAL_DATES_KEY] as DealDatesMap | undefined) ?? {};
-  const tracked = deals.filter((d) => d.tracked !== false).map((d) => applyDealOverrides(d, overrides[d.id]));
+  const effective = deals.map((d) => applyDealOverrides(d, overrides[d.id]));
+  const tracked = effective.filter((d) => d.tracked !== false);
 
-  const inputs = await buildInputs(client, tracked, dealDates, board, config, model);
+  const inputs = await buildInputs(client, tracked, effective, dealDates, board, config, model);
   const signals = detectSignals(inputs);
   const enriched = await enrichSignals(client, inputs.usage, signals);
 

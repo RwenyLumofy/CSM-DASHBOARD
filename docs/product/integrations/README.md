@@ -137,7 +137,10 @@ and churn are recorded in Signal**, on the
   contract length on a CS renewal and nothing else, and a per-deal field counted as missing
   when *any* tracked deal lacked it — so one renewal reported ten red gaps on an account that
   had none. Signal's own renewal flow inherits those fields from the contract in force
-  instead. See [profile completeness R2a](../../business-rules/profile-completeness.md#r2a--the-judged-set-is-the-accounts-tracked-sales-with-a-fallback).
+  instead. The completeness rule was then changed twice on 2026-10-22 and now reads **every**
+  deal on the account, a field being missing only when none holds it — see
+  [profile completeness R2](../../business-rules/profile-completeness.md#r2--scope-rule-every-deal-on-the-account-and-a-field-is-missing-only-when-none-holds-it)
+  and [decision 0027](../../decisions/0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md).
 - **A renewal double-counted ARR.** It arrived tracked, on top of the sale it replaced, and
   stayed that way until a human unticked the superseded deal. See
   [ARR R1a](../../business-rules/arr-and-revenue-movement.md#r1a--the-materialised-arr-on-a-client-row-is-tracked-deals--non-hubspot-events).
