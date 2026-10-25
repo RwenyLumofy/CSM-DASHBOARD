@@ -16,6 +16,30 @@ limitations · commit.
 
 ---
 
+## 2026-10-25
+
+### Record drawer: the user price matches the ARR, and any loss of ARR needs a reason
+**Area:** Client Profile → Contract tab → Record renewal / downgrade drawer · churn-reason banner on a churned profile. Behind nothing: the Contract tab is open to everyone who can see the account; `contract_records_live` is still **off**, so none of this moves live ARR yet.
+**Roles affected:** CSMs gain the right to set churn reasons on the profile banner (it was admins and super admins only). Everyone who records a downgrade or a smaller renewal now has to give a reason.
+**Before:**
+- The drawer seeded User price from the term's **stored** price. On terms where that price doesn't give the licence ARR, the ARR preview was wrong: on **neo space group** (200 licences, $133.33 stored, $17,608 licence ARR) cutting to 160 licences showed **+$3.7K** instead of a loss.
+- Only a churn needed reasons. A downgrade or a renewal for less could be saved with none, so the Churn report never saw why ARR went down short of a churn.
+- The profile's churn-reason banner was admins only.
+**After:**
+- User price starts from licence ARR ÷ licences when licences × stored price is more than 5% off (`lib/contracts/price.ts`), with the hint *"From current ARR ÷ licences. Recorded price is X."* under the field. Neo now starts at $88.04 and 200 → 160 shows **−$3,522**. Applies to renewal, expansion and downgrade.
+- A downgrade, and a renewal worth less than the ARR it replaces, need at least one reason from the churn taxonomy, from the same picker the churn form uses. Enforced in the drawer and on the server (`lib/contracts/validate.ts`); stored on the contract record and shown on its card.
+- The churn-reason banner and the contract actions use the same gate, `denyClientWrite`: the account's CSM, admins and super admins.
+- `RecordDrawer` is exported for the planned Renewals board. No behaviour change.
+**Migration / data impact:** None. Reasons use the existing `contract_records.churn_reasons` column. Records saved earlier without reasons are not touched; an edit to one only asks for reasons if it changes the money or the reasons.
+**Known limitations:**
+- The drawer compares a renewal with **today's** ARR; the server compares it with the ARR the day before it starts. They differ only when something else changes ARR in between, and then the server's error is shown.
+- Reasons on an existing downgrade or renewal can't be added from the record card; they're set when the record is recorded.
+- The drawer was not checked in a browser: there is no Clerk session locally. The rules are covered by unit tests.
+**Verified:** `npm test` and `npm run typecheck` pass. New tests: `price.test.ts` (5, including neo), the loss-reason rules in `validate.test.ts`, and `arrReplacedBy` in `live.test.ts`.
+**Docs:** [contract records spec §8.3–8.4](../specs/revenue/contract-records-specification.md#83-what-can-be-done).
+
+---
+
 ## 2026-10-22
 
 ### The completeness badge now asks what the account knows, not what one deal row holds

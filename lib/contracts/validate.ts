@@ -9,11 +9,14 @@
      - Sales are never created in Signal. They arrive from HubSpot.
      - Expansions are recorded on the Expansion page, not here.
      - A churn needs an effective date and at least one reason.
+     - So does any other loss of ARR: every downgrade, and a renewal worth
+       less than the ARR it replaces. The reasons come from the same churn
+       taxonomy and are stored on the record (churnReasons).
      - A support amount needs a support level, and can't be negative.
      - One-time fees are listed with a label and never count toward ARR.
    ========================================================================= */
 
-import { CURRENCIES, type Currency } from "./ledger";
+import { CURRENCIES, toUSD, type Currency } from "./ledger";
 
 export type ContractKind = "sale" | "renewal" | "expansion" | "downgrade" | "churn";
 export type ContractSource = "hubspot" | "signal" | "imported" | "expansion";
@@ -69,8 +72,33 @@ export function validateKindForCreate(kind: string): Validation {
   return { ok: true };
 }
 
+/** What a record is checked against beyond its own fields. */
+export interface RecordContext {
+  /** The taxonomy's reason ids; when given, every reason must be one of them. */
+  reasonIds?: Set<string>;
+  /** For a renewal: the account's ARR in USD the day before it starts, i.e. the ARR it replaces. */
+  replacesArr?: number;
+  /** Skip the loss-reason rule: an edit that leaves a record's money and reasons alone
+   *  doesn't have to add reasons to a record saved before they were required. */
+  skipLossReasons?: boolean;
+}
+
+/** A renewal's annual value in USD: year-1 licence ARR plus support. */
+const renewalArrUSD = (f: ContractFields) => toUSD(f.amount + (f.supportAmount ?? 0), f.currency);
+
+/**
+ * Does this record lose ARR? Every downgrade does. A renewal does when it is
+ * worth more than a dollar less than the ARR it replaces (unknown = no).
+ */
+export function losesArr(kind: ContractKind, f: ContractFields, replacesArr?: number): boolean {
+  if (kind === "downgrade") return true;
+  if (kind === "renewal") return replacesArr !== undefined && renewalArrUSD(f) < replacesArr - 1;
+  return false;
+}
+
 /** A complete record, as it would be stored. */
-export function validateRecord(kind: ContractKind, f: ContractFields, churnReasonIds?: Set<string>): Validation {
+export function validateRecord(kind: ContractKind, f: ContractFields, ctx: RecordContext = {}): Validation {
+  const churnReasonIds = ctx.reasonIds;
   if (!f.name.trim()) return fail("Give the record a name.");
   if (!CURRENCIES.includes(f.currency)) return fail("Currency must be USD, BHD or SAR.");
   if (!isNum(f.amount)) return fail("The amount must be a number.");
@@ -86,6 +114,14 @@ export function validateRecord(kind: ContractKind, f: ContractFields, churnReaso
     if (!f.churnReasons.length) return fail("Pick at least one churn reason.");
     if (churnReasonIds && f.churnReasons.some((r) => !churnReasonIds.has(r))) return fail("One of those churn reasons no longer exists in Settings.");
     return { ok: true };
+  }
+  if (!ctx.skipLossReasons) {
+    if (losesArr(kind, f, ctx.replacesArr) && !f.churnReasons.length) {
+      return fail(kind === "downgrade"
+        ? "Pick at least one reason for the downgrade."
+        : "This renewal is worth less than the contract it replaces. Pick at least one reason for the loss.");
+    }
+    if (churnReasonIds && f.churnReasons.some((r) => !churnReasonIds.has(r))) return fail("One of those reasons no longer exists in Settings.");
   }
   if (!f.startDate) return fail("A contract record needs a start date.");
   if (f.endDate && f.endDate < f.startDate) return fail("The end date is before the start date.");

@@ -17,6 +17,11 @@
    deals. Once it is switched (Contract check page), the account's ARR, status
    and renewal date follow the records at once, and recording a churn also
    closes the account's open Expansion opportunities as lost.
+
+   REASONS: a churn, a downgrade and a renewal worth less than the ARR it
+   replaces all need at least one reason from Settings → Churn taxonomy,
+   stored on the record. Whoever may write the record may set them; there is
+   no admin-only step.
    ========================================================================= */
 
 import { revalidatePath } from "next/cache";
@@ -25,13 +30,14 @@ import { hasDatabase } from "@/lib/config";
 import { getChurnTaxonomy } from "@/lib/data";
 import { churnReasonIds } from "@/lib/metrics/churn-taxonomy";
 import {
-  clearStatusOverrideDb, createContractRecordDb, getContractRecordDb, setStatusOverrideDb, updateContractRecordDb, voidContractRecordDb,
+  clearStatusOverrideDb, createContractRecordDb, getContractRecordDb, getContractRecordsDb, setStatusOverrideDb, updateContractRecordDb, voidContractRecordDb,
 } from "@/lib/contracts/repo";
+import { arrReplacedBy } from "@/lib/contracts/live";
 import { validateOverride, type ContractStatus } from "@/lib/contracts/status";
 import { closeOpenOpportunitiesForChurn } from "@/lib/contracts/churn-close";
 import { contractRecordsLive, recomputeClient } from "@/lib/repo/drizzle";
 import {
-  editablePatch, validateKindForCreate, validateRecord, type ContractFields, type ContractKind,
+  editablePatch, validateKindForCreate, validateRecord, type ContractFields, type ContractKind, type RecordContext,
 } from "@/lib/contracts/validate";
 
 export interface ContractActionResult {
@@ -60,13 +66,23 @@ async function previewGate(): Promise<string | null> {
   return hasDatabase() ? null : "The database isn't configured.";
 }
 
+/** What a record is validated against: the live reason taxonomy and, for a renewal, the ARR it replaces. */
+async function recordContext(clientId: string, kind: ContractKind, f: ContractFields, recordId?: string): Promise<RecordContext> {
+  const reasonIds = churnReasonIds(await getChurnTaxonomy());
+  const replacesArr = kind === "renewal" && f.startDate ? arrReplacedBy(await getContractRecordsDb(clientId), f.startDate, recordId) : undefined;
+  return { reasonIds, replacesArr };
+}
+
+/** The fields that decide whether a record loses ARR, or that carry its reasons. */
+const LOSS_FIELDS: (keyof ContractFields)[] = ["amount", "currency", "supportAmount", "supportLevel", "yearAmounts", "startDate", "churnReasons"];
+
 /** Record a renewal, downgrade or churn on an account. */
 export async function recordContractChangeAction(clientId: string, kind: ContractKind, fields: ContractFields): Promise<ContractActionResult> {
   const blocked = (await previewGate()) ?? (await denyClientWrite(clientId));
   if (blocked) return { ok: false, error: blocked };
   const kindOk = validateKindForCreate(kind);
   if (!kindOk.ok) return { ok: false, error: kindOk.error };
-  const valid = validateRecord(kind, fields, kind === "churn" ? churnReasonIds(await getChurnTaxonomy()) : undefined);
+  const valid = validateRecord(kind, fields, await recordContext(clientId, kind, fields));
   if (!valid.ok) return { ok: false, error: valid.error };
   try {
     const actor = await getCurrentUserEmail();
@@ -96,7 +112,8 @@ export async function updateContractRecordAction(recordId: string, patch: Partia
   const { counted, ...fieldPatch } = patch;
   const { patch: allowed, refused } = editablePatch(current.source, fieldPatch);
   const merged: ContractFields = { ...current, ...allowed };
-  const valid = validateRecord(current.kind, merged, current.kind === "churn" ? churnReasonIds(await getChurnTaxonomy()) : undefined);
+  const ctx = await recordContext(current.clientId, current.kind, merged, recordId);
+  const valid = validateRecord(current.kind, merged, { ...ctx, skipLossReasons: !LOSS_FIELDS.some((k) => k in allowed) });
   if (!valid.ok) return { ok: false, error: valid.error };
   try {
     const saved = await updateContractRecordDb(recordId, { ...allowed, ...(counted === undefined ? {} : { counted }) }, await getCurrentUserEmail());

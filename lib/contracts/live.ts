@@ -47,16 +47,30 @@ export interface LiveNumbers {
   status: AccountStatus;
 }
 
-export function liveFromRecords(
-  rows: LiveRecord[],
-  opts: { override: StatusOverride | null; legacyChurned: boolean; today: string; quarterStart: string },
-): LiveNumbers {
-  const records = rows.map((r) => ({
+function toLedger(rows: LiveRecord[]) {
+  return rows.map((r) => ({
     id: r.id, kind: r.kind, start: r.startDate, renewal: r.renewalDate, amount: r.amount,
     currency: (r.currency === "BHD" || r.currency === "SAR" ? r.currency : "USD") as Currency,
     yearAmounts: r.yearAmounts ?? undefined, supportAmount: r.supportAmount, licences: r.licences,
     milestones: r.milestones ?? {}, counted: r.counted && !r.voidedAt,
   }));
+}
+
+/**
+ * The ARR in USD a renewal starting on `start` replaces: the ledger as of the
+ * day before, leaving out the renewal itself (`excludeId`, when editing one).
+ */
+export function arrReplacedBy(rows: LiveRecord[], start: string, excludeId?: string): number {
+  const d = new Date(`${start}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return arrOn(toLedger(rows.filter((r) => r.id !== excludeId)), d.toISOString().slice(0, 10));
+}
+
+export function liveFromRecords(
+  rows: LiveRecord[],
+  opts: { override: StatusOverride | null; legacyChurned: boolean; today: string; quarterStart: string },
+): LiveNumbers {
+  const records = toLedger(rows);
   const status = effectiveStatus(records, opts.override, opts.today);
   if (status.key === "churned" || opts.legacyChurned) {
     // A churned account carries no ARR, whatever its churn record's amount says. (An imported

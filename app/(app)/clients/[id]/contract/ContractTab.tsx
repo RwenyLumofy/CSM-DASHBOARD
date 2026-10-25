@@ -32,6 +32,7 @@ import { cn } from "@/lib/cn";
 import { addTypedChip } from "@/lib/contracts/chip-input";
 import { formatNumber } from "@/lib/format";
 import { CURRENCIES, USD_PER, contractValueUSD, toUSD, withArr, type Currency } from "@/lib/contracts/ledger";
+import { startingUserPrice } from "@/lib/contracts/price";
 import { changedFields, libraryTerm, toFields, type ContractView, type LibraryTerm } from "@/lib/contracts/view";
 import {
   OVERRIDE_DAYS, RENEWAL_WINDOW, effectiveStatus, firstMilestone, nextTerm, type ContractStatus, type StatusOverride,
@@ -51,6 +52,10 @@ type ContractRecord = ContractView;
 const CURRENCY_LABEL: Record<Currency, string> = { USD: "US dollar", BHD: "Bahraini dinar", SAR: "Saudi riyal (KSA)" };
 function fmtMoney(amount: number, ccy: Currency): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: ccy, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
+}
+/** A user price, to the cent. */
+function fmtPrice(amount: number, ccy: Currency): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: ccy, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 }
 /** Formatters that take US dollars and show them in the chosen display currency. */
 function moneyFns(ccy: Currency) {
@@ -1170,6 +1175,8 @@ function RecordCardView({ r, before, after, open, onToggle, onUpdate, dirty, foo
                     <Cell label="Total contract value" value={recordMoney(r.yearAmounts.reduce((x, y) => x + y, 0), r.currency)} />
                   </>
                 )}
+                {/* A downgrade, or a renewal for less, carries the reasons for the loss. */}
+                {!!r.reasons?.length && <Cell label="Reasons for the loss" value={r.reasons.map(reasonLabel).join(", ")} wide />}
               </>
             )}
           </Group>
@@ -1308,7 +1315,12 @@ function InlineDate({ value, onCommit, big }: { value: string | null; onCommit: 
 
 /* ── Record drawer ─────────────────────────────────────────────────────── */
 
-function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, licencesNow, onClose, onSave }: {
+/**
+ * Record a renewal, expansion, downgrade or churn against the contract in
+ * force. Exported so another screen (the Renewals board) opens the same form;
+ * `onSave` gets the record and saves it with recordContractChangeAction.
+ */
+export function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, licencesNow, onClose, onSave }: {
   kind: Kind; churnReasons: ChurnReasonOption[]; saving: boolean;
   current: ContractRecord; today: string; arrNow: number; licencesNow: number;
   onClose: () => void; onSave: (r: ContractRecord) => void;
@@ -1327,7 +1339,12 @@ function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, lice
   const licenceNowUSD = arrNow - (isRenewal ? toUSD(current.supportAmount ?? 0, startCcy) : 0);
   const [amount, setAmount] = useState<number>(isRenewal ? Math.round(licenceNowUSD / USD_PER[startCcy]) : 0);
   const [licences, setLicences] = useState<number>(isRenewal ? licencesNow : 0);
-  const [price, setPrice] = useState<number>(current.pricePerUser ?? 0);
+  // The user price starts from what the term actually earns per licence when its stored
+  // price doesn't give its licence ARR (lib/contracts/price.ts), so a cut in licences
+  // reads as a loss. Same for renewal, expansion and downgrade.
+  const termLicenceArr = (arrNow - toUSD(current.supportAmount ?? 0, startCcy)) / USD_PER[startCcy];
+  const startPrice = startingUserPrice(termLicenceArr, licencesNow, current.pricePerUser);
+  const [price, setPrice] = useState<number>(startPrice.price);
   const [modules, setModules] = useState<string[]>(isRenewal ? current.modules : []);
   const [library, setLibrary] = useState<string[]>(isRenewal ? current.library : []);
   // Licences per library provider; each provider runs for the contract's term.
@@ -1361,7 +1378,10 @@ function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, lice
   const supportUSD = isRenewal && supportLevel ? toUSD(supportAmount, ccy) : 0;
   const after = isRenewal ? amountUSD + supportUSD : isChurn ? 0 : kind === "expansion" ? arrNow + Math.abs(amountUSD) : arrNow - Math.abs(amountUSD);
   const delta = after - arrNow;
-  const valid = name.trim() && start && (isChurn ? reasons.length > 0 : amount !== 0 || isRenewal);
+  // Any loss of ARR needs a reason: a churn, a downgrade, and a renewal for less than today's ARR.
+  // The server checks the renewal against the ARR the day before it starts (lib/contracts/validate.ts).
+  const needsReasons = isChurn || kind === "downgrade" || (isRenewal && after < arrNow - 1);
+  const valid = name.trim() && start && (needsReasons ? reasons.length > 0 : true) && (isChurn || amount !== 0 || isRenewal);
 
   function save() {
     // A churn takes all remaining ARR (amount 0). A downgrade is stored as a negative change.
@@ -1376,7 +1396,7 @@ function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, lice
         : undefined,
       libraryDecided: isRenewal,
       start, end: isChurn ? null : end || null, renewal: isChurn ? null : renewal || null,
-      milestones: {}, reasons: isChurn ? reasons : undefined, note: note || undefined, oneTimeFees: [],
+      milestones: {}, reasons: needsReasons ? reasons : undefined, note: note || undefined, oneTimeFees: [],
       currency: isChurn ? "USD" : ccy,
       ...(isRenewal ? { supportLevel, supportAmount: supportLevel ? supportAmount : null, implementationLevel: current.implementationLevel ?? null } : {}),
       yearAmounts: termYears && perYear ? yearsShown : undefined,
@@ -1416,7 +1436,14 @@ function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, lice
               <Field label={isRenewal ? "Licences" : kind === "expansion" ? "Licences added" : "Licences removed"}>
                 <NumberInput value={licences} onChange={(v) => { setLicences(v); setAmount(v * price); }} />
               </Field>
-              <Field label="User price"><NumberInput value={price} onChange={(v) => { setPrice(v); setAmount(licences * v); }} prefix={ccy} /></Field>
+              <Field label="User price">
+                <NumberInput value={price} onChange={(v) => { setPrice(v); setAmount(licences * v); }} prefix={ccy} />
+                {!startPrice.matches && (
+                  <span className="font-body text-[11.5px] leading-snug text-fg-subtle">
+                    From current ARR ÷ licences. {startPrice.stored ? `Recorded price is ${fmtPrice(startPrice.stored, startCcy)}.` : "No price recorded."}
+                  </span>
+                )}
+              </Field>
               {isRenewal && (
                 <>
                   <Field label="Support level">
@@ -1471,28 +1498,10 @@ function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, lice
             </Field>
           )}
 
-          {isChurn && (
-            <Field label="Reasons (pick all that apply)">
-              {/* Grouped exactly as Settings → Churn taxonomy defines them. */}
-              <div className="flex flex-col gap-3">
-                {[...new Set(churnReasons.map((r) => r.category))].map((cat) => (
-                  <div key={cat} className="flex flex-col gap-1.5">
-                    <span className="font-body text-[11.5px] font-semibold text-fg-muted">{cat}</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {churnReasons.filter((r) => r.category === cat).map(({ id, label }) => {
-                        const on = reasons.includes(id);
-                        return (
-                          <button key={id} type="button" onClick={() => setReasons((rs) => (rs.includes(id) ? rs.filter((x) => x !== id) : [...rs, id]))}
-                            className={cn("inline-flex items-center gap-1 rounded-pill border px-2.5 py-1 font-body text-[12px] font-semibold transition-colors",
-                              on ? "border-danger bg-danger-bg text-danger-fg" : "border-border text-fg-muted hover:text-fg")}>
-                            {on && <Check size={11} />}{label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {needsReasons && (
+            <Field label={isChurn ? "Reasons (pick all that apply)" : "Reasons for the loss (pick all that apply)"}>
+              {!isChurn && <p className="font-body text-[12px] text-fg-muted">ARR goes down, so say why. The reasons are the churn taxonomy&apos;s and roll up on the Churn report.</p>}
+              <ReasonPicker options={churnReasons} value={reasons} onChange={setReasons} />
             </Field>
           )}
 
@@ -1571,6 +1580,31 @@ function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, lice
           </div>
         </div>
       </aside>
+    </div>
+  );
+}
+
+/** Pick reasons from Settings → Churn taxonomy, grouped as Settings defines them. */
+function ReasonPicker({ options, value, onChange }: { options: ChurnReasonOption[]; value: string[]; onChange: (v: string[]) => void }) {
+  return (
+    <div className="flex flex-col gap-3">
+      {[...new Set(options.map((r) => r.category))].map((cat) => (
+        <div key={cat} className="flex flex-col gap-1.5">
+          <span className="font-body text-[11.5px] font-semibold text-fg-muted">{cat}</span>
+          <div className="flex flex-wrap gap-1.5">
+            {options.filter((r) => r.category === cat).map(({ id, label }) => {
+              const on = value.includes(id);
+              return (
+                <button key={id} type="button" onClick={() => onChange(on ? value.filter((x) => x !== id) : [...value, id])}
+                  className={cn("inline-flex items-center gap-1 rounded-pill border px-2.5 py-1 font-body text-[12px] font-semibold transition-colors",
+                    on ? "border-danger bg-danger-bg text-danger-fg" : "border-border text-fg-muted hover:text-fg")}>
+                  {on && <Check size={11} />}{label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

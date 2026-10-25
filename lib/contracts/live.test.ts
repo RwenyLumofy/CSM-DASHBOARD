@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { liveFromRecords, type LiveRecord } from "./live";
+import { arrReplacedBy, liveFromRecords, type LiveRecord } from "./live";
 
 const rec = (over: Partial<LiveRecord>): LiveRecord => ({
   id: "s", kind: "sale", startDate: "2026-01-01", renewalDate: "2027-01-01", amount: 10000, currency: "USD", yearAmounts: null,
@@ -55,4 +55,15 @@ test("a churn record for less than the contract still leaves the churned account
   const live = liveFromRecords([rec({}), rec({ id: "c", kind: "churn", startDate: "2026-05-15", renewalDate: null, amount: 4000, milestones: {} })], opts);
   assert.equal(live.status, "churned");
   assert.equal(live.arr, 0);
+});
+
+test("the ARR a renewal replaces: the term before it, with what changed on top, not the renewal itself", () => {
+  const rows = [
+    rec({ supportAmount: 2000 }),
+    rec({ id: "d", kind: "downgrade", startDate: "2026-06-01", renewalDate: null, amount: -1000, milestones: {} }),
+    rec({ id: "r", kind: "renewal", startDate: "2027-01-01", renewalDate: "2028-01-01", amount: 8000, milestones: {} }),
+  ];
+  assert.equal(arrReplacedBy(rows, "2027-01-01", "r"), 11000);
+  // A new renewal on the same day as one already recorded still compares with the term before.
+  assert.equal(arrReplacedBy(rows, "2027-01-01"), 11000);
 });
