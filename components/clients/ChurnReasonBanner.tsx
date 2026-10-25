@@ -1,8 +1,8 @@
 "use client";
 
 /* =========================================================================
-   Churn reasons — shown at the top of a CHURNED client's profile. Lets an admin
-   classify the churn against the taxonomy (Settings → Churn taxonomy). An
+   Churn reasons — shown at the top of a CHURNED client's profile. Lets whoever may
+   edit the account classify the churn against the taxonomy (Settings → Churn taxonomy). An
    account can have MORE THAN ONE reason: selected reasons show as removable
    chips, and a grouped checkbox picker toggles them. Each change saves
    immediately (spinner → check, or the exact error). Reasons roll up on the

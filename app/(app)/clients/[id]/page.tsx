@@ -26,7 +26,7 @@ import {
 } from "@/lib/data";
 import { getCsPulseDimensions, getCsPulseTiers } from "@/lib/health/data";
 import { normalizePulse } from "@/lib/health/pulse";
-import { getCurrentUserRole, isSuperAdmin, isAdminOrSuper, canEditClient, getCurrentUserEmail, getCurrentUserScope } from "@/lib/auth";
+import { getCurrentUserRole, isSuperAdmin, canEditClient, getCurrentUserEmail, getCurrentUserScope } from "@/lib/auth";
 import { permissionRole, editsAllClients } from "@/lib/roles";
 import { getProjectBoard, getProjectConfig, listProjectTemplates } from "@/lib/projects/data";
 import { getNotesForClient } from "@/lib/notes/data";
@@ -156,10 +156,9 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
     ]);
   // The contract tab's data; null when it can't be shown (see ./contract/load.ts).
   const contractTab = hasDatabase() ? await loadContractTab(client, canSeeExpansion(role)) : null;
-  const [churnTaxonomy, canManageChurn, pulseDimensions, pulseTiers, useCaseTaxonomy, expansion, techStackCategories] =
+  const [churnTaxonomy, pulseDimensions, pulseTiers, useCaseTaxonomy, expansion, techStackCategories] =
     await Promise.all([
       getChurnTaxonomy(),
-      isAdminOrSuper(),
       getCsPulseDimensions(),
       getCsPulseTiers(),
       readUseCaseTaxonomy(),
@@ -344,7 +343,7 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
               ? (props.churn_reasons as unknown[]).filter((x): x is string => typeof x === "string")
               : typeof props.churn_reason === "string" ? [props.churn_reason] : [] // legacy single value
           }
-          canEdit={canManageChurn}
+          canEdit={mayEditClient}
         />
       )}
 

@@ -266,11 +266,38 @@ renewal date); without one the screen says a sale has to arrive from HubSpot fir
 | Kind | What is entered |
 |---|---|
 | Renewal | Prefilled from the contract in force. Currency (USD, BHD, SAR), licence ARR, licences, user price, support level and annual support amount, modules, one or more global libraries with licences each, start, length (1–5 years or a custom end date), end and renewal date. For 2 years or more, an optional different ARR for each year. |
-| Downgrade | ARR removed (stored as a negative change), licences removed, modules and libraries removed, dates. |
+| Downgrade | ARR removed (stored as a negative change), licences removed, modules and libraries removed, dates, and at least one reason for the loss. |
 | Churn | Effective date and at least one reason from Settings → Churn taxonomy. Takes ARR from records to zero from that date. |
 
 A multi-year renewal's ARR is its **annual** value (year 1 licence ARR + annual support),
 not the total over the term; the drawer shows the total contract value separately.
+
+**User price starts from the effective price** *(since 2026-10-25)*. Some terms store a user
+price that doesn't give their licence ARR (9 of 48 live terms in the prod clone are more
+than 5% off). The drawer works ARR out as licences × user price, so it seeds User price
+with `startingUserPrice` (`lib/contracts/price.ts`, tested in `price.test.ts`):
+
+- the term's licence ARR is today's ARR less the current support, in the contract's
+  currency: `(ARR now − support in USD) ÷ USD_PER[currency]`;
+- if licences × stored price is within 5% (or $1) of that, the stored price is used;
+- otherwise User price is licence ARR ÷ licences, to the cent, and the field says
+  *"From current ARR ÷ licences. Recorded price is X."* (or *"No price recorded."*).
+
+It applies to a renewal, an expansion and a downgrade, which share the drawer. Worked
+example, **neo space group** (client 22797389218): 200 licences, $133.33 stored, $17,608
+licence ARR. The drawer starts at $88.04, so recording 160 licences (a renewal at 160, or a
+downgrade of 40) shows **−$3,522**. With the stored price it showed +$3.7K.
+
+**Reasons on any loss of ARR** *(since 2026-10-25)*. A downgrade, and a renewal worth less
+than today's ARR, need at least one reason from Settings → Churn taxonomy, picked with the
+same grouped picker as a churn. They are stored on the record (`churn_reasons`) and shown
+on its card as *Reasons for the loss*. Whoever may write the record sets them: the
+account's CSM, admins and super admins. The server checks the renewal against the ARR the
+day before it starts (§8.4), so a renewal recorded ahead is compared with the term it
+replaces.
+
+**`RecordDrawer` is exported** from `ContractTab.tsx` so another screen (the planned
+Renewals board) opens the same form. The Contract tab's behaviour is unchanged by this.
 
 **Expansion is never recorded here.** "Record expansion" and every expansion control on
 this screen is a link to the Expansion page (§3), and the server refuses an expansion or a
@@ -315,6 +342,7 @@ The first rule that fails is returned as the error message.
 | Amount must be a number; not negative on a sale or renewal; zero or negative on a downgrade; not negative on an expansion | All |
 | Start, end and renewal dates must be valid dates | All |
 | A churn needs an effective date and at least one reason, and every reason must still exist in Settings → Churn taxonomy. No further rules are applied to a churn | Churn |
+| A downgrade needs at least one reason, and so does a renewal whose annual value (licence ARR + support, in USD) is more than $1 below the ARR it replaces: the ledger the day before it starts, leaving the renewal itself out (`losesArr`, `arrReplacedBy` in `lib/contracts/live.ts`). Every reason must still exist in Settings → Churn taxonomy. **On an edit**, this rule only runs when the edit touches the amount, currency, support, per-year ARR, start date or reasons, so a record saved before 2026-10-25 without reasons can still have its note or milestones changed | Downgrade, renewal |
 | A start date is required; the end date cannot be before it; the renewal date must be after it | All except churn |
 | A support amount must be zero or more and needs a support level | All except churn |
 | Per-year ARR is only for a sale or renewal, needs at least two years, each zero or more, and year 1 must equal the contract's ARR | All except churn |
