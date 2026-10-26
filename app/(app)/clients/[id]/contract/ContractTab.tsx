@@ -401,9 +401,9 @@ function Summary({ label, value, hint, small }: { label: string; value: string; 
 type StatusKey = ContractStatus;
 const STATUS: Record<StatusKey, { label: string; dot: string; chip: string; rule: string }> = {
   onboarding: { label: "Onboarding", dot: "bg-info", chip: "bg-info-bg text-info-fg", rule: "A contract is in force but no launch date has passed yet." },
-  active: { label: "Active", dot: "bg-success", chip: "bg-success-bg text-success-fg", rule: "Launched, and the renewal date is more than 90 days away." },
-  renewal: { label: "Renewal due", dot: "bg-warning", chip: "bg-warning-bg text-warning-fg", rule: "The renewal date is within the next 90 days, or passed in the last 14." },
-  overdue: { label: "Renewal overdue", dot: "bg-danger", chip: "bg-danger-bg text-danger-fg", rule: "The renewal date passed more than 14 days ago and no renewal or churn is recorded." },
+  active: { label: "Active", dot: "bg-success", chip: "bg-success-bg text-success-fg", rule: `Launched, and the renewal date is more than ${RENEWAL_WINDOW} days away.` },
+  renewal: { label: "Renewal due", dot: "bg-warning", chip: "bg-warning-bg text-warning-fg", rule: `The renewal date is within the next ${RENEWAL_WINDOW} days.` },
+  overdue: { label: "Renewal overdue", dot: "bg-danger", chip: "bg-danger-bg text-danger-fg", rule: "The renewal date has passed and no renewal or churn is recorded." },
   churned: { label: "Churned", dot: "bg-neutral-500", chip: "bg-bg-muted text-fg-muted", rule: "A churn record has taken effect." },
 };
 const ORDER: StatusKey[] = ["onboarding", "active", "renewal", "overdue", "churned"];

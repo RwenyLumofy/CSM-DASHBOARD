@@ -16,6 +16,31 @@ limitations · commit.
 
 ---
 
+## 2026-10-25
+
+### Renewals open 120 days out, and are overdue the day after the renewal date
+**Area:** Account status, both the live status (`lib/status.ts`, shown on Today, Clients and the client profile) and the status from contract records (`lib/contracts/status.ts`, shown on the Contract tab and the contract check).
+**Roles affected:** Everyone who sees an account's status. No permissions change.
+**Before:**
+- An account was **Renewal due** when its renewal date was within 90 days.
+- On the Contract tab, it stayed "Renewal due" for 14 days after the date before turning **Renewal overdue**.
+**After:**
+- **Renewal due** starts 120 days before the renewal date, in both places. The live status now imports the window from the contract-records status, so the two can't drift apart.
+- On the Contract tab, **Renewal overdue** starts the day after the renewal date. There is no grace period.
+- Decided 2026-10-25 so the coming Renewals board opens a renewal at the same moment the account's status turns "Renewal due".
+**Migration / data impact:** No schema change. Statuses move on the next recompute (sync, edit or import). Estimated on the local production clone with SQL, not the code:
+- about **8** non-churned accounts move from Active to Renewal due (renewal date 91–120 days out);
+- **1** account on the Contract tab moves from Renewal due to Renewal overdue.
+**Known limitations:**
+- The live status (HubSpot deals) still has no "overdue" state: a past renewal date doesn't count as due there. That is unchanged.
+- The public API's `/api/v1/renewals` still defaults to `within_days=90`. It's a query parameter callers can set, and changing its default would change the API contract.
+- The Clients list's **Overdue** filter (open PR #31) reads `OVERDUE_GRACE`, which is now 0, so it follows the new rule without changes.
+**Verified:** The window and overdue boundaries are tested in `lib/contracts/status.test.ts` and `lib/status.test.ts`. The suite passes and `tsc --noEmit` is clean. **Not verified:** no browser check, because there's no Clerk session locally.
+**Commit:** branch `feat/renewal-window-120-days`, off `main`.
+**Docs:** [contract records §4 and §8.2](../specs/revenue/contract-records-specification.md#4-status) · [Clients → status](../product/clients/README.md).
+
+---
+
 ## 2026-10-22
 
 ### The completeness badge now asks what the account knows, not what one deal row holds

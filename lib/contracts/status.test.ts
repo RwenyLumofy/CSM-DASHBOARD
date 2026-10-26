@@ -14,12 +14,11 @@ test("onboarding until launch, then active", () => {
   assert.equal(key([], "2025-06-01"), "onboarding");
 });
 
-test("renewal due inside 90 days; overdue only 14 days after the date", () => {
-  assert.equal(key([sale()], "2025-10-02"), "active"); // 91 days out
-  assert.equal(key([sale()], "2025-10-03"), "renewal"); // 90 days out
-  assert.equal(key([sale()], "2026-01-01"), "renewal");
-  assert.equal(key([sale()], "2026-01-15"), "renewal"); // 14 days past
-  assert.equal(key([sale()], "2026-01-16"), "overdue"); // 15 days past
+test("renewal due inside 120 days; overdue the day after the date", () => {
+  assert.equal(key([sale()], "2025-09-02"), "active"); // 121 days out
+  assert.equal(key([sale()], "2025-09-03"), "renewal"); // 120 days out
+  assert.equal(key([sale()], "2026-01-01"), "renewal"); // on the date
+  assert.equal(key([sale()], "2026-01-02"), "overdue"); // 1 day past
 });
 
 test("a renewal recorded ahead settles the coming renewal; once it starts it is the contract in force", () => {
