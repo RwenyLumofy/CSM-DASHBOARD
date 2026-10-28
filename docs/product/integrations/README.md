@@ -106,6 +106,14 @@ middleware for the same reason and gated by `SYNC_SECRET`/`CRON_SECRET` bearer c
   logos triggered `runAssignment`, which no longer exists.)*
 - **Malformed numbers are not silently discarded** (commit `86e5e4f`).
 - `sync_checkpoints` records how far the last run got.
+- **The segment is derived, and no longer decided here alone.** Until 2026-10-28 the sync was
+  the only place an account's Enterprise / Mid-market / SMB band was computed — an inline
+  ternary over HubSpot's `numberofemployees` — and nothing revisited it afterwards. The
+  thresholds now live in [`lib/segment.ts`](../../../lib/segment.ts) and the band is recomputed
+  from the headcount **on the Signal row** whenever an account is materialised, so a CSM's
+  correction carries it. See
+  [Headcount is HubSpot's global company figure](#headcount-is-hubspots-global-company-figure)
+  and [segmentation](../../business-rules/segmentation.md).
 
 ### Which HubSpot deals the sync pulls — and which it no longer does
 
@@ -215,6 +223,40 @@ other new logo, so they get `new_business` ARR events and arrive unowned, counte
   — consistent with the qualification rule, since such a company meets it. Whether this
   catch-up is desired has not been confirmed with the team.
 
+### Headcount is HubSpot's global company figure
+
+**Status:** `Partially verified` (2026-10-28) — the derivation is tested
+([`lib/segment.test.ts`](../../../lib/segment.test.ts)); the sync itself still has no test and
+is verified by reading.
+
+HubSpot's `numberofemployees` is a property of the **company record**, and for a customer that
+is a local entity of an international group that number is the **group's** headcount. Signal
+syncs it into `clients.employees` and derives the account's segment from it — so an account can
+read **Enterprise** on a few tens of thousands of dollars of ARR because its parent employs a
+hundred thousand people somewhere else. One production account reported on 2026-10-28 was
+exactly this: 100,000 employees in HubSpot, **$44,520** of ARR in Signal.
+
+**Signal cannot fix this by itself.** There is one headcount per HubSpot company record, no
+local-entity property is synced, and Signal does not attempt to infer a local figure from ARR,
+country or name. What it can do is let a human correct it and have the band follow.
+
+**What a CSM can do about it — two options, and they differ:**
+
+| Action | Effect |
+|---|---|
+| **Correct the headcount** — the inline *Employees* field on Client Profile → General information, or *Employees* in the *Edit account* drawer | Writes the `clients.employees` column, pins it in `__field_overrides` so the sync never reverts it, **and** recomputes the segment in the same save. The segment stays derived, so a later correction keeps moving it. Both screens behave the same way: the drawer re-posts every core field, so the repository marks a segment as chosen only when the incoming value actually **differs** from the stored one ([R3a](../../business-rules/segmentation.md#r3a--the-segment-is-compared-not-just-received)) |
+| **Set Segment by hand** in the *Edit account* drawer | Pins the segment in `__field_overrides`. It is then **never** recomputed — by this sync, by any account recompute, or by the backfill. This is the right answer when the headcount genuinely does not describe the account |
+
+Neither reaches HubSpot. As everywhere else in Signal, a correction made here is a correction
+*only* here — the group figure stays in HubSpot and will keep arriving on every sync; the
+override is what stops it landing.
+
+**One caution.** The segment is invisible on the Client Profile, so a CSM correcting the
+headcount cannot see the band move — there is no Segment field on any profile tab.
+
+Full rule: [segmentation](../../business-rules/segmentation.md) ·
+[decision 0028](../../decisions/0028-the-segment-follows-the-headcount-unless-a-human-sets-it.md).
+
 ## Weekly client export to Notion
 
 **Status:** Implementation read; the row mapping is unit-tested
@@ -300,6 +342,13 @@ Endpoints, parameters, response fields, errors, paging and examples:
   the usage question's columns. Join key is domain or HubSpot id.
 - **CSAT and NPS are null for every client today**, so the satisfaction health metrics
   contribute nothing while still holding weight.
+- **Headcount is the company's global figure**, so a local entity of an international group
+  arrives mis-banded and needs a human to correct it. Nothing in the product flags an
+  implausible segment. See
+  [Headcount is HubSpot's global company figure](#headcount-is-hubspots-global-company-figure).
+- **An unknown headcount reads as SMB, not as unknown.** 37 accounts in the local production
+  clone have none, so everything that groups by segment counts them as small companies.
+  [segmentation inconsistency 1](../../business-rules/segmentation.md#1-smb-means-small-or-unknown).
 
 ## Permissions
 

@@ -10,6 +10,7 @@ documents link here rather than restating them.
 | Health scoring, tiers, at-risk | [health-scoring.md](health-scoring.md) | Contradictory (two systems) |
 | Churn classification and evidence | [churn.md](churn.md) | Partially verified |
 | Profile completeness and data quality | [profile-completeness.md](profile-completeness.md) | Partially verified |
+| Account segmentation (Enterprise / Mid-market / SMB) | [segmentation.md](segmentation.md) | Partially verified (R1, R2 Verified) |
 | Owner assignment and routing | [assignment.md](assignment.md) | Partially verified |
 | Use-case associations and lifecycle | [use-case-associations.md](use-case-associations.md) | Partially verified |
 | Date filtering and period comparison | [dates-and-periods.md](dates-and-periods.md) | Partially verified |
