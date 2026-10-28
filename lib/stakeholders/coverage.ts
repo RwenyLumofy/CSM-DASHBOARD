@@ -24,6 +24,7 @@ import {
   type StakeholderLink, type StakeholderProfile, type StakeholderRole,
 } from "./profile";
 import { LAST_CONTACT_SOURCE_LABEL, type LastContact } from "./last-contact";
+import { RENEWAL_WINDOW } from "@/lib/contracts/status";
 
 export type CoverageSeverity = "critical" | "warning" | "info";
 
@@ -46,8 +47,9 @@ export const CHAMPION_SILENT_DAYS = 45;
 /** Below this many mapped people, the account is one resignation from having
  *  no relationship at all. */
 export const SINGLE_THREADED_AT = 2;
-/** Procurement matters once a renewal is inside this window. */
-export const PROCUREMENT_LEAD_DAYS = 90;
+/** Procurement matters once a renewal is inside this window: the renewal window
+ *  itself (lib/contracts/status.ts), so this warning and "Renewal due" open together. */
+export const PROCUREMENT_LEAD_DAYS = RENEWAL_WINDOW;
 
 function daysBetween(iso: string | null, today: string): number | null {
   if (!iso) return null;
