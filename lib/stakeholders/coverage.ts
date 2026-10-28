@@ -23,6 +23,7 @@ import {
   CRITICAL_ROLES, ROLE_LABEL, stakeholderName,
   type StakeholderLink, type StakeholderProfile, type StakeholderRole,
 } from "./profile";
+import { LAST_CONTACT_SOURCE_LABEL, type LastContact } from "./last-contact";
 
 export type CoverageSeverity = "critical" | "warning" | "info";
 
@@ -64,9 +65,16 @@ export interface CoverageInput {
   /** ISO date; renewal proximity changes which gaps matter. */
   today: string;
   renewalDate?: string | null;
+  /** Effective last contact per profile id (see last-contact.ts). When
+   *  omitted, only the hand-entered `lastContactedAt` is used. */
+  lastContact?: Record<string, LastContact>;
 }
 
-export function stakeholderCoverage({ profiles, links, today, renewalDate }: CoverageInput): CoverageGap[] {
+/** Meetings can't be attributed to a person, so every last-contact derivation
+ *  says they were left out rather than letting a CSM assume they counted. */
+const MEETINGS_CAVEAT = "Meetings aren't counted because they carry no attendee list.";
+
+export function stakeholderCoverage({ profiles, links, today, renewalDate, lastContact }: CoverageInput): CoverageGap[] {
   const gaps: CoverageGap[] = [];
   // Someone who has left is still worth keeping as a record (history, and to
   // explain why a relationship went cold) but must not count as coverage.
@@ -94,13 +102,18 @@ export function stakeholderCoverage({ profiles, links, today, renewalDate }: Cov
 
   /* ---- champion gone quiet ---------------------------------------- */
   for (const p of active.filter((x) => hasRole(x, "champion"))) {
-    const silent = daysBetween(p.lastContactedAt, today);
-    if (silent == null) {
+    const last = lastContact
+      ? lastContact[p.id] ?? null
+      : p.lastContactedAt ? { date: p.lastContactedAt, source: "manual" as const } : null;
+    const silent = last ? daysBetween(last.date, today) : null;
+    if (last == null || silent == null) {
       gaps.push({
         id: `champion_never_contacted_${p.id}`,
         severity: "warning",
         title: `No recorded contact with ${stakeholderName(p)}`,
-        derivation: "This stakeholder is mapped as Champion but has no last-contacted date, so engagement can't be verified.",
+        derivation: lastContact
+          ? `This stakeholder is mapped as Champion but has no last-contacted date, no synced email to or from ${p.email ?? "their address (none is recorded)"}, and no note mentioning them, so engagement can't be verified. ${MEETINGS_CAVEAT}`
+          : "This stakeholder is mapped as Champion but has no last-contacted date, so engagement can't be verified.",
         stakeholderIds: [p.id],
       });
       continue;
@@ -110,7 +123,8 @@ export function stakeholderCoverage({ profiles, links, today, renewalDate }: Cov
         id: `champion_silent_${p.id}`,
         severity: silent >= CHAMPION_SILENT_DAYS * 2 ? "critical" : "warning",
         title: `${stakeholderName(p)} has not engaged in ${silent} days`,
-        derivation: `Last contact ${p.lastContactedAt}, which is ${silent} days ago; the threshold for a Champion is ${CHAMPION_SILENT_DAYS} days.`,
+        derivation: `Last contact ${last.date} (${LAST_CONTACT_SOURCE_LABEL[last.source]}), which is ${silent} days ago; the threshold for a Champion is ${CHAMPION_SILENT_DAYS} days.`
+          + (lastContact ? ` Uses the latest of the hand-entered date, synced emails and note mentions. ${MEETINGS_CAVEAT}` : ""),
         stakeholderIds: [p.id],
       });
     }

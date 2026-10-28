@@ -230,6 +230,10 @@ export function ClientProfileTabs(props: Props) {
     [stakeholderProfiles],
   );
 
+  /* What moves a stakeholder's last contact beyond the hand-entered date.
+     Notes are the newest 200 the page loads — far more than any account has. */
+  const stakeholderActivity = useMemo(() => ({ emails, notes }), [emails, notes]);
+
   const commCount = contacts.length + emails.length + meetings.length;
 
   const TABS: { key: TabKey; label: string; icon: typeof Building2; count?: number }[] = [
@@ -301,6 +305,7 @@ export function ClientProfileTabs(props: Props) {
             initialProfiles={stakeholderProfiles}
             initialLinks={stakeholderLinks}
             contacts={contacts}
+            activity={stakeholderActivity}
             canEdit={canEditClient}
             teamEmails={teamEmails}
             renewalDate={client.renewalDate ?? null}

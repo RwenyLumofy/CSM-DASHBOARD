@@ -48,6 +48,30 @@ stakeholder roles are covered and which are missing. This feeds the Action list'
 `#6a stakeholders` signal ("no stakeholders identified in the mapping") and the health
 metric `stakeholder_mapping` (binary 100/0).
 
+### Last contact
+
+`lib/stakeholders/last-contact.ts` — **tested** (`last-contact.test.ts`). A stakeholder's
+**effective last contact** is the latest of:
+
+| Source | How it matches | Date used |
+|---|---|---|
+| **Entered by hand** — the drawer's *Last contacted* field (`lastContactedAt`) | the profile itself | that date |
+| **Email** — `client_emails` on the same account | the stakeholder's email appears as a whole address in `from_email` or anywhere in the `;`-separated `to_email`, case-insensitive | `sent_at` (UTC day); rows with no `sent_at` are skipped |
+| **Note mention** — `client_notes` via `client_note_mentions` | the stakeholder's email is a mentioned address; deleted notes don't count | `occurred_at`, else `created_at` |
+
+**Meetings are not counted.** `client_meetings` has no attendee list, so a meeting can't be
+attributed to one person; the warning text says so.
+
+The same derivation feeds the champion-gone-quiet warning, the **Last contact** column in
+the list (date plus source) and the hint under the drawer's *Last contacted* field. The
+manual date is never overwritten: the drawer still edits only the hand-entered value, and
+when activity is newer the hint says the warning uses the activity date instead. On a tie
+the label is *entered by hand*.
+
+The warning's derivation names the source, e.g. *"Last contact 2026-07-06 (email), which is
+76 days ago; the threshold for a Champion is 45 days."* — Beyon's James Farrell, checked
+against the local clone with today set to 2026-09-20.
+
 ## Business rules
 
 - **Stakeholder types are configuration** — Settings → Properties → Stakeholder types
@@ -66,7 +90,7 @@ read-only. The Stakeholders tab's editability is resolved server-side (`canEditC
 ## Technical implementation
 
 `lib/stakeholders/profile.ts` (329 lines) · `lib/stakeholders/coverage.ts` +
-`coverage.test.ts` · `lib/stakeholders.ts` · `components/clients/stakeholders/` ·
+`coverage.test.ts` · `lib/stakeholders/last-contact.ts` + `last-contact.test.ts` · `lib/stakeholders.ts` · `components/clients/stakeholders/` ·
 `app/(app)/clients/[id]/stakeholder-actions.ts` ·
 `components/settings/StakeholderTypesManager.tsx` · `app/api/admin/stakeholder-config/route.ts`
 
@@ -83,6 +107,13 @@ None.
   left"), no referential integrity to `client_contacts`.
 - Sentiment and influence are self-reported by the CSM with no evidence trail.
 - No history — a profile records the current state only.
+- **Note mentions can't name a client stakeholder yet.** The note composer offers, and the
+  server allows, only Signal users who can see the account, so the note-mention source of
+  *last contact* never fires for an external person today. Emails and the manual date do.
+- **Emails are attributed by address only.** A stakeholder with no email on the profile, or
+  who writes from a different address than the one recorded, gets no email credit.
+- **Meetings don't move last contact** (no attendee list on `client_meetings`).
+- Last contact uses the newest 200 notes the profile page already loads.
 
 ## Open questions
 

@@ -16,6 +16,27 @@ limitations · commit.
 
 ---
 
+## 2026-10-28
+
+### A stakeholder's last contact now follows real emails, not only the date typed by hand
+**Area:** Client Profile → Stakeholders tab (coverage warnings, stakeholder list, Stakeholder drawer). Branch `feat/stakeholder-last-contact-from-activity`, off `main` (`19511e6`).
+**Roles affected:** Everyone who can open a client profile. No permission changes.
+**Before:** The champion-gone-quiet warning read only the *Last contacted* date typed into the Stakeholder drawer. Synced HubSpot emails and Signal notes never moved it, so a champion the team emails weekly could show as silent for months — Beyon's James Farrell showed *"has not engaged in 65 days"*.
+**After:** Each stakeholder's **last contact** is the latest of the hand-entered date, the newest synced email on the account sent from or to their address (case-insensitive, any recipient in the `;`-separated list), and the newest note that @mentions them (by when it happened, else when it was written; deleted notes excluded).
+- The warning names the source: *"Last contact 2026-07-06 (email), which is 76 days ago…"*, and says meetings aren't counted.
+- The stakeholder list gains a **Last contact** column (date and source); the drawer's *Last contacted* field says when newer activity is what the warning uses.
+- The hand-entered date is still stored and edited separately; nothing is written back.
+**Migration / data impact:** None. Derived on read from rows the profile page already loads; no schema change, no backfill.
+**Known limitations:**
+- **Meetings don't count** — `client_meetings` has no attendee list.
+- **Note mentions can't name a client stakeholder yet:** the composer only offers Signal users who can see the account, so that source doesn't fire for external people today.
+- Matching is by email address only; a stakeholder with no email, or writing from another address, gets no email credit.
+- The procurement-ahead-of-renewal warning still uses a 90-day window while the renewal window moves to 120 days (PR #38); left unchanged pending a product decision.
+**Verified:** `lib/stakeholders/last-contact.test.ts` (email case and multi-recipient matching, partial-address non-match, note mentions incl. deleted and date fallback, max with the manual date and tie-break, coverage derivation text). `npm test` and `npm run typecheck` pass. Rendered the real Stakeholders tab locally against Beyon's clone data: James Farrell 2026-07-06 (email, 45 matching emails), Marwa Badow 2026-07-26 (email, 74), drawer hint shown, no console errors. **Not verified:** the local clone's activity stops on 2026-07-28 and holds no note mentions at all, so October's activity and the note path were checked only by tests; the stakeholders carry no hand-entered date locally, so the "65 days" production state was reproduced only by test.
+**Commit:** see PR.
+
+---
+
 ## 2026-10-22
 
 ### The completeness badge now asks what the account knows, not what one deal row holds
