@@ -8,7 +8,36 @@ a document.
 `Deprecated`
 
 **Baseline established:** 2026-07-31 against commit `4214349` (branch `exec-dashboard`).
-**Last change pass:** 2026-10-22 (afternoon) against commit `f8b8d4c` plus the uncommitted
+**Last change pass:** 2026-10-28 against commit `19511e6` plus the uncommitted working-tree
+change on branch `fix/segment-follows-headcount` — **an account's segment now follows its
+headcount**. The thresholds (Enterprise ≥ 250, Mid-market ≥ 50, SMB below) move out of an
+inline ternary in the HubSpot sync into `lib/segment.ts`, and the band is recomputed from the
+headcount on the Signal row by the sync, by every account recompute and by an inline *Employees*
+edit — unless a human set the segment, which pins it permanently as the escape hatch for a local
+entity whose HubSpot record carries the **global** company's headcount. Covering that change
+only. **Account segmentation had no documentation at all before this pass**; new business rule
+[segmentation](business-rules/segmentation.md) is the first, with R1 and R2 `Verified` by
+account segmentation's first 5 tests. New decision record **0028**.
+
+The pass **opened a contradiction and then documented its fix the same day.** It found that the
+*Edit account* drawer re-posts every core field on save, so correcting a headcount *there* did
+not move the segment **and** marked the segment as a manual override — switching the derivation
+off for that account permanently, whether or not anyone chose a band. Two follow-up changes
+landed in response: the segment is now **compared, not just received** (new **R3a** — an
+incoming segment counts as a choice only when it differs from the stored value), which makes
+both editors behave alike and retires the contradiction as **RESOLVED**; and the 250/50 ladder
+was folded into one definition, so CSV import, churn import and sample data are now aliases of
+`segmentForHeadcount`. **R3a itself has no test** and is verified by reading plus a manual clone
+run reported by the implementer.
+
+Three things the change still does not fix, all recorded: *SMB* means "small **or** unknown"
+(37 clone accounts have no headcount, now pinned by test); a local entity still needs a human
+and nothing prompts one; and **spurious `segment` overrides already written by past drawer saves
+are not cleared** — those accounts remain exempt from the derivation and from the backfill, so a
+clean backfill report does not prove every band is right, and finding them needs a production
+read that could not be run. The comparison was also deliberately not extended to the other core
+fields, which stay marked whether or not they changed.
+**Previous change pass:** 2026-10-22 (afternoon) against commit `f8b8d4c` plus the uncommitted
 working-tree change on branch `fix/completeness-reads-the-sale` — **the completeness badge now
 asks what the account knows, not what one deal row holds**. A per-deal field is missing only
 when **no** deal on the account holds it (every deal, tracked or not), replacing both the
@@ -22,7 +51,7 @@ holds them rather than being purely per-record. One contradiction it opened — 
 still stating the rule the change removed, plus two stale field comments — was **fixed in code
 the same day** and is retired as RESOLVED; the `legacyFallback` branch being unreachable is now
 stated in the file itself. New decision record **0027**; **0026 point 3 is superseded**.
-**Previous change pass:** 2026-10-22 (morning) against commit `b5d3401` plus an uncommitted
+**Earlier change pass:** 2026-10-22 (morning) against commit `b5d3401` plus an uncommitted
 working-tree change on branch `feat/hubspot-sales-only` — **HubSpot now gives Signal the Closed
 Won sale and nothing else**; renewals, expansions, downgrades and churn are recorded in Signal,
 and profile completeness judged an account's tracked **sales** (falling back to all its tracked
@@ -73,8 +102,8 @@ implication — it simply has not been read again. Only rows the change touched 
 | Product area | Route | Document | Status | Last verified | Commit | Known gaps | Owner |
 |---|---|---|---|---|---|---|---|
 | Today | `/today` | [product/today](product/today/README.md) | Partially verified | 2026-07-31 | `4214349` | Priority ranking function not read end to end; commitments are mock-backed. One Permissions bullet (changing an existing task) amended 2026-09-13 at `4621fc8` + working tree; nothing else re-read | Unassigned |
-| Clients | `/clients` | [product/clients](product/clients/README.md) | Partially verified | 2026-07-31 | `4214349` | `ClientsTable` filter/sort behaviour not traced | Unassigned |
-| Client Profile | `/clients/[id]` | [product/client-profile](product/client-profile/README.md) | Partially verified | 2026-07-31 (Contracts & deals card: 2026-10-22) | `4214349` (card: `b5d3401` + working-tree change) | Per-tab workflows not individually documented. Only the Tech stack section was re-verified at `d45a6cd`. The Contracts & deals card's CS-pipeline tabs were revised 2026-10-22: **history only** — no new rows arrive from HubSpot, the rows that are there still count in ARR, and the tracked checkbox is still the only way to take a superseded deal out. The card's own code was not changed and was not re-read | Unassigned |
+| Clients | `/clients` | [product/clients](product/clients/README.md) | Partially verified | 2026-07-31 (segment: 2026-10-28) | `4214349` (segment: `19511e6` + working-tree change) | `ClientsTable` filter/sort behaviour not traced. **Segment added 2026-10-28** — it is a CSV-export column and an *Edit account* drawer field, and **not a column in the table**, so an account's band cannot be read from the directory ([segmentation](business-rules/segmentation.md)). Only the segment-related parts of this document were re-verified in that pass | Unassigned |
+| Client Profile | `/clients/[id]` | [product/client-profile](product/client-profile/README.md) | Partially verified | 2026-07-31 (Contracts & deals card: 2026-10-22) | `4214349` (card: `b5d3401` + working-tree change) | Per-tab workflows not individually documented. Only the Tech stack section was re-verified at `d45a6cd`. The Contracts & deals card's CS-pipeline tabs were revised 2026-10-22: **history only** — no new rows arrive from HubSpot, the rows that are there still count in ARR, and the tracked checkbox is still the only way to take a superseded deal out. The card's own code was not changed and was not re-read. **General information → *Employees* documented 2026-10-28** at `19511e6` + working tree: the inline edit writes the client column, pins it against the sync and now recomputes the account's segment in the same save ([segmentation](business-rules/segmentation.md), [decision 0028](decisions/0028-the-segment-follows-the-headcount-unless-a-human-sets-it.md)). The segment itself appears on **no** profile tab, and the inline editor does not revalidate the route. Nothing else on the page was re-verified in that pass | Unassigned |
 | Client Profile → Tech stack | `/clients/[id]` → General information · configured at `/settings?tab=properties` | [product/client-profile/tech-stack](product/client-profile/tech-stack.md) | Partially verified | 2026-09-10 | `22d85a8` + working-tree change | No test covers the module, the component, the write path **or** the new configuration code (`normalizeTechStackCategories`, `techStackKeyFor`, the Settings manager, the config route). Configurable categories re-verified 2026-09-10 in the dev preview, including key stability across a rename; the chip-entry workflows and states were not re-read in this pass. Nothing surfaces tools orphaned by a removed category | Unassigned |
 | Client Profile → Contract tab | `/clients/[id]` → General information (embedded) · `/clients/[id]/contract` | [product/client-profile § Contract tab](product/client-profile/README.md#contract-tab-preview) + [specs/revenue/contract-records-specification](specs/revenue/contract-records-specification.md) | Partially verified | 2026-10-18 | `9befb8a` + working-tree change | Only the **Global library** field was re-verified in this pass. Tested: `lib/contracts/chip-input.test.ts` (6), plus the pre-existing `validate.test.ts`, `view.test.ts`, `status.test.ts`, `live.test.ts`, `compare.test.ts`, `import.test.ts`. **No test covers any component on this tab** — the chip field's keyboard and blur handling, the Record drawer's copy of it and the save path have no test (both were hand-checked in a dev server on 2026-10-18), and the read/write gates have no test. The suggested provider list is hardcoded and drifts from HubSpot; the deal-card fallback list is ignored once synced options exist, contradicting the union claim still in its module header (see [contradictions](known-limitations/contradictions.md#three-vocabularies-for-a-global-library-provider)). The rest of the tab was last verified 2026-10-13 | Unassigned |
 | Client Profile → Account Tasks | `/clients/[id]` → Tasks button | [product/client-profile/account-tasks](product/client-profile/account-tasks.md) | Partially verified | 2026-09-13 | `4621fc8` + working-tree change | Tested: `lib/task-due.ts` (6) and `lib/task-activity.ts` (9) — due-date arithmetic and which changes produce history. Repository writers checked by hand against the test database, not repo-reproducible. Server actions, the account and owner gates, the transactional write, notifications and the components are untested and were not run against a signed-in session. Task history section added; comments in the thread (`TaskUpdates`) are referenced, not documented. Title/notes/priority/focus-area edits still leave no history; Guests cannot read threads (differs from spec `FR-011`) | Unassigned |
@@ -87,7 +116,7 @@ implication — it simply has not been read again. Only rows the change touched 
 | Stakeholders | profile tab | [product/stakeholders](product/stakeholders/README.md) | Partially verified | 2026-07-31 | `4214349` | Profile field list not enumerated | Unassigned |
 | Project Management | profile tab | [product/projects](product/projects/README.md) | Partially verified | 2026-07-31 | `4214349` | Milestone/task field lists not enumerated | Unassigned |
 | Settings | `/settings` | [product/settings](product/settings/README.md) | Partially verified | 2026-07-31 (Tech stack categories section: 2026-09-10) | `4214349` (Tech stack categories: `22d85a8` + working-tree change) | Per-manager behaviour not documented individually. Only the Properties tab's Tech stack categories section, the `workspace_config` key table and the shared `stakeholder-config` route gate were re-verified on 2026-09-10 | Unassigned |
-| Integrations & sync | `/settings?tab=integrations` | [product/integrations](product/integrations/README.md) | Partially verified | 2026-07-31 (deal scope: 2026-10-22) | `4214349` (deal scope: `b5d3401` + working-tree change) | Per-integration field mapping not documented. HubSpot account-discovery section re-verified 2026-09-21 against uncommitted changes on `580e0b7`; the read-API section and its cross-references added 2026-10-18 at `9befb8a` + working tree. **Which HubSpot deals the sync pulls** added 2026-10-22 on `feat/hubspot-sales-only`: Closed Won sales only, CS pipeline dropped. **The sync has no test** — read end to end, verified indirectly through `lib/profile-completeness.test.ts`. The rest of the document was not re-verified in any of these passes | Unassigned |
+| Integrations & sync | `/settings?tab=integrations` | [product/integrations](product/integrations/README.md) | Partially verified | 2026-07-31 (deal scope: 2026-10-22) | `4214349` (deal scope: `b5d3401` + working-tree change) | Per-integration field mapping not documented. HubSpot account-discovery section re-verified 2026-09-21 against uncommitted changes on `580e0b7`; the read-API section and its cross-references added 2026-10-18 at `9befb8a` + working tree. **Which HubSpot deals the sync pulls** added 2026-10-22 on `feat/hubspot-sales-only`: Closed Won sales only, CS pipeline dropped. **The sync has no test** — read end to end, verified indirectly through `lib/profile-completeness.test.ts` and, since 2026-10-28, through `lib/segment.test.ts`. **Headcount is HubSpot's global company figure** added 2026-10-28 at `19511e6` + working tree: the segment derivation moved out of the sync into `lib/segment.ts`, the section states what a CSM can do about a local entity carrying a group headcount, and two new data caveats were recorded. The rest of the document was not re-verified in any of these passes | Unassigned |
 | Integrations → Signal API (v1) | `/api/v1/*` · keys at `/settings?tab=integrations` | [product/integrations/api-v1](product/integrations/api-v1.md) | Partially verified | 2026-10-18 | `9befb8a` + working-tree change (`feat/public-api-v1`) | Pure helpers `Verified` by `lib/api/api.test.ts` (9 tests). Route handlers, key lookup/revocation, `last_used_at` and the Settings section have no automated test — verified by reading plus a manual run on the test DB reported by the implementer; not run on Vercel. Settings section not seen rendered by the documenter | Unassigned |
 | Import | `/import` | [product/import](product/import/README.md) | Partially verified | 2026-07-31 | `4214349` | Full column list not enumerated | Unassigned |
 | Playbooks | `/playbooks` | [product/playbooks](product/playbooks/README.md) | **Deprecated** — verified non-functional | 2026-07-31 | `4214349` | — | Unassigned |
@@ -121,6 +150,7 @@ implication — it simply has not been read again. Only rows the change touched 
 | ARR, revenue movement, retention | [arr-and-revenue-movement](business-rules/arr-and-revenue-movement.md) | Partially verified | 2026-07-31 (R1a: 2026-10-22) | `4214349` (R1a: `b5d3401` + working-tree change) | No tests; "renewal requiring attention" untraced. **R1a added 2026-10-22** after reading `recomputeClientBody`: the figure stored on a client row is tracked deals + non-HubSpot events, which is **not** the ledger balance R1 describes — two coexisting formulas, nothing reconciles them (inconsistency 6), and leftover CS-pipeline deals still count. Also records that nothing raises ARR on a renewal any more (inconsistency 7). Only R1a was verified in that pass; R2–R10 were not re-read |
 | Health scoring, at-risk | [health-scoring](business-rules/health-scoring.md) | **Contradictory** | 2026-07-31 | `4214349` | Two systems; at-risk definition unresolved |
 | Churn | [churn](business-rules/churn.md) | Partially verified | 2026-07-31 | `4214349` | Full default taxonomy not enumerated |
+| Account segmentation | [segmentation](business-rules/segmentation.md) | Partially verified (**R1, R2 `Verified`**) | 2026-10-28 | `19511e6` + working-tree change | **First documentation of this rule family** — before 2026-10-28 the thresholds lived in an inline ternary in the HubSpot sync and nothing described them. R1 (the 250/50 ladder, both boundaries) and R2 (the band follows the headcount unless a human set it) are `Verified` by [`lib/segment.test.ts`](../lib/segment.test.ts), 5 tests. R3 (the write paths), **R3a (the segment is compared, not just received)**, R4 (the `canEditClient` gate), R5 (the consumers) and R6 (segment vs account tier) are read-only-verified and **untested**; no write path has been exercised in a browser and the backfill script has no test. R3a is the highest-value test gap — it is what makes an *Edit account* drawer save safe, and it rests on reading plus a manual clone run reported by the implementer. Four inconsistencies recorded: *SMB* means small **or** unknown (37 clone accounts have no headcount, pinned by test); every core field **other than** `segment` is still marked whether or not it changed, and spurious `segment` marks already in the data still exempt those accounts from the rule and from the backfill (the contradiction that opened this is [RESOLVED](known-limitations/contradictions.md#correcting-a-headcount-moves-the-segment-on-one-screen-and-pins-it-on-the-other--resolved); the residue is not); the ladder has one definition but only one caller consults `nextSegment`; and the rule only applies when something recomputes the account. Production was not read — the 3 corrected accounts, the 37 and the clone run all come from the dated clone |
 | Profile completeness | [profile-completeness](business-rules/profile-completeness.md) | Partially verified (**R2 `Verified`**) | 2026-07-31 (R2 and R3's refinements: 2026-10-22) | `4214349` (R2: `f8b8d4c` + working-tree change) | Full field list not enumerated. **R2 — the scope rule — is the only `Verified` rule here**: `lib/profile-completeness.test.ts`, 7 tests, the module's first. Rewritten twice on 2026-10-22: the morning's **R2a** (tracked sales, with a fallback; PR #35) is kept as a superseded section, and R2 now reads **every** deal on the account, a field missing only when none holds it ([decision 0027](decisions/0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md)). The tests cover R2 only — the field lists (R3), the severity gate (R1), `requiredWhen`, `legacyFallback` and every downstream consumer (R4, R5) remain untested. Completeness reads deals and never contract records (inconsistency 5); the badge and the Contract tab's *Account setup* checklist disagree by design (inconsistency 6) |
 | Assignment and routing | [assignment](business-rules/assignment.md) | **Stale** | 2026-07-31 | `4214349` | No tests. **No `lib/assignment/` directory exists at `d0d2362`** — every path the document cites under it is gone (11 of `docs-check`'s errors). Whether the engine moved, was removed or was never merged was not investigated; the rules were not re-read. A note added 2026-10-04 flags this and points candidate eligibility at R6b. Needs an audit, not a patch |
 | Use-case associations | [use-case-associations](business-rules/use-case-associations.md) | Partially verified | 2026-07-31 | `15329e3` | Two taxonomies unresolved. **R2, R2a and R7a are now `Verified`** (tested); R1's four invariants and every server action remain untested |
@@ -152,6 +182,7 @@ implication — it simply has not been read again. Only rows the change touched 
 | [0025](decisions/0025-a-read-only-integration-api-with-hashed-keys-and-stable-shapes.md) | Read-only integration API; hashed keys issued by super admins; unscoped read; stable public shapes | Accepted |
 | [0026](decisions/0026-hubspot-owns-the-closed-won-sale-signal-owns-every-movement-after-it.md) | HubSpot owns the Closed Won sale; Signal owns every movement after it; already-synced CS deals deliberately untouched | Accepted; **point 3 (completeness judges tracked sales) superseded by 0027 the same day** |
 | [0027](decisions/0027-a-completeness-gap-belongs-to-the-account-not-to-a-deal-row.md) | A completeness gap belongs to the account, not to a deal row — every deal is read, and a field is missing only when none holds it | Accepted; supersedes 0026 point 3 and the 2026-07-05 scope rule |
+| [0028](decisions/0028-the-segment-follows-the-headcount-unless-a-human-sets-it.md) | The segment follows the headcount, unless a human sets it — the thresholds get one definition, and a hand-set segment is never recomputed | Accepted; first record covering segmentation |
 
 ## Pre-existing documents retained
 
@@ -166,7 +197,7 @@ implication — it simply has not been read again. Only rows the change touched 
 ## Coverage summary
 
 - **16 product areas documented** (plus two Client Profile sub-features: Tech stack, Account Tasks), 6 `Missing`.
-- **9 business-rule families documented**, 4 `Missing`, 1 (`assignment`) now **`Stale`** —
+- **10 business-rule families documented**, 4 `Missing`, 1 (`assignment`) now **`Stale`** —
   the code it documents is not in the tree. Three individual rules
   (use-case-associations R2, R2a, R7a) reached `Verified` on 2026-07-31 — the first rules in
   Signal pinned by tests written specifically for the invariant rather than for the module.
@@ -174,11 +205,17 @@ implication — it simply has not been read again. Only rows the change touched 
   2026-10-04** — and is the first *permission* rule in the product with a test behind it.
   Its answer is "everyone except a guest". A fifth, **profile completeness R2 (which deals
   answer for an account), reached `Verified` on 2026-10-22** — rewritten twice that day, with
-  its superseded first version kept beside it as R2a.
-- **17 decision records on disk** — 13 indexed (`0027` added 2026-10-22), plus four earlier
+  its superseded first version kept beside it as R2a. **Account segmentation was added
+  2026-10-28 as the tenth family** and brought two more: **R1 (the 250/50 ladder)** and
+  **R2 (the band follows the headcount unless a human set it)**, pinned by that module's
+  first 5 tests. Seven `Verified` rules in all; every other rule in every family is still
+  read-only-verified.
+- **21 decision records on disk** — 17 indexed (`0028` added 2026-10-28), plus four earlier
   records (`0018`, `0020`–`0022`) the index does not list. See
   [decisions/README](decisions/README.md). One record is **partly superseded**: `0026` point 3,
-  by `0027`, the same day.
+  by `0027`, the same day. *(Both counts were corrected on 2026-10-28: this line had read "17 on
+  disk — 13 indexed", which was stale by three records. Counted directly from
+  `docs/decisions/`.)*
 - **1 area verified non-functional** and documented as such.
 - **Zero product areas at `Verified`** except `PRODUCT_MAP` and `contradictions` — a direct
   consequence of a test suite that barely touches a server action, a page, or a permission

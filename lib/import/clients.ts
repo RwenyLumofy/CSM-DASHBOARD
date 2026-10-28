@@ -21,6 +21,7 @@ import type {
   SupportSummary,
   UsageMetrics,
 } from "@/lib/types";
+import { segmentForHeadcount } from "@/lib/segment";
 
 /* ------------------------------------------------------------- columns */
 
@@ -551,12 +552,8 @@ function parseTags(v: unknown): string[] {
 
 /* ------------------------------------------------------------- helpers */
 
-function segmentFor(employees: number | null): Client["segment"] {
-  if (!employees) return "smb";
-  if (employees >= 250) return "enterprise";
-  if (employees >= 50) return "mid_market";
-  return "smb";
-}
+/** One ladder for the whole repo — see lib/segment.ts. */
+const segmentFor = segmentForHeadcount;
 
 function addYear(ymd: string): string {
   const d = new Date(`${ymd}T00:00:00.000Z`);

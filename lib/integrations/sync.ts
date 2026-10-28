@@ -21,6 +21,7 @@ import { HubSpotClient, deriveReferralSource, normalizeChannelValue, type Hubspo
 import { MetabaseClient } from "@/lib/integrations/metabase";
 import { arrAsOf, deriveClientArr, periodBounds, currentQuarter, withRunningBalance } from "@/lib/metrics/arr";
 import { env, integrations, hasDatabase } from "@/lib/config";
+import { segmentForHeadcount } from "@/lib/segment";
 
 export interface SyncResult {
   ok: boolean;
@@ -521,7 +522,7 @@ function assembleClient(
     startedAt: derived.startedAt ?? co.startedAt,
     renewalDate,
     churnedAt: derived.churnedAt,
-    segment: co.employees != null && co.employees >= 250 ? "enterprise" : co.employees != null && co.employees >= 50 ? "mid_market" : "smb",
+    segment: segmentForHeadcount(co.employees),
     logoUrl: null,
     hubspotUrl: co.id ? `https://app.hubspot.com/contacts/${process.env.HUBSPOT_PORTAL_ID ?? ""}/record/0-2/${co.id}` : undefined,
     health,

@@ -15,6 +15,7 @@ import type {
 } from "@/lib/types";
 import { csmById } from "@/lib/sample/csms";
 import { arrAsOf, currentQuarter, deriveClientArr, periodBounds, withRunningBalance } from "@/lib/metrics/arr";
+import { segmentForHeadcount } from "@/lib/segment";
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -28,13 +29,8 @@ function initialsFor(name: string): string {
   return chars.slice(0, 2).join("");
 }
 
-function segmentFor(employees: number | null): Client["segment"] {
-  if (!employees) return "smb";
-  if (employees >= 250) return "enterprise";
-  if (employees >= 50) return "mid_market";
-  return "smb";
-}
-
+/** One ladder for the whole repo — see lib/segment.ts. */
+const segmentFor = segmentForHeadcount;
 interface Seed {
   id: string;
   name: string;

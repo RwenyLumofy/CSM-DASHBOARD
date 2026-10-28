@@ -30,6 +30,7 @@ import { persistChurnedImport } from "@/lib/repo/drizzle";
 import type { ArrEvent, Client, Deal } from "@/lib/types";
 import { STATUS_OVERRIDE_KEY } from "@/lib/status";
 import { emptyHealth, emptySupport, emptyUsage } from "@/lib/import/clients";
+import { segmentForHeadcount } from "@/lib/segment";
 
 export interface ChurnImportResult {
   companies: number;
@@ -48,11 +49,8 @@ function shiftYears(ymd: string, years: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function segmentOf(employees: number | null): Client["segment"] {
-  if (employees != null && employees >= 250) return "enterprise";
-  if (employees != null && employees >= 50) return "mid_market";
-  return "smb";
-}
+/** One ladder for the whole repo — see lib/segment.ts. */
+const segmentOf = segmentForHeadcount;
 
 function buildChurnedClient(co: HubspotCompany): Client {
   const portal = process.env.HUBSPOT_PORTAL_ID ?? "";

@@ -356,6 +356,51 @@ counts as present *"for every tracked deal"*.
 
 ---
 
+## ~~Correcting a headcount moves the segment on one screen and pins it on the other~~ — RESOLVED
+
+**Resolved in code on 2026-10-28, the same day it was opened**, by comparing the segment at the
+repository instead of trusting what the caller sent. Recorded here because the shape of the
+conflict is worth keeping, and because one part of it survives as a limitation.
+
+**What the conflict was.** An account's segment follows its headcount
+([segmentation R2](../business-rules/segmentation.md#r2--the-segment-follows-the-headcount-unless-a-human-set-the-segment),
+[decision 0028](../decisions/0028-the-segment-follows-the-headcount-unless-a-human-sets-it.md))
+**unless a human has set it**, which was recorded by `segment` appearing in the account's
+`__field_overrides`. Two screens edited the same two fields and disagreed about what that meant.
+The inline *Employees* field on Client Profile → General information
+(`components/clients/ClientProfileTabs.tsx` → `EditableField`) sends that one field, so the
+derivation ran. The **Edit account** drawer (`components/clients/ClientEditDrawer.tsx`) posts
+every core field on every save, `segment` always among them, so the derivation was skipped
+**and** the segment was marked as a human's choice — switching the rule off for that account
+permanently, whether or not anyone had opened the Segment select. The flag `nextSegment` and
+`scripts/apply-segment-recompute.mts` read as *"a human chose this"* was being written by a save
+in which nobody had chosen anything.
+
+**How it was fixed.** `updateClientFields` (`lib/repo/drizzle.ts`) now reads the stored segment
+and treats an incoming one as a choice **only when it actually differs**. A drawer save
+re-posting the current value is not a choice: the field is not marked, and when `employees` is
+present the derivation runs instead. The two screens now behave identically —
+[segmentation R3a](../business-rules/segmentation.md#r3a--the-segment-is-compared-not-just-received).
+Verified by reading, and reported as exercised against the local production clone with the
+drawer's exact payload shape (100,000 → 120 employees moved the band; setting Segment explicitly
+then pinned it; a later headcount correction left the pinned value alone). **No test covers it.**
+
+**What survives as a limitation, not a contradiction.** The comparison stops *new* spurious
+marks; it does not remove the ones already written by drawer saves made before it existed. Those
+accounts are still read as deliberate choices and are still excluded from the derivation and
+from the backfill. Finding them needs a read of `clients.properties->'__field_overrides'` across
+the book, which has not been run. Separately, every **other** core field is still marked whether
+or not it changed — deliberately, because for those the mark only protects the column from the
+sync. Both are recorded at
+[segmentation inconsistency 2](../business-rules/segmentation.md#2-every-other-core-field-is-still-marked-whether-or-not-it-changed)
+and in [known limitations](README.md).
+
+**Files:** `lib/repo/drizzle.ts` → `updateClientFields` · `components/clients/ClientEditDrawer.tsx`
+· `components/clients/ClientProfileTabs.tsx` · `lib/segment.ts` · `lib/client-overrides.ts` ·
+`scripts/apply-segment-recompute.mts`. Opened and resolved 2026-10-28.
+
+---
+
 ## How to add to this file
 
 Only add a genuine conflict — two implementations, or an implementation that contradicts
