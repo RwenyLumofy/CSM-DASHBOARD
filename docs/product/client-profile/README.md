@@ -114,6 +114,43 @@ Deal fields and deal dates are fixed and listed in
 *overrides* and applied on read (`lib/deal-overrides.ts`). The stored HubSpot value is
 preserved.
 
+#### *Employees* on General information — and the segment that follows it
+
+**Status:** `Partially verified` (2026-10-28) — the derivation is tested
+([`lib/segment.test.ts`](../../../lib/segment.test.ts), 5 tests); the write path is read-only
+verified and has not been exercised in a browser.
+
+*Employees* is a **client-level column**, not a deal field, and it is edited inline on this tab
+(`components/clients/ClientProfileTabs.tsx` → `EditableField`, `target={{ core: "employees" }}`).
+Unlike a deal field it writes the `clients.employees` column directly and pins it in
+`__field_overrides`, so the HubSpot sync never reverts it
+([`lib/client-overrides.ts`](../../../lib/client-overrides.ts)).
+
+**Since 2026-10-28, correcting it also moves the account's segment.** The inline editor sends
+that one field, which is the condition `updateClientFields` requires, so the derived segment
+(Enterprise ≥ 250 · Mid-market ≥ 50 · SMB below) is recomputed and written in the **same save**
+rather than waiting for the next sync. The derived segment is deliberately *not* marked as an
+override, so a later correction keeps moving it. A segment someone set **by hand** is never
+recomputed — that is the escape hatch for an account whose HubSpot record carries a global
+company's headcount rather than the local entity's. Full rule:
+[segmentation](../../business-rules/segmentation.md) ·
+[decision 0028](../../decisions/0028-the-segment-follows-the-headcount-unless-a-human-sets-it.md).
+
+**Two cautions, both verified by reading:**
+
+- **The segment is not displayed on this page.** There is no Segment field on any Client
+  Profile tab, so a CSM correcting the headcount cannot see the band move. It is visible in the
+  **Edit account** drawer, the directory's CSV export, the Notion export and the API.
+- **The Edit account drawer now behaves the same way**, though by a different route: it
+  re-posts every core field on save, so the repository marks the segment as a human's choice
+  only when the incoming value **differs** from the stored one, and otherwise derives it from the
+  headcount in that save
+  ([segmentation R3a](../../business-rules/segmentation.md#r3a--the-segment-is-compared-not-just-received)).
+  The two screens agreed only from later on 2026-10-28; see
+  [contradictions — RESOLVED](../../known-limitations/contradictions.md#correcting-a-headcount-moves-the-segment-on-one-screen-and-pins-it-on-the-other--resolved).
+- The inline editor is optimistic and does **not** revalidate the route on success, so even a
+  field that *is* rendered elsewhere on the page will not refresh until the next navigation.
+
 ### Contracts & deals card
 
 **Status:** Verified (implementation read; Expansion tab also checked locally on the test DB,
@@ -320,6 +357,8 @@ An account can show a green badge beside an incomplete checklist, or the reverse
 - **Atomic JSONB merge.** Product state in `clients.properties` is written with
   `properties || patch`, never a whole-object replace.
 - **Not-found and not-permitted are indistinguishable** by design.
+- **A corrected headcount moves the account's segment** in the same save, unless a human set
+  the segment by hand. See [segmentation](../../business-rules/segmentation.md).
 
 ## Permissions
 
@@ -394,7 +433,11 @@ definitions · project config · property definitions · churn taxonomy.
 - `clients.properties` is untyped JSONB; a malformed patch is only caught by each module's
   own normaliser.
 - There is no audit trail on most profile edits. `health_audit_logs` exists in the health
-  schema but the live health path does not write to it.
+  schema but the live health path does not write to it. **A segment change is one of these** —
+  since 2026-10-28 a recompute can change an account's band during an unrelated save, with no
+  record of what it was or why it moved.
+- **The segment appears on no Client Profile tab**, so the band this page's *Employees* field
+  now determines cannot be read from the account it belongs to.
 
 ## Open questions
 

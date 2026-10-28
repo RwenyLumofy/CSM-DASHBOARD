@@ -32,6 +32,7 @@ import { overrideExpiry, type ContractStatus } from "@/lib/contracts/status";
 import { getClientHealthConfig } from "@/lib/metrics/health-config-store";
 import { computeOnboardingPeriod } from "@/lib/metrics/onboarding";
 import { computeProfileCompleteness } from "@/lib/profile-completeness";
+import { nextSegment, segmentWriteFor } from "@/lib/segment";
 import { activityFor, encodeActivity, type TaskActivity } from "@/lib/task-activity";
 import { normalizeStakeholderProfiles, PROFILES_KEY } from "@/lib/stakeholders/profile";
 import type { UsageMonthRow, UsageSnapshot, UsageSnapshotRecord } from "@/lib/usage/types";
@@ -648,7 +649,7 @@ export async function recomputeClient(clientId: string): Promise<void> {
 async function recomputeClientBody(clientId: string): Promise<void> {
   const db = getDb();
   const [clientRow] = await db
-    .select({ properties: schema.clients.properties })
+    .select({ properties: schema.clients.properties, employees: schema.clients.employees, segment: schema.clients.segment })
     .from(schema.clients)
     .where(eq(schema.clients.id, clientId));
   const props = clientRow?.properties as Record<string, unknown> | undefined;
@@ -705,6 +706,17 @@ async function recomputeClientBody(clientId: string): Promise<void> {
     renewalDate.setUTCFullYear(renewalDate.getUTCFullYear() + 1);
   }
 
+  // Segment follows the headcount ON THE ROW — which is the CSM's corrected
+  // number once they have set one, because an override writes the column
+  // itself. Skipped when a human set the segment deliberately, and omitted
+  // from the UPDATE when it already agrees. See lib/segment.ts.
+  const segment = nextSegment(
+    clientRow?.employees,
+    fieldOverridesSet(props).has("segment"),
+    clientRow?.segment as import("@/lib/types").Client["segment"] | null,
+  );
+  const segmentSet = segment ? { segment } : {};
+
   const launchDateByDealId = Object.fromEntries(
     Object.entries(dealDates).map(([dealId, dates]) => [dealId, dates?.launch_date]),
   );
@@ -721,6 +733,7 @@ async function recomputeClientBody(clientId: string): Promise<void> {
       .set({
         arr: fromRecords.arr, previousArr: fromRecords.previousArr, status: fromRecords.status,
         renewalDate: fromRecords.renewalDate ? new Date(`${fromRecords.renewalDate}T00:00:00Z`) : null, updatedAt: new Date(),
+        ...segmentSet,
       })
       .where(eq(schema.clients.id, clientId));
     return;
@@ -728,7 +741,7 @@ async function recomputeClientBody(clientId: string): Promise<void> {
 
   await db
     .update(schema.clients)
-    .set({ arr, previousArr, renewalDate, status, updatedAt: new Date() })
+    .set({ arr, previousArr, renewalDate, status, updatedAt: new Date(), ...segmentSet })
     .where(eq(schema.clients.id, clientId));
 }
 
@@ -1473,7 +1486,6 @@ export async function updateClientFields(clientId: string, fields: ClientFieldUp
   if (fields.industry !== undefined) { set.industry = fields.industry || null; touched.push("industry"); }
   if (fields.country !== undefined) { set.country = fields.country || null; touched.push("country"); }
   if (fields.employees !== undefined) { set.employees = fields.employees; touched.push("employees"); }
-  if (fields.segment !== undefined) { set.segment = fields.segment; touched.push("segment"); }
   if (fields.status !== undefined) set.status = fields.status;
   if (fields.renewalDate !== undefined) set.renewalDate = fields.renewalDate ? new Date(fields.renewalDate) : null;
   if (fields.startedAt !== undefined) { set.startedAt = fields.startedAt ? new Date(fields.startedAt) : null; touched.push("startedAt"); }
@@ -1483,9 +1495,35 @@ export async function updateClientFields(clientId: string, fields: ClientFieldUp
   // written by the sync/import upserts, which dropOverriddenFields now skips.
   if (fields.churnedAt !== undefined) { set.churnedAt = fields.churnedAt ? new Date(fields.churnedAt) : null; touched.push("churnedAt"); }
 
+  // SEGMENT IS COMPARED, NOT JUST RECEIVED. The Edit account drawer posts every
+  // core field on every save, changed or not, so "the caller sent a segment" is
+  // not evidence that anyone chose one. Marking it overridden on such a save
+  // would freeze the derivation for that account for good — it would stop
+  // following its headcount here, in recomputeClientBody, and in the backfill,
+  // without anybody having touched the Segment select. So only a segment that
+  // actually DIFFERS from the stored one counts as a human's choice.
+  //
+  // The same is true of the other core fields on that path, which are still
+  // marked whether or not they changed. That is pre-existing and left alone
+  // here: for them the mark only protects the column from the sync, which is
+  // the direction a CSM would want anyway. For segment it switches a rule off.
+  const [row] = await db
+    .select({ properties: schema.clients.properties, segment: schema.clients.segment })
+    .from(schema.clients)
+    .where(eq(schema.clients.id, clientId));
+  const overridden = fieldOverridesSet(row?.properties as Record<string, unknown> | undefined);
+
+  const segmentWrite = segmentWriteFor({
+    incoming: fields.segment,
+    stored: row?.segment as Client["segment"] | null,
+    employees: fields.employees,
+    employeesProvided: fields.employees !== undefined,
+    overridden: overridden.has("segment"),
+  });
+  if (segmentWrite.segment) set.segment = segmentWrite.segment;
+  if (segmentWrite.markOverride) touched.push("segment"); // a real choice — never recomputed again
+
   if (touched.length > 0) {
-    const [row] = await db.select({ properties: schema.clients.properties }).from(schema.clients).where(eq(schema.clients.id, clientId));
-    const overridden = fieldOverridesSet(row?.properties as Record<string, unknown> | undefined);
     for (const f of touched) overridden.add(f);
     set.properties = sql`${schema.clients.properties} || ${JSON.stringify({ [FIELD_OVERRIDES_KEY]: [...overridden] })}::jsonb`;
   }

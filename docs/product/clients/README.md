@@ -81,6 +81,11 @@ The table renders `Client` (`lib/types.ts`) plus derived values. Notable columns
 | Status | Account status | `clients.status` | Profile |
 | Completeness | red / yellow / none | Computed in-page from tracked deals | Not directly — fill the fields |
 
+**Segment is not a column in this table.** It is exported (the CSV carries a *Segment* column,
+`components/clients/ClientsTable.tsx`) and it is editable in the **Edit account** drawer, but
+nothing in the directory displays an account's band. Since 2026-10-28 the segment is derived
+from the account's headcount — see [segmentation](../../business-rules/segmentation.md).
+
 ## States and statuses
 
 Account status (`AccountStatus` in `lib/types.ts`) drives whether a client counts as active
@@ -125,6 +130,14 @@ active, churned beating everything, and the no-tracked-deals ARR fallback.
   account holds it (every deal, tracked or not, since 2026-10-22); red gates yellow. See
   [profile-completeness](../../business-rules/profile-completeness.md).
 - **Owner reassignment is Super Admin only**, server-enforced.
+- **Account segmentation** — Enterprise / Mid-market / SMB is derived from the account's
+  headcount at 250 and 50 employees, and follows a corrected headcount unless a human set the
+  segment by hand. See [segmentation](../../business-rules/segmentation.md). The **Edit account**
+  drawer is the one place in the directory that writes it. Because it re-posts every core field
+  on every save, the repository marks the segment as a human's choice only when the value
+  actually **differs** from the stored one — so correcting a headcount in the drawer moves the
+  band, and saving the drawer never freezes it
+  ([R3a](../../business-rules/segmentation.md#r3a--the-segment-is-compared-not-just-received)).
 
 ## Permissions
 
@@ -178,6 +191,10 @@ profile completeness.
 ## Known limitations
 
 - No saved views, no column configuration, no bulk edit beyond owner assignment.
+- **An account's segment cannot be seen here.** It drives churn slices, the Insights segment
+  filter and Today's account tier, but the only ways to read one account's band are the Edit
+  account drawer, the CSV export, the weekly Notion export and the API. See
+  [segmentation R5](../../business-rules/segmentation.md#r5--what-a-segment-is-used-for).
 - Profile completeness is computed **per page render** over all deals, not stored.
 - `getAllDealsFromDb()` is unscoped; the page only looks up ids already in the scoped
   client list, so it is safe, but the query itself reads every deal.
