@@ -25,6 +25,7 @@ import {
   COMMUNICATION_CHANNELS, CHANNEL_LABEL, stakeholderInitials, stakeholderName,
   type StakeholderProfile, type StakeholderRole,
 } from "@/lib/stakeholders/profile";
+import { LAST_CONTACT_SOURCE_LABEL, type LastContact } from "@/lib/stakeholders/last-contact";
 import { saveStakeholderAction, deleteStakeholderAction, type StakeholderInput } from "@/app/(app)/clients/[id]/stakeholder-actions";
 
 const inputCls =
@@ -88,10 +89,13 @@ function toDraft(p: StakeholderProfile | null): Draft {
   };
 }
 
-export function StakeholderDrawer({ clientId, stakeholder, canEdit, teamEmails, onClose, onSaved, onDeleted }: {
+export function StakeholderDrawer({ clientId, stakeholder, lastContact, canEdit, teamEmails, onClose, onSaved, onDeleted }: {
   clientId: string;
   /** null = creating a new one. */
   stakeholder: StakeholderProfile | null;
+  /** Effective last contact (manual date, emails, note mentions) — shown
+   *  under the manual field so the drawer and the warning agree. */
+  lastContact?: LastContact | null;
   canEdit: boolean;
   teamEmails: { email: string; name: string | null }[];
   onClose: () => void;
@@ -279,7 +283,9 @@ export function StakeholderDrawer({ clientId, stakeholder, canEdit, teamEmails, 
             </select>
           </Field>
           <Field label="Last contacted" htmlFor="sh-last-c" error={fieldErrors.lastContactedAt}
-            hint="Drives the champion-gone-quiet warning.">
+            hint={lastContact && lastContact.source !== "manual"
+              ? `Latest activity ${lastContact.date} (${LAST_CONTACT_SOURCE_LABEL[lastContact.source]}) is newer, so the champion-gone-quiet warning uses that. Meetings aren't counted.`
+              : "The champion-gone-quiet warning uses this or the latest synced email or note mention, whichever is newer."}>
             <input id="sh-last-c" type="date" className={inputCls} value={draft.lastContactedAt}
               onChange={(e) => set("lastContactedAt", e.target.value)} disabled={!canEdit} />
           </Field>

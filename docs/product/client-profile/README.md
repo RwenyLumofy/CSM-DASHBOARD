@@ -41,7 +41,7 @@ Guest (read-only), and Support / Implementation / Revenue as readers.
 | Tab | Contents |
 |---|---|
 | General information | Property-definition fields grouped by Contract / Package & product, plus deal fields, deal dates, and the [Tech stack](tech-stack.md) section |
-| Stakeholders | Stakeholder profiles, roles, relationship map |
+| Stakeholders | Stakeholder profiles, roles, relationship map; coverage warnings; each person's last contact — the latest of the hand-entered date, synced emails and note mentions (meetings aren't counted: no attendee list). See [Stakeholders](../stakeholders/README.md#last-contact) |
 | Communication | Synced emails and meetings |
 | Attachments | Uploaded files (Supabase Storage), categorised |
 | Usage | Metabase adoption metrics and history |
@@ -371,7 +371,7 @@ See [data-model](../../data-model/README.md).
 | Server actions | `app/(app)/clients/[id]/*-actions.ts` (12 files) |
 | Write gate | `lib/auth.ts` → `canEditClient`, `denyClientWrite` |
 | Deal overrides | `lib/deal-overrides.ts` |
-| Stakeholders | `lib/stakeholders/profile.ts`, `lib/stakeholders/coverage.ts` (**tested**) |
+| Stakeholders | `lib/stakeholders/profile.ts`, `lib/stakeholders/coverage.ts`, `lib/stakeholders/last-contact.ts` (**tested**) |
 | Projects | `lib/projects/*`, `lib/repo/projects.ts` |
 | Notes | `lib/notes/*` (sanitised HTML) |
 

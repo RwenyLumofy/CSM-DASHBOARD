@@ -31,6 +31,7 @@ import {
   type StakeholderProfile, type StakeholderLink,
 } from "@/lib/stakeholders/profile";
 import { stakeholderCoverage, type CoverageGap, type CoverageSeverity } from "@/lib/stakeholders/coverage";
+import { lastContactByStakeholder, LAST_CONTACT_SOURCE_LABEL, type ContactActivity } from "@/lib/stakeholders/last-contact";
 import { StakeholderDrawer } from "./StakeholderDrawer";
 import { RelationshipMap } from "./RelationshipMap";
 
@@ -76,10 +77,13 @@ function CoverageCard({ gap, onFix }: { gap: CoverageGap; onFix?: () => void }) 
 }
 
 export function StakeholdersTab({
-  clientId, initialProfiles, initialLinks, contacts, canEdit, teamEmails, renewalDate, today,
+  clientId, initialProfiles, initialLinks, contacts, activity, canEdit, teamEmails, renewalDate, today,
 }: {
   clientId: string;
   initialProfiles: StakeholderProfile[];
+  /** The account's synced emails and notes, already loaded for the profile
+   *  page. They move each stakeholder's last contact forward. */
+  activity: ContactActivity;
   initialLinks: StakeholderLink[];
   contacts: Contact[];
   canEdit: boolean;
@@ -93,9 +97,13 @@ export function StakeholdersTab({
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<{ profile: StakeholderProfile | null } | null>(null);
 
+  // One derivation feeds the warnings, the list column and the drawer, so the
+  // three can't show different dates for the same person.
+  const lastContact = useMemo(() => lastContactByStakeholder(profiles, activity), [profiles, activity]);
+
   const gaps = useMemo(
-    () => stakeholderCoverage({ profiles, links, today, renewalDate }),
-    [profiles, links, today, renewalDate],
+    () => stakeholderCoverage({ profiles, links, today, renewalDate, lastContact }),
+    [profiles, links, today, renewalDate, lastContact],
   );
 
   const filtered = useMemo(() => {
@@ -200,11 +208,11 @@ export function StakeholdersTab({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border">
-          <table className="w-full min-w-[720px] border-collapse">
+          <table className="w-full min-w-[800px] border-collapse">
             <caption className="sr-only">Stakeholders on this account, most influential first</caption>
             <thead>
               <tr className="border-b border-border bg-bg-muted/40 text-left">
-                {["Stakeholder", "Role", "Sentiment", "Influence", "Engagement", "Owner"].map((h) => (
+                {["Stakeholder", "Role", "Sentiment", "Influence", "Engagement", "Last contact", "Owner"].map((h) => (
                   <th key={h} scope="col" className="px-3 py-2 font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">{h}</th>
                 ))}
               </tr>
@@ -239,6 +247,11 @@ export function StakeholdersTab({
                   </td>
                   <td className="px-3 py-2.5 font-body text-[12px] text-fg-muted">{INFLUENCE_LABEL[p.influence]}</td>
                   <td className="px-3 py-2.5 font-body text-[12px] text-fg-muted">{ENGAGEMENT_LABEL[p.engagementStatus]}</td>
+                  <td className="px-3 py-2.5 font-body text-[12px] text-fg-muted">
+                    {lastContact[p.id]
+                      ? <span className="tabular whitespace-nowrap">{lastContact[p.id].date}<span className="block font-body text-[11px] text-fg-subtle">{LAST_CONTACT_SOURCE_LABEL[lastContact[p.id].source]}</span></span>
+                      : "—"}
+                  </td>
                   <td className="px-3 py-2.5 font-body text-[12px] text-fg-muted">{p.ownerEmail ?? "—"}</td>
                 </tr>
               ))}
@@ -294,6 +307,7 @@ export function StakeholdersTab({
           clientId={clientId}
           // id "" is the seeded-from-contact case: treat as new.
           stakeholder={editing.profile?.id ? editing.profile : editing.profile}
+          lastContact={editing.profile?.id ? lastContact[editing.profile.id] ?? null : null}
           canEdit={canEdit}
           teamEmails={teamEmails}
           onClose={() => setEditing(null)}
