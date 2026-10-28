@@ -31,7 +31,7 @@ test("a renewal replaces the expansion it already includes (counted twice today)
     wonOpportunities: [],
   });
   assert.equal(arrOn(asLedger(records), "2026-10-08"), 31_402.5);
-  assert.equal(records.find((r) => r.hubspotDealId === "3")?.renewalDate, "2029-04-13");
+  assert.equal(records.find((r) => r.hubspotDealId === "3")?.renewalDate, "2029-04-12");
 });
 
 test("a won expansion just before a renewal is kept and flagged for a person to confirm", () => {
@@ -103,7 +103,7 @@ test("contract length over 5 is months, and 'None' is a global library decision"
     deals: [deal({ hubspotDealId: "1", amount: 13_713, contractStartDate: "2025-05-28", contractDuration: 24, globalLibraryPackage: ["None"] })],
     wonOpportunities: [],
   });
-  assert.equal(records[0].renewalDate, "2027-05-28");
+  assert.equal(records[0].renewalDate, "2027-05-27");
   assert.equal(records[0].libraryDecided, true);
   assert.deepEqual(records[0].libraryTerms, {});
   assert.ok(flags.some((f) => f.includes("read as months")));

@@ -265,7 +265,7 @@ renewal date); without one the screen says a sale has to arrive from HubSpot fir
 
 | Kind | What is entered |
 |---|---|
-| Renewal | Prefilled from the contract in force. Currency (USD, BHD, SAR), licence ARR, licences, user price, support level and annual support amount, modules, one or more global libraries with licences each, start, length (1–5 years or a custom end date), end and renewal date. For 2 years or more, an optional different ARR for each year. |
+| Renewal | Prefilled from the contract in force. Currency (USD, BHD, SAR), licence ARR, licences, user price, support level and annual support amount, modules, one or more global libraries with licences each, start, length (1–5 years or a custom end date), end and renewal date (the renewal date is the end date, the term's last day; the renewal starts the day after the current term's renewal date). For 2 years or more, an optional different ARR for each year. |
 | Downgrade | ARR removed (stored as a negative change), licences removed, modules and libraries removed, dates. |
 | Churn | Effective date and at least one reason from Settings → Churn taxonomy. Takes ARR from records to zero from that date. |
 
@@ -413,7 +413,11 @@ them from `liveFromRecords` (`lib/contracts/live.ts`):
   amount says.
 - **Previous ARR** — the ledger as of the first day of the current quarter.
 - **Renewal date** — of the contract in force, or of a renewal already recorded for the
-  term after it. None once churned.
+  term after it. None once churned. A term's renewal date is its **last day**: a term from
+  1 Jan 2026 for a year renews 31 Dec 2026, and the term that renews it starts 1 Jan 2027
+  (`lib/contracts/term.ts`, decided 2026-10-28). The client header shows this same date
+  (`lib/contracts/renewal-date.ts`) and can change it; the change is saved on that record
+  and moves its end date with it.
 - **Status** — from the records (§4), with a status set by hand applied. The client row
   has no "Renewal overdue" value, so an overdue account is stored as **Renewal due**; the
   contract tab still shows it as overdue.

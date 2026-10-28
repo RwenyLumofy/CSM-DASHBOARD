@@ -31,6 +31,7 @@
 
 import type { Deal } from "@/lib/types";
 import type { Currency } from "./ledger";
+import { renewalAfterMonths } from "./term";
 
 export type ContractKind = "sale" | "renewal" | "expansion" | "downgrade" | "churn";
 
@@ -83,17 +84,6 @@ export interface ImportResult {
 const MILESTONE_KEYS = ["invoice_sent_date", "kickoff_meeting_date", "launch_date", "platform_start_date", "platform_end_date"];
 const day = (v: unknown) => (typeof v === "string" && v ? v.slice(0, 10) : null);
 const asCurrency = (c: string): Currency => (c === "BHD" || c === "SAR" ? c : "USD");
-
-function addMonths(iso: string, months: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCMonth(d.getUTCMonth() + months);
-  return d.toISOString().slice(0, 10);
-}
-function dayBefore(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
 
 function kindOf(d: Deal): ContractKind {
   if (d.pipeline !== "cs") return "sale";
@@ -150,14 +140,15 @@ export function buildContractRecords({ client, deals, wonOpportunities }: Import
     const len = Number(csOwned("contractDuration") ?? 0);
     if (len > 5) flags.push(`${deal.name ?? deal.id}: contract length ${len} read as months.`);
     const months = len > 5 ? Math.round(len) : Math.round((len > 0 ? len : 1) * 12);
-    const renewal = start && kind !== "churn" ? addMonths(start, months) : null;
+    // The renewal date is the term's last day (lib/contracts/term.ts), so it is also the end date.
+    const renewal = start && kind !== "churn" ? renewalAfterMonths(start, months) : null;
 
     const dates = dealDates[deal.id] ?? {};
     const pkg = (csOwned("globalLibraryPackage") ?? []) as string[];
     const providers = pkg.filter((p) => p !== "None");
     const libraryTerms = Object.fromEntries(providers.map((p, i) => [p, i === 0
       ? { licences: (csOwned("globalLibraryLicenses") as number | null) ?? null, start: day(dates.global_library_start_date), expiry: day(dates.global_library_expiry_date) }
-      : { licences: null, start, expiry: renewal ? dayBefore(renewal) : null }]));
+      : { licences: null, start, expiry: renewal }]));
     const milestones = Object.fromEntries(MILESTONE_KEYS.map((k) => [k, day(dates[k])]));
     if (milestones.launch_date && milestones.kickoff_meeting_date && milestones.launch_date < milestones.kickoff_meeting_date) {
       flags.push(`${deal.name ?? deal.id}: launch (${milestones.launch_date}) is before kick-off (${milestones.kickoff_meeting_date}).`);
@@ -186,7 +177,7 @@ export function buildContractRecords({ client, deals, wonOpportunities }: Import
       aiCredits: (csOwned("aiCourseCredits") as number | null | undefined) ?? null,
       milestones,
       startDate: start,
-      endDate: renewal ? dayBefore(renewal) : null,
+      endDate: renewal,
       renewalDate: renewal,
       counted,
       churnReasons: [],

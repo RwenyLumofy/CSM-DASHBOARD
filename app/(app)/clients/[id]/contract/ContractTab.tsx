@@ -33,6 +33,8 @@ import { addTypedChip } from "@/lib/contracts/chip-input";
 import { formatNumber } from "@/lib/format";
 import { CURRENCIES, USD_PER, contractValueUSD, toUSD, withArr, type Currency } from "@/lib/contracts/ledger";
 import { changedFields, libraryTerm, toFields, type ContractView, type LibraryTerm } from "@/lib/contracts/view";
+import { nextTermStart, renewalFor, termMonths } from "@/lib/contracts/term";
+import { renewalFromRecords } from "@/lib/contracts/renewal-date";
 import {
   OVERRIDE_DAYS, RENEWAL_WINDOW, effectiveStatus, firstMilestone, nextTerm, type ContractStatus, type StatusOverride,
 } from "@/lib/contracts/status";
@@ -123,11 +125,6 @@ function addYears(iso: string, n: number): string {
   d.setUTCFullYear(d.getUTCFullYear() + n);
   return d.toISOString().slice(0, 10);
 }
-function dayBefore(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
 
 /* ── Page ──────────────────────────────────────────────────────────────── */
 
@@ -189,7 +186,9 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
     }
     return { modules: [...modules], library: [...library] };
   }, [effective, current]);
-  const renewalDate = churned ? null : (current && nextTerm(effectiveAll, current, today)?.renewal) ?? current?.renewal ?? null;
+  // The same date, from the same record, as the client header (lib/contracts/renewal-date.ts).
+  const renewalAt = useMemo(() => (churned ? null : renewalFromRecords(records, today)), [records, today, churned]);
+  const renewalDate = renewalAt?.date ?? null;
   const daysToRenewal = renewalDate ? daysBetween(today, renewalDate) : null;
 
   // The history shows every record, including ones kept as history, voided ones and ones that start later.
@@ -284,7 +283,11 @@ export function ContractTab({ client, records, opportunities: opps, churnReasons
         <Summary label="Current term" value={current && !churned ? `${fmtDate(current.start)} → ${fmtDate(current.end)}` : "—"} hint={current && !churned ? `From ${KIND[current.kind].label.toLowerCase()}` : churned ? "Account churned" : ""} small />
         <div className="flex flex-col gap-1 border-t border-border-subtle px-5 py-4 md:border-l md:border-t-0">
           <span className="font-body text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">Renewal date</span>
-          <span className={cn("font-display text-lg font-bold", churned ? "text-fg-subtle" : "text-fg")}>{churned ? "—" : fmtDate(renewalDate)}</span>
+          {canEdit && renewalAt ? (
+            <InlineDate big value={renewalDate} onCommit={(v) => { if (v && v !== renewalDate) run(() => updateContractRecordAction(renewalAt.recordId, { renewalDate: v, endDate: v }), "Renewal date saved. The term now ends that day."); }} />
+          ) : (
+            <span className={cn("font-display text-lg font-bold", churned ? "text-fg-subtle" : "text-fg")}>{churned ? "—" : fmtDate(renewalDate)}</span>
+          )}
           {daysToRenewal != null && (
             <span className={cn("font-body text-[12px] font-semibold", daysToRenewal <= 90 ? "text-warning-fg" : "text-fg-subtle")}>
               {daysToRenewal >= 0 ? `In ${daysToRenewal} days` : `${-daysToRenewal} days overdue`}
@@ -1194,7 +1197,7 @@ function RecordCardView({ r, before, after, open, onToggle, onUpdate, dirty, foo
             <DateCell label={r.kind === "churn" ? "Effective" : "Contract start"} value={r.start} onCommit={(v) => setDate("start", v)} />
             {r.kind !== "churn" && <DateCell label="Contract end" value={r.end} onCommit={(v) => setDate("end", v)} />}
             {r.kind !== "churn" && r.start && r.renewal && <Cell label="Contract length" value={termLabel(r.start, r.renewal)} />}
-            {r.kind !== "churn" && <DateCell label="Renewal date" value={r.renewal} hint={r.end && r.renewal === addOne(r.end) ? "Day after end" : undefined} onCommit={(v) => setDate("renewal", v)} />}
+            {r.kind !== "churn" && <DateCell label="Renewal date" value={r.renewal} hint={r.end && r.renewal === r.end ? "Last day of the term" : undefined} onCommit={(v) => setDate("renewal", v)} />}
           </Group>
 
           {(r.kind === "sale" || r.kind === "renewal") && (
@@ -1225,17 +1228,11 @@ function RecordCardView({ r, before, after, open, onToggle, onUpdate, dirty, foo
   );
 }
 
-/** "3 years", "1 year", "18 months" — the term between start and renewal. */
+/** "3 years", "1 year", "18 months" — the term from start through renewal, its last day. */
 function termLabel(start: string, renewal: string): string {
-  const months = Math.round(daysBetween(start, renewal) / 30.44);
+  const months = termMonths(start, renewal);
   if (months % 12 === 0) return `${months / 12} year${months > 12 ? "s" : ""}`;
   return `${months} months`;
-}
-
-function addOne(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
 }
 
 function SourceBadge({ source }: { source: Source }) {
@@ -1318,8 +1315,8 @@ function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, lice
   const isRenewal = kind === "renewal";
   const isChurn = kind === "churn";
   // Prefill from the contract in force: a renewal starts the day after the
-  // current term ends; an expansion or downgrade starts today and co-terms.
-  const defaultStart = isRenewal ? (current.renewal ?? today) : today;
+  // current term's renewal date (its last day); an expansion or downgrade starts today and co-terms.
+  const defaultStart = isRenewal ? (current.renewal ? nextTermStart(current.renewal) : today) : today;
   const [name, setName] = useState(isRenewal ? "Renewal" : kind === "downgrade" ? "Downgrade" : "Churn");
   // A renewal starts from the licence part of today's ARR (support is entered separately),
   // in the contract's own currency; arrNow is in dollars and includes support.
@@ -1334,14 +1331,14 @@ function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, lice
   const [libLicences, setLibLicences] = useState<Record<string, number>>(
     isRenewal ? Object.fromEntries(current.library.map((p) => [p, libraryTerm(current, p).licences ?? 0])) : {});
   const [start, setStart] = useState(defaultStart);
-  const [end, setEnd] = useState(isRenewal ? dayBefore(addYears(defaultStart, 1)) : current.end ?? "");
-  const [renewal, setRenewal] = useState(isRenewal ? addYears(defaultStart, 1) : current.renewal ?? "");
+  const [end, setEnd] = useState(isRenewal ? renewalFor(defaultStart) : current.end ?? "");
+  const [renewal, setRenewal] = useState(isRenewal ? renewalFor(defaultStart) : current.renewal ?? "");
   // Renewals default to the length of the contract they replace, so a 3-year deal renews as 3 years.
-  const currentYears = current.start && current.renewal ? Math.max(1, Math.round(daysBetween(current.start, current.renewal) / 365)) : 1;
+  const currentYears = current.start && current.renewal ? Math.max(1, Math.round(termMonths(current.start, current.renewal) / 12)) : 1;
   const [years, setYears] = useState<number>(isRenewal ? currentYears : 0);
   function applyTerm(from: string, y: number) {
     if (!from || !y) return;
-    setEnd(dayBefore(addYears(from, y))); setRenewal(addYears(from, y));
+    setEnd(renewalFor(from, y)); setRenewal(renewalFor(from, y));
   }
   const [termSet, setTermSet] = useState(false);
   if (isRenewal && !termSet) { setTermSet(true); applyTerm(defaultStart, currentYears); }
@@ -1510,7 +1507,7 @@ function RecordDrawer({ kind, churnReasons, saving, current, today, arrNow, lice
                 </select>
               </Field>
             )}
-            {!isChurn && <Field label="Contract end"><DateInput value={end} onChange={(v) => { setEnd(v); setYears(0); if (v) setRenewal(addOne(v)); }} /></Field>}
+            {!isChurn && <Field label="Contract end"><DateInput value={end} onChange={(v) => { setEnd(v); setYears(0); if (v) setRenewal(v); }} /></Field>}
             {!isChurn && <Field label="Renewal date"><DateInput value={renewal} onChange={setRenewal} /></Field>}
           </div>
 

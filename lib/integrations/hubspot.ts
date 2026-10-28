@@ -14,6 +14,7 @@
 
 import { env } from "@/lib/config";
 import type { Contact, Deal, Email, Meeting } from "@/lib/types";
+import { renewalFor } from "@/lib/contracts/term";
 
 const BASE = "https://api.hubapi.com";
 
@@ -360,13 +361,11 @@ export function normalizeChannelValue(s: string): string {
   return OPTION_ALIASES[t.toLowerCase()] ?? t;
 }
 
-/** Add one year to a YYYY-MM-DD date (annual contract default renewal). */
+/** Annual contract default renewal: the term's last day, a YYYY-MM-DD date + 1 year − 1 day. */
 function plusOneYear(dateYmd: string | null): string | null {
   if (!dateYmd) return null;
-  const d = new Date(`${dateYmd}T00:00:00.000Z`);
-  if (Number.isNaN(d.getTime())) return null;
-  d.setUTCFullYear(d.getUTCFullYear() + 1);
-  return d.toISOString().slice(0, 10);
+  if (Number.isNaN(new Date(`${dateYmd}T00:00:00.000Z`).getTime())) return null;
+  return renewalFor(dateYmd);
 }
 
 /** HubSpot `hs_email_direction` enum → app email direction. */

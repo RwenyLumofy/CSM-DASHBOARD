@@ -1,5 +1,6 @@
 import { ContractTab } from "./contract/ContractTab";
 import { loadContractTab } from "./contract/load";
+import { renewalFromRecords } from "@/lib/contracts/renewal-date";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -204,6 +205,10 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
       .sort();
     return dates[0] ?? null;
   })();
+  // Once the account has contract records, the header shows the same renewal date as the
+  // Contract tab, read from the record it lives on, and edits it there (lib/contracts/renewal-date.ts).
+  // Accounts without records keep the deal-based date above.
+  const recordRenewal = contractTab && contractTab.records.length > 0 ? renewalFromRecords(contractTab.records, contractTab.today) : null;
   // Combined lifecycle status (merged Status + Phase).
   const STATUS_LABELS: Record<string, string> = { onboarding: "Onboarding", active: "Active", renewal: "Renewal", churned: "Churn" };
   const statusLabel = STATUS_LABELS[client.status] ?? "Active";
@@ -267,7 +272,9 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         arr={client.arr}
         currency={client.currency}
         activeDealsCount={trackedDeals.length}
-        upcomingRenewal={upcomingRenewal ?? null}
+        upcomingRenewal={recordRenewal?.date ?? upcomingRenewal ?? null}
+        renewalRecordId={recordRenewal?.recordId ?? null}
+        canEditRenewal={mayEditClient}
         csm={client.csm}
         csmSource={client.csmSource}
         implementationOwner={client.implementationOwner}

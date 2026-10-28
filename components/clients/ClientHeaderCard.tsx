@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, ExternalLink, UserCog, Wrench, Loader2, Sparkles, Hand, AlertTriangle } from "lucide-react";
+import { Building2, ExternalLink, UserCog, Wrench, Loader2, Sparkles, Hand, AlertTriangle, Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { HealthPill } from "@/components/ui/HealthPill";
@@ -10,6 +10,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { cn } from "@/lib/cn";
 import type { AssignmentSource, Csm, HealthScore } from "@/lib/types";
 import { setCsmOwnerAction, setImplementationOwnerAction } from "@/app/(app)/clients/[id]/owner-actions";
+import { updateContractRecordAction } from "@/app/(app)/clients/[id]/contract/actions";
 import { formatCurrency, formatDate } from "@/lib/format";
 
 export interface OwnerOption {
@@ -59,6 +60,84 @@ function CompletenessBadge({ severity, missingRed, missingYellow }: { severity: 
       <AlertTriangle size={12} strokeWidth={2} />
       Missing some info
     </span>
+  );
+}
+
+/** The account's renewal date. With contract records it is the Contract tab's date and can be
+ *  changed here; the term's end date moves with it, since a term renews on its last day
+ *  (lib/contracts/term.ts). Without records it is read from HubSpot deals and can't be edited. */
+function RenewalCell({ date, recordId, canEdit }: { date: string | null; recordId: string | null; canEdit: boolean }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [value, setValue] = useState(date?.slice(0, 10) ?? "");
+  const editable = canEdit && !!recordId;
+
+  async function save() {
+    if (!recordId || !value) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await updateContractRecordAction(recordId, { renewalDate: value, endDate: value });
+      if (!r.ok) setError(r.error ?? "Failed.");
+      else {
+        setEditing(false);
+        router.refresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-1 flex-col justify-center px-5 py-4">
+      <div className="mb-1.5 font-body text-[10.5px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">
+        Upcoming Renewal
+      </div>
+      {editing ? (
+        <div className="flex flex-col gap-2">
+          <input
+            type="date"
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
+            disabled={busy}
+            className="w-fit rounded-[10px] border border-border bg-bg px-3 py-1.5 font-body text-[13px] text-fg outline-none transition-colors focus:border-sirius focus:ring-2 focus:ring-sirius/15"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={save}
+              disabled={busy || !value}
+              className="inline-flex items-center gap-1 rounded-lg bg-sirius px-3 py-1.5 font-body text-[12px] font-semibold text-white disabled:opacity-50"
+            >
+              {busy && <Loader2 size={12} className="animate-spin" />}
+              Save
+            </button>
+            <button
+              onClick={() => { setEditing(false); setValue(date?.slice(0, 10) ?? ""); setError(null); }}
+              className="rounded-lg border border-border px-3 py-1.5 font-body text-[12px] font-medium text-fg-muted hover:text-fg"
+            >
+              Cancel
+            </button>
+          </div>
+          {error && <span className="font-body text-[11.5px] text-[#B23A57]">{error}</span>}
+        </div>
+      ) : (
+        <>
+          {editable ? (
+            <button onClick={() => setEditing(true)} className="group inline-flex w-fit items-center gap-1.5 text-left" aria-label="Change the renewal date">
+              <span className="font-body text-[13px] font-semibold text-fg">{formatDate(date)}</span>
+              <Pencil size={11} className="text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+            </button>
+          ) : (
+            <span className="font-body text-[13px] font-semibold text-fg">{formatDate(date)}</span>
+          )}
+          <span className="mt-0.5 font-body text-[10.5px] text-fg-subtle">{recordId ? "From the contract" : "From HubSpot deals"}</span>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -212,6 +291,10 @@ export interface ClientHeaderCardProps {
   currency: string;
   activeDealsCount: number;
   upcomingRenewal: string | null;
+  /** The contract record the renewal date lives on. Null when the date comes from HubSpot deals. */
+  renewalRecordId: string | null;
+  /** May change the renewal date (same rule as editing the Contract tab). */
+  canEditRenewal: boolean;
   csm: Csm | null;
   csmSource?: AssignmentSource | null;
   implementationOwner: Csm | null;
@@ -245,6 +328,8 @@ export function ClientHeaderCard({
   currency,
   activeDealsCount,
   upcomingRenewal,
+  renewalRecordId,
+  canEditRenewal,
   csm,
   csmSource,
   implementationOwner,
@@ -314,14 +399,7 @@ export function ClientHeaderCard({
         </div>
 
         {/* Renewal */}
-        <div className="flex flex-1 flex-col justify-center px-5 py-4">
-          <div className="mb-1.5 font-body text-[10.5px] font-semibold uppercase tracking-[0.07em] text-fg-subtle">
-            Upcoming Renewal
-          </div>
-          <span className="font-body text-[13px] font-semibold text-fg">
-            {formatDate(upcomingRenewal)}
-          </span>
-        </div>
+        <RenewalCell date={upcomingRenewal} recordId={renewalRecordId} canEdit={canEditRenewal} />
 
         {/* HANDOVER use cases — what sales sold, rolled up from every tracked
             deal's HubSpot "Use case" field. Read-only and labelled as such on

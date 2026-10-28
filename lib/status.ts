@@ -41,6 +41,7 @@
    ========================================================================= */
 
 import type { AccountStatus } from "@/lib/types";
+import { renewalFor } from "@/lib/contracts/term";
 
 export const STATUS_OVERRIDE_KEY = "__status_override";
 
@@ -60,9 +61,8 @@ function hasValue(v: unknown): boolean {
 function dealRenewalDate(d: StatusDeal): Date | null {
   const base = d.contractStartDate ?? d.closeDate;
   if (!base) return null;
-  const r = new Date(base);
-  r.setUTCFullYear(r.getUTCFullYear() + 1);
-  return r;
+  // The term's last day: start + 1 year − 1 day (lib/contracts/term.ts).
+  return new Date(`${renewalFor(new Date(base).toISOString())}T00:00:00Z`);
 }
 
 export function computeClientStatus(

@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { formatCurrency } from "@/lib/format";
 import { recordArrAction } from "@/app/(app)/clients/[id]/actions";
 import type { ArrEventInput } from "@/lib/types";
+import { renewalFor } from "@/lib/contracts/term";
 
 type Kind = "renewal" | "expansion" | "contraction" | "churn";
 
@@ -178,9 +179,8 @@ function labelFor(k: Kind): string {
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
+/** A one-year term's renewal date: its last day (lib/contracts/term.ts). */
 function addYear(ymd: string): string {
-  const d = new Date(`${ymd}T00:00:00.000Z`);
-  if (Number.isNaN(d.getTime())) return ymd;
-  d.setUTCFullYear(d.getUTCFullYear() + 1);
-  return d.toISOString().slice(0, 10);
+  if (Number.isNaN(new Date(`${ymd}T00:00:00.000Z`).getTime())) return ymd;
+  return renewalFor(ymd);
 }

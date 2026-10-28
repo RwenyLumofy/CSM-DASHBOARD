@@ -16,6 +16,20 @@ limitations · commit.
 
 ---
 
+## 2026-10-28
+
+### A contract renews on its last day, and the renewal date can be changed from the header
+**Area:** Client Profile → header "Upcoming Renewal" · Contract tab → summary and Record drawer · contract import · every renewal date worked out from HubSpot deals (status, Today, Clients, Insights). Branch `fix/renewal-date-last-day`, off `main`.
+**Roles affected:** Anyone who may edit the account (the same rule as the Contract tab) can now change its renewal date from the header. Nobody loses a permission.
+**Before:** A term's renewal date was the day after it ended: start + 1 full year. Gulf Air's term from 1 Jan showed a renewal on 1 Jan the next year, which moved year-end renewals into the next quarter and threw off quarterly numbers and forecasts. The header's date always came from HubSpot deals, so it could differ from the Contract tab, and it could not be edited.
+**After:**
+- **A renewal date is the term's last day: start + 1 year − 1 day** (or start + length − 1 day). The renewal that replaces it starts the next day. One rule in `lib/contracts/term.ts`, used by the contract import, the Record drawer and every deal-based renewal date (`lib/status.ts`, `recomputeClient`, deal overrides, HubSpot sync, client import, manual ARR events).
+- **The header shows the Contract tab's date** when the account has contract records, labelled "From the contract", and it can be changed in place. The Contract tab's summary date can be changed in place too. Both save on the same record (`lib/contracts/renewal-date.ts`) and move the term's end date with it. Accounts without records keep the deal-based date, labelled "From HubSpot deals", read-only.
+**Migration / data impact:** `drizzle/renewal-date-last-day.sql` moves stored renewal dates that are still the day after the end back one day, and writes each change to `contract_audit`. Records with a renewal date set by hand to anything else are left alone. Run on the test database on 2026-10-28: 224 of 224 moved. **Not yet run on production.** Deal-based dates change on the next recompute, with no data change.
+**Known limitations:** While the contract-records switch is off, an edited renewal date shows in the header and on the Contract tab, but status, Today and Clients still read the deal-based date. Not checked in the browser (no signed-in session locally); covered by unit tests.
+
+---
+
 ## 2026-10-22
 
 ### The completeness badge now asks what the account knows, not what one deal row holds

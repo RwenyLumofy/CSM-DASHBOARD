@@ -21,6 +21,7 @@ import { HubSpotClient, deriveReferralSource, normalizeChannelValue, type Hubspo
 import { MetabaseClient } from "@/lib/integrations/metabase";
 import { arrAsOf, deriveClientArr, periodBounds, currentQuarter, withRunningBalance } from "@/lib/metrics/arr";
 import { env, integrations, hasDatabase } from "@/lib/config";
+import { renewalFor } from "@/lib/contracts/term";
 
 export interface SyncResult {
   ok: boolean;
@@ -458,10 +459,9 @@ function buildHubspotEvents(co: HubspotCompany, now: string): ArrEvent[] {
   return withRunningBalance(events);
 }
 
+/** A one-year term's renewal date: its last day (lib/contracts/term.ts). */
 function addYear(ymd: string): string {
-  const d = new Date(`${ymd}T00:00:00.000Z`);
-  d.setUTCFullYear(d.getUTCFullYear() + 1);
-  return d.toISOString().slice(0, 10);
+  return renewalFor(ymd);
 }
 
 function assembleClient(
