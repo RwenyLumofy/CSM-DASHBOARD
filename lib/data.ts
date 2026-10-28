@@ -69,6 +69,7 @@ import {
   getUsageMonthlyFromDb,
   importClientsDb,
 } from "@/lib/repo/drizzle";
+import { renewalFor } from "@/lib/contracts/term";
 
 type Source = { clients: Client[]; arrEvents: ArrEvent[] };
 
@@ -1168,8 +1169,7 @@ function sortByDateDesc(events: ArrEvent[]): ArrEvent[] {
   });
 }
 
+/** A one-year term's renewal date: its last day (lib/contracts/term.ts). */
 function addYear(ymd: string): string {
-  const d = new Date(`${ymd}T00:00:00.000Z`);
-  d.setUTCFullYear(d.getUTCFullYear() + 1);
-  return d.toISOString().slice(0, 10);
+  return renewalFor(ymd);
 }

@@ -35,6 +35,7 @@ import { computeProfileCompleteness } from "@/lib/profile-completeness";
 import { activityFor, encodeActivity, type TaskActivity } from "@/lib/task-activity";
 import { normalizeStakeholderProfiles, PROFILES_KEY } from "@/lib/stakeholders/profile";
 import type { UsageMonthRow, UsageSnapshot, UsageSnapshotRecord } from "@/lib/usage/types";
+import { renewalFor } from "@/lib/contracts/term";
 
 type Row = typeof schema.clients.$inferSelect;
 type EventRow = typeof schema.arrEvents.$inferSelect;
@@ -691,9 +692,9 @@ async function recomputeClientBody(clientId: string): Promise<void> {
     sum(tracked.filter((d) => d.closeDate && d.closeDate.toISOString().slice(0, 10) <= qStart).map((d) => d.amount)) +
     sum(ledger.filter((e) => e.effectiveDate.slice(0, 10) <= qStart).map((e) => e.amount));
 
-  // Renewal = 1 year after the contract effective date (the latest tracked
-  // deal's). Falls back to 1 year after the latest close date when no tracked
-  // deal has a contract effective date yet.
+  // Renewal = the last day of a one-year term from the contract effective date
+  // (the latest tracked deal's): start + 1 year − 1 day. Falls back to the
+  // latest close date when no tracked deal has a contract effective date yet.
   const maxTime = (ds: (Date | null)[]) => {
     const ts = ds.filter((d): d is Date => d != null).map((d) => d.getTime());
     return ts.length ? Math.max(...ts) : null;
@@ -701,8 +702,7 @@ async function recomputeClientBody(clientId: string): Promise<void> {
   const base = maxTime(tracked.map((d) => d.contractStartDate)) ?? maxTime(tracked.map((d) => d.closeDate));
   let renewalDate: Date | null = null;
   if (base != null) {
-    renewalDate = new Date(base);
-    renewalDate.setUTCFullYear(renewalDate.getUTCFullYear() + 1);
+    renewalDate = new Date(`${renewalFor(new Date(base).toISOString())}T00:00:00Z`);
   }
 
   const launchDateByDealId = Object.fromEntries(

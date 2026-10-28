@@ -21,6 +21,7 @@
    ========================================================================= */
 
 import type { Deal } from "@/lib/types";
+import { renewalFor } from "@/lib/contracts/term";
 
 export const DEAL_OVERRIDES_KEY = "__deal_overrides";
 export const DEAL_DATES_KEY = "__deal_dates";
@@ -149,11 +150,10 @@ export function computeUseCasesRollup(trackedDeals: Pick<Deal, "useCases">[]): s
   return [...set].sort();
 }
 
-/** Renewal = effective contract start + 1 year (auto, never stored). */
+/** Renewal = the last day of a one-year term: effective contract start + 1 year − 1 day (auto, never stored). */
 export function computeRenewal(contractStart: string | null | undefined): string | null {
   if (!contractStart) return null;
   const d = new Date(contractStart);
   if (Number.isNaN(d.getTime())) return null;
-  d.setUTCFullYear(d.getUTCFullYear() + 1);
-  return d.toISOString();
+  return `${renewalFor(d.toISOString())}T00:00:00.000Z`;
 }

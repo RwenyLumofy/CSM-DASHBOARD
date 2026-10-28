@@ -21,6 +21,7 @@ import type {
   SupportSummary,
   UsageMetrics,
 } from "@/lib/types";
+import { renewalFor } from "@/lib/contracts/term";
 
 /* ------------------------------------------------------------- columns */
 
@@ -558,11 +559,10 @@ function segmentFor(employees: number | null): Client["segment"] {
   return "smb";
 }
 
+/** A one-year term's renewal date: its last day (lib/contracts/term.ts). */
 function addYear(ymd: string): string {
-  const d = new Date(`${ymd}T00:00:00.000Z`);
-  if (Number.isNaN(d.getTime())) return ymd;
-  d.setUTCFullYear(d.getUTCFullYear() + 1);
-  return d.toISOString().slice(0, 10);
+  if (Number.isNaN(new Date(`${ymd}T00:00:00.000Z`).getTime())) return ymd;
+  return renewalFor(ymd);
 }
 
 function stableHash(s: string): string {

@@ -77,7 +77,7 @@ The table renders `Client` (`lib/types.ts`) plus derived values. Notable columns
 | Implementation owner | Delivery owner | `clients.implementationOwner` | Super Admin |
 | ARR | Running ledger balance | ARR events (`lib/metrics/arr.ts`) | Via ARR events on the profile |
 | Health | Score + tier | `clients.health`, recomputed daily | Via override on the profile |
-| Renewal date | From the tracked deal | HubSpot deal + in-app date overrides | Via deal-date override |
+| Renewal date | The term's last day (start + 1 year − 1 day) | The contract record in force when the account has records; otherwise the tracked deal + in-app date overrides | In the header or on the Contract tab when the account has records (the term's end moves with it); otherwise via deal-date override |
 | Status | Account status | `clients.status` | Profile |
 | Completeness | red / yellow / none | Computed in-page from tracked deals | Not directly — fill the fields |
 
@@ -97,7 +97,7 @@ churned (and reversing it). Precedence, highest first:
 |---|---|
 | **Churned** | A CSM has manually marked the account churned (`client.properties.__status_override = "churned"`). Wins over everything. |
 | *(no tracked deals)* | If the account has **no tracked deals**, it is **Active** when ARR > 0, otherwise **Onboarding**. Launch dates are not consulted. |
-| **Renewal** | Any **tracked** deal's renewal date — contract start date + 1 year, falling back to close date + 1 year — falls within the next 90 days. An overdue renewal date does not count. |
+| **Renewal** | Any **tracked** deal's renewal date — contract start date + 1 year − 1 day (the term's last day), falling back to close date — falls within the next 90 days. An overdue renewal date does not count. |
 | **Active** | **Any deal on the account — tracked or unticked** — has a launch date (`client.properties.__deal_dates[dealId].launch_date`, the deal card's "Launch" field). |
 | **Onboarding** | Default: the account has tracked deals but no deal on it carries a launch date. |
 
