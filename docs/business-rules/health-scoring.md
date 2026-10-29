@@ -1,169 +1,229 @@
-# Business rule — Health scoring and at-risk classification
+# Business rule: Health scoring and at-risk classification
 
-**Status:** **Contradictory** — two health systems exist. See
-[health](../product/health/README.md) §1 first.
-**Last verified:** 2026-07-31 · **Commit:** `4214349`
+**Status:** Verified against code. One health system scores accounts: the engine in
+`lib/health/`, running the published model in `lib/health/model-v1.ts`.
+**Last verified:** 2026-10-29 · **Commit:** `3b635c3`
 
-This document states the rules of the **live** system (`lib/metrics/health.ts`), which is
-what users see. The rules of the unwired engine (`lib/health/`) are documented in
-[`docs/health-engine.md`](../health-engine.md) and **must not be described as Signal's
-current behaviour**.
-
----
-
-## R1 — Health is a weighted sum of available metrics
-
-**Definition.** A 0–100 score over the metrics an admin enabled, restricted to those that
-have data for this client, renormalised over the weights that participated.
-
-**Formula.**
-```
-score = round( Σ(subscore_i × weight_i) / Σ(weight_i) )
-```
-for every metric `i` that is **enabled** and has a **non-null** sub-score.
-
-**Inputs and their sources.**
-
-| Metric | Sub-score | Source |
-|---|---|---|
-| `usage` | `AdoptionScore.score` (0–100) | Metabase, via `getClientUsage` |
-| `csat` | Normalised rating, linear between `zeroAt`/`fullAt` | Intercom conversation ratings |
-| `platform_csat` | "% satisfied" (already 0–100), linear between cutoffs | Intercom Surveys |
-| `nps` | Linear between `zeroAt` (−100) and `fullAt` (100) | Intercom Surveys |
-| `sla_breaches` | `100 − min(breaches, maxBreaches)/maxBreaches × 100` | Intercom + `lib/sla.ts` |
-| `onboarding_period` | 100 at ≤ `targetDays` (30), 0 at ≥ `maxDays` (90), linear between | Deal dates |
-| `use_case_set` | 100 / 0 | Client use cases |
-| `profile_complete` | 100 when severity is `none`, else 0 | `computeProfileCompleteness` |
-| `stakeholder_mapping` | 100 / 0 | Stakeholder mapping |
-
-**Code.** `computeHealthScore`, `subscoreFor` in
-[`lib/metrics/health.ts`](../../lib/metrics/health.ts). **Tests.** None.
+Since 2026-08-03 (`9a8ea59`, "the recompute now runs the published model") the daily
+recompute scores every account with the engine. The older weighted formula in
+`lib/metrics/health.ts` and its `client_health_formula` config no longer produce any stored
+score. See [Leftovers from the old formula](#leftovers-from-the-old-formula).
 
 ---
 
-## R2 — Two kinds of exclusion, and they are not the same
+## R1: The score is a weighted sum of four components
 
-| | Effect |
+**Definition.** A 0–100 calculated score from four top-level components, each itself a
+weighted sum of sub-components scored 0–100.
+
+| Component | Weight | Mandatory | Sub-components (weight inside the component) |
+|---|---|---|---|
+| Product Adoption and Value Realization | **50%** | Yes | Meaningful Reach 40% · Workflow Progress 30% · Completion and Outcomes 20% · Use Case Breadth 10% |
+| Customer Success Pulse | **25%** | Yes | Stakeholder Coverage 35% · Engagement and Execution 30% · Renewal Readiness 35% |
+| Support and Reliability | **15%** | No | SLA and Resolution 30% · Critical/High Incident Burden 30% · Aged and Reopened Tickets 20% · Ticket Satisfaction 20% |
+| Client Sentiment | **10%** | No | NPS only, normalised as `(nps + 100) / 2` |
+
+**How sub-components score.**
+
+| Sub-component | Formula |
 |---|---|
-| **Disabled metric** | Excluded from **every** client, unconditionally |
-| **Enabled metric, no data for this client** | Excluded **for that client only**; remaining weights renormalise |
+| Meaningful Reach | `meaningfully_active_users / target_cohort × 100`, falls back to login-proxy active users |
+| Workflow Progress | Actual progress against stage-expected progress |
+| Completion and Outcomes | `completed_matured_workflows / total_matured_workflows × 100` |
+| Use Case Breadth | Step table on live use cases: 4+ → 100, 3 → 80, 2 → 60, 1 → 35, 0 → 0 |
+| Pulse dimensions | CSM rating: Strong 100 · Moderate 75 · Weak 40 · Critical 0 |
+| SLA and Resolution | Resolved within target ÷ eligible resolved tickets |
+| Incident Burden | Any open P1 → 0 · 2+ aged high-severity → 40 · 1+ resolved high-severity → 75 · else 100 |
+| Aged and Reopened | Serious persistent issue → 0 · 3+ aged/reopened → 40 · 1+ → 75 · else 100 |
+| Ticket Satisfaction | Satisfied ÷ valid rated tickets, needs at least 3 ratings in 90 days |
 
-**Neither is faked with a neutral filler value.** That is why one universally-empty signal
-(NPS today) does not drag every client's score down.
+**Why these weights.** Adoption carries half because value realised is the strongest
+predictor of renewal. Pulse is the only judgement in the model and covers what usage and
+support data cannot see (a champion leaving, a stalled sponsor). Support and sentiment are
+optional because many accounts have little of either.
 
-**Exception.** A client with **zero** available metrics scores **0** — indistinguishable in
-the UI from a genuinely terrible account. This is a real ambiguity.
+**Why Use Case Breadth.** It replaced "Manager and Admin Participation", which counted
+performance cycles rather than people and had data on 19 of 121 usage snapshots. Breadth is
+data Signal owns for every live account, and an account running one use case is one budget
+review away from having no reason to renew.
 
----
-
-## R3 — `null` means "no reading", not "bad"
-
-- `usage`: null when usage is unavailable or the account is unlinked.
-- `csat` / `platform_csat`: null when the value is null **or** the response count is 0.
-- `nps`: null when null.
-- `sla_breaches`: null when `supportLevelUsed` is null — SLA is not evaluated for this
-  account at all.
-- `onboarding_period`: null when `days` is null.
-
-The same principle governs the Action list: usage signals fire **only** when
-`usage.status === "ok"`. Absence of data is never treated as evidence.
-
----
-
-## R4 — `profile_complete` is binary, deliberately
-
-Not the three-tier red/yellow/none gradation that profile completeness normally shows.
-The metric was scoped as "incomplete profile if yes or not", and the code carries that
-note. So a client with one yellow gap scores the same as one with twelve red gaps: **0**.
+**Code.** `MODEL_V1_1` in [`lib/health/model-v1.ts`](../../lib/health/model-v1.ts),
+evaluated by [`lib/health/engine.ts`](../../lib/health/engine.ts). Facts are assembled in
+[`lib/health/facts.ts`](../../lib/health/facts.ts).
 
 ---
 
-## R5 — Tiers are admin-defined
+## R2: Missing data is redistributed, or the account is Not Assessed
 
-**Definition.** A score resolves to the **highest tier whose `minScore` it meets**.
+| Situation | Effect |
+|---|---|
+| An optional sub-component or component has no data | Its weight is redistributed proportionally to the ones that do |
+| A **mandatory** component (Adoption or Pulse) has no data | **Not Assessed**, no score |
+| Data coverage below **70%** of the enabled top-level weight | **Not Assessed**, no score |
+| Account status is `onboarding` | **Implementation**, not scored |
 
-**Shape.** `HealthTierDef` = `{ id, name, minScore, color }`. Names and cutoffs are
-workspace configuration — they are **not** fixed to Healthy/Watch/At Risk/Critical.
+Coverage is measured on the original weights, before redistribution.
 
-**Exception.** The lowest tier should have `minScore: 0` so every score has a home. If the
-config has no tiers, `resolveTier` falls back to `DEFAULT_HEALTH_TIERS`.
+**Why.** Absent data is our gap, not the customer's. A low number would read as a bad
+account; Not Assessed says the truth and points at the data fix.
 
-**Consequence for documentation:** never hard-code tier names. The 65/50/25 bands in
-`docs/health-engine.md` belong to the **engine's** Version 1.1 seed, not to the live
-product.
+**A Pulse lapses after 30 days.** A lapsed Pulse counts as missing, so the account becomes
+Not Assessed until it is refreshed.
 
 ---
 
-## R6 — Recomputation
+## R3: The score resolves to a band
+
+| Band | Score |
+|---|---|
+| Healthy | 65 and above |
+| Watch | 50–64 |
+| At Risk | 25–49 |
+| Critical | below 25 |
+
+Bands are editable in Settings → Client health (R6).
+
+---
+
+## R4: The applied status can only be lower than the band
+
+The band is where the number lands. The **applied status** is what every surface shows.
+Rules can hold an account below its band; nothing lifts it above.
+
+**Healthy qualification.** All must hold, otherwise the account is capped at Watch:
+
+- Product Adoption ≥ 65
+- CS Pulse ≥ 75
+- Data coverage ≥ 85%
+- Not single-threaded (fires only when someone said it is; blank is not a yes)
+- A valid CS Pulse exists
+
+**Status rules,** applied in priority order:
+
+| Effect | Rules |
+|---|---|
+| Replace with **Churned** | Account status is `churned` |
+| Force **Critical** | Termination notice received · Imminent churn evidence · Unresolved executive escalation |
+| Cap at **At Risk** | Open P1 ticket · Negative renewal intent · Suspension requested · Material scope reduction requested · No activity 60 days after launch · CS Pulse < 60 · Competitive replacement underway |
+| Cap at **Watch** | Product Adoption < 65 · Single-threaded · No sponsor access · Champion left without replacement · Renewal within 90 days and economic buyer unknown |
+
+Coverage below 85% also caps at Watch.
+
+**Where the facts come from.** Single-threaded, sponsor access, champion left and economic
+buyer known come from the CSM's Pulse answer, then the mapped stakeholder roster, and stay
+`null` when neither says. Renewal intent, competitive replacement, suspension, scope
+reduction and executive escalation come from the Pulse. Incidents come from support tickets.
+
+**Why.** A weighted average can hide one serious problem. On 2026-08-03, eight of nine
+accounts carrying a Critical Pulse rating read Healthy or Watch under the old formula,
+because record-keeping metrics at 100 outvoted it. The calculated score is never
+overwritten; each rule that moved the account is stored in `reasons` / `reasonDetails`.
+
+---
+
+## R5: What is stored
+
+`clients.health` (JSONB), written by `toStoredHealth` in
+[`lib/health/to-stored.ts`](../../lib/health/to-stored.ts):
+
+| Field | Meaning |
+|---|---|
+| `score` | The calculated score, unmodified |
+| `tier` | The **applied status**, not the band |
+| `band` | The band the score fell in, before caps |
+| `reasons`, `reasonDetails` | Why `tier` differs from `band`, with rule id and shortfall |
+| `coverage`, `confidence` | Share of weight with data; High ≥ 85%, Moderate ≥ 70% |
+| `momentum` | Change since the last stored score: Improving at +5 or more, Stable, Declining, Rapidly Declining at −10 or worse |
+| `notAssessed`, `notAssessedReason` | Set when R2 stops scoring |
+| `evidence` | Metric values behind each component |
+
+`Churned`, `Implementation` and `Not Assessed` are lifecycle states, not health judgements.
+Counts of at-risk accounts must skip them (`NON_SCORING_STATUSES`).
+
+---
+
+## R6: What an admin can change
+
+Settings → Client health (Super Admin), stored in `workspace_config.health_model_overrides`:
+
+- The four top-level component weights
+- The band names and cutoffs
+- Each qualification gate and status rule: on/off, its single numeric threshold, and where
+  a status rule caps to
+- Minimum coverage for assessment
+- CS Pulse dimensions and rating scale
+
+Formulas, sub-component weights and rule conditions stay in code. An admin can move a
+number; they cannot retype what a rule means.
+
+**Code.** [`lib/health/model-overrides.ts`](../../lib/health/model-overrides.ts),
+`model-overrides-store.ts`.
+
+---
+
+## R7: Recomputation
 
 | Trigger | Scope |
 |---|---|
 | `/api/cron/client-health`, daily `0 9 * * *` | Every client |
-| Immediately after a Super Admin saves the health formula | Every client |
+| Any save on Settings → Client health | Every client |
+| Recalculate button on the client profile | That client |
 
-The cron time is deliberate: it runs **after** intercom-sync (`0 6`), usage-sync
-(`15 */4`) and client-actions (`0 8`), so it reads same-day-fresh support and usage data.
+The cron runs after intercom-sync (`0 6`), usage-sync (`15 */4`) and client-actions
+(`0 8`). The Action list therefore reads **yesterday's** health.
 
-**Consequence:** the Action list's health signal reads **yesterday's** health, because
-actions are generated an hour before health recomputes.
+Tier moves found by the daily cron become notifications. Moves caused by a Settings save do
+not, because the model changed, not the accounts.
 
 ---
 
-## R7 — Health is not churn, risk, or renewal confidence
+## R8: At-risk classification in the Action list
 
-Four distinct concepts that must never be used interchangeably:
+The Action list reads the **applied status and its reasons**, not a score threshold. It
+raises one recommendation per active gate or rule, high priority on Critical or At Risk,
+medium otherwise. Lifecycle states raise nothing.
+
+**Code.** `#5 Health` in [`lib/actions/signals.ts`](../../lib/actions/signals.ts).
+
+---
+
+## R9: Health is not churn, risk, or renewal confidence
 
 | Concept | Nature | Where it lives |
 |---|---|---|
-| **Health** | Current condition, 0–100 + tier | `clients.health` |
+| **Health** | Current condition: score + applied status | `clients.health` |
 | **Risk signal** | Evidence contributing to a read | CS Pulse risk signals; Action list signals |
 | **Renewal confidence** | Commercial outlook | Forward outlook in Insights |
 | **Churn** | Recorded outcome with its own taxonomy | `arr_events` type `churn` + reason |
 
-A churned account is excluded from health, at-risk and concentration analysis.
-
 ---
 
-## R8 — Overrides preserve the calculated score
+## Known gaps
 
-**Stated rule** (from `docs/health-engine.md` and the engine's tests): a status rule or a
-manual override changes the **applied status** but **never destroys the calculated score**.
+1. **Three status rules can never fire.** Nothing populates `termination_notice_received`,
+   `imminent_churn` or `days_since_meaningful_activity` in `lib/health/facts.ts`.
+2. **No health history.** Only the latest score is stored; momentum compares against the
+   previous row. The engine's `health_*` tables have no writer.
+3. **No audit of Settings changes** to the model.
+4. **NPS and ticket CSAT were null for every client** when last checked (2026-07-31). Where
+   that still holds, Sentiment and Ticket Satisfaction are redistributed away rather than
+   scored. Not re-verified in this pass.
 
-**Status: `Partially verified`.** This is proven for the **engine**. The live path is
-separate code (`lib/repo/drizzle.ts` → `recomputeClientHealth`, plus
-`app/(app)/clients/[id]/health-actions.ts`). **Verify before relying on it.**
+## Leftovers from the old formula
 
----
+Still in the repo, not used for any stored score:
 
-## R9 — At-risk classification
+- `lib/metrics/health.ts` (`computeHealthScore`), `health-config.ts`, `health-config-store.ts`
+- `workspace_config.client_health_formula`, still present in the database
+- An unused `getClientHealthConfig` import in `lib/repo/drizzle.ts`
+- The header comment in `lib/actions/signals.ts` that still describes `< 55` / `55–74`
+  thresholds
 
-**Status: `Unverified`.** The Action list uses explicit numeric thresholds — health `< 55`
-is at-risk, `55–74` is watch (`lib/actions/signals.ts`). Insights has its own at-risk panel.
-**These were not confirmed to share a single definition.** Until they are, do not document
-"at risk" as one concept with one threshold.
-
----
-
-## Known inconsistencies
-
-1. **Two health systems** — the headline contradiction.
-2. **The live formula has no tests**; the unused engine has 20.
-3. **Score 0 is ambiguous** (R2).
-4. **Action-list thresholds (55/74) are hardcoded** while tiers are configurable — an
-   admin can rename and re-cut tiers without changing what the Action list calls at-risk.
-5. **NPS and CSAT are null for every client**, so satisfaction holds weight and contributes
-   nothing.
-6. **No health history** for the live score, so no trend is possible.
-7. **No audit** of health-formula changes.
-
-## Open questions
-
-- Do the live path's overrides preserve the calculated score?
-- Is "at risk" one definition or several?
-- Should the Action list's thresholds derive from the configured tiers?
+Do not quote the old metrics, weights, or 75/55 tiers as current behaviour.
 
 ## Source references
 
-`lib/metrics/health.ts` · `lib/metrics/health-config.ts` · `lib/metrics/health-drag.ts` ·
-`lib/actions/signals.ts` · `app/api/cron/client-health/route.ts` · `docs/health-engine.md` ·
-`lib/health/engine.test.ts`
+`lib/health/model-v1.ts` · `lib/health/engine.ts` · `lib/health/facts.ts` ·
+`lib/health/service.ts` · `lib/health/to-stored.ts` · `lib/health/model-overrides.ts` ·
+`lib/repo/drizzle.ts` (`recomputeClientHealth`) · `app/api/cron/client-health/route.ts` ·
+`lib/actions/signals.ts` · `lib/health/engine.test.ts`

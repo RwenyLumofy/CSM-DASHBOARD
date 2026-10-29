@@ -164,7 +164,8 @@ the JSONB inventory below.
 
 | Key | Entity |
 |---|---|
-| `client_health_formula` | Health metrics, weights, tunables, tiers |
+| `client_health_formula` | **Unused.** Config for the retired `lib/metrics/health.ts` formula |
+| `health_model_overrides` | Admin overrides to the health model: component weights, bands, gate and rule thresholds, minimum coverage |
 | `use_case_taxonomy` | The admin-curated use-case overlay |
 | `churn_taxonomy` | Categories → reasons |
 | assignment config keys | CSM and Implementation routing rules, capacity bands |
@@ -180,7 +181,7 @@ the JSONB inventory below.
 |---|---|
 | `playbooks`, `playbook_tasks` | Feature not implemented — [playbooks](../product/playbooks/README.md) |
 | `timeline_events` | `getTimelineForClient()` and `getRecentActivity()` return `[]` |
-| `health_*` (19 tables) | The health engine is not wired to any job or route |
+| `health_*` (19 tables) | The health engine runs, but scores into `clients.health`; nothing writes these tables |
 
 Documenting these as live entities would be exactly wrong. They are listed so nobody
 mistakes their presence for a feature.

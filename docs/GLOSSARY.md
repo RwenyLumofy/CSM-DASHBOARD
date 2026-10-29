@@ -103,12 +103,18 @@ on the deal and renewal ARR events on the ledger.
 
 ## Health, risk and churn — four different things
 
-**Health** — the account's **current condition**: a 0–100 weighted score over up to eight
-metrics, resolved to an admin-named tier. Recomputed daily.
-`lib/metrics/health.ts`, `lib/metrics/health-config.ts`.
+**Health** — the account's **current condition**: a 0–100 score over four weighted
+components (Product Adoption, CS Pulse, Support and Reliability, Client Sentiment), plus an
+applied status. Recomputed daily by the engine in `lib/health/`. See
+[health-scoring](business-rules/health-scoring.md).
 
-**Health tier** — the band a score lands in. Admin-defined name, cutoff and colour — not
-fixed to Healthy/Watch/At Risk.
+**Health band** — where the score lands: Healthy, Watch, At Risk, Critical by default.
+Names and cutoffs are editable in Settings.
+
+**Applied status** — what every surface shows as the account's health. Equal to the band,
+or lower when a qualification gate or status rule holds it down. Stored as
+`clients.health.tier`. Can also be a lifecycle state: Churned, Implementation, Not
+Assessed.
 
 **CS Pulse** — the CSM's **qualitative** read of an account: rated dimensions with rubrics
 plus risk signals, captured through a form and stored in `clients.properties.cs_pulse`.

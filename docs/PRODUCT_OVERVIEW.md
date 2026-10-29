@@ -199,12 +199,13 @@ These are the ones that change how you should read the rest of the documentation
    unconditionally. The trigger types (`health_below`, `renewal_within`, …) are declared
    in `lib/types.ts` but **nothing evaluates them**. The page is permanently empty.
    *Status: Deprecated / not implemented.*
-2. **Two health systems.** The live score is `lib/metrics/health.ts` (8 weighted metrics,
-   recomputed by `/api/cron/client-health`). A second, far more sophisticated
-   config-driven engine exists at `lib/health/` with 19 tables, 25 tests and its own
-   [design document](health-engine.md) — and is documented there as *"inert until wired
-   into a job/endpoint"*. Only its CS Pulse capture is user-facing today.
-   *Status: Contradictory / partially implemented.*
+2. **One health system, with leftovers of the old one.** Since 2026-08-03 the score comes
+   from the engine in `lib/health/` (model v1.1: four weighted components, bands, and
+   gates and status rules that can hold the applied status below the band), recomputed by
+   `/api/cron/client-health`. The older weighted formula in `lib/metrics/health.ts` is still
+   in the repo but scores nothing. The engine's 19 `health_*` tables still have no writer.
+   See [health-scoring](business-rules/health-scoring.md).
+   *Status: Verified 2026-10-29.*
 3. **Two use-case taxonomies**, explicitly uncoupled and sharing no ids.
 4. **Six test files.** `lib/use-cases*`, `lib/health/engine`, `lib/stakeholders/coverage`.
    Everything else in this documentation is `Partially verified` at best.
