@@ -7,9 +7,10 @@
 
      - Highest wins: churned → renewal overdue → renewal due → onboarding → active.
      - Churned: a counted churn record has taken effect.
-     - Renewal due: the renewal date is within 90 days, or passed in the last 14.
-     - Renewal overdue: the renewal date passed more than 14 days ago with no
-       renewal or churn recorded.
+     - Renewal due: the renewal date is within 120 days (decided 2026-10-25,
+       was 90, so the Renewals board and the status open together).
+     - Renewal overdue: the renewal date has passed with no renewal or churn
+       recorded. No grace period (decided 2026-10-25, was 14 days).
      - A renewal recorded ahead of time settles the coming renewal: the date
        is read from the new term.
      - Launch is a fact about the account: a launch date on any counted record.
@@ -24,9 +25,12 @@ export const STATUS_LABEL: Record<ContractStatus, string> = {
   onboarding: "Onboarding", active: "Active", renewal: "Renewal due", overdue: "Renewal overdue", churned: "Churned",
 };
 
-export const RENEWAL_WINDOW = 90;
-/** Days after the renewal date before "Renewal due" becomes "Renewal overdue". */
-export const OVERDUE_GRACE = 14;
+/** Days before the renewal date that a renewal is due. lib/status.ts uses the same window. */
+export const RENEWAL_WINDOW = 120;
+/** Days after the renewal date before "Renewal due" becomes "Renewal overdue".
+ *  Zero: overdue the day after the date passes. Kept as a constant so filters
+ *  that mirror the rule (the Clients list's Overdue filter) can't drift. */
+export const OVERDUE_GRACE = 0;
 /** How long a status set by hand lasts. */
 export const OVERRIDE_DAYS = 30;
 
@@ -84,8 +88,7 @@ export function statusFromRecords(all: StatusRecord[], today: string): { key: Co
   }
   if (renewal) {
     const days = daysBetween(today, renewal);
-    if (days < -OVERDUE_GRACE) return { key: "overdue", why: `Renewal date ${fmt(renewal)} passed ${-days} days ago with no renewal or churn recorded.` };
-    if (days < 0) return { key: "renewal", why: `Renewal date ${fmt(renewal)} passed ${-days} days ago. It becomes overdue after ${OVERDUE_GRACE} days.` };
+    if (days < -OVERDUE_GRACE) return { key: "overdue", why: `Renewal date ${fmt(renewal)} passed ${-days} day${days === -1 ? "" : "s"} ago with no renewal or churn recorded.` };
     if (days <= RENEWAL_WINDOW) return { key: "renewal", why: `Renewal date ${fmt(renewal)} is in ${days} days.` };
   }
   if (!launch || launch > today) {

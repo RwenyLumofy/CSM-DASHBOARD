@@ -30,9 +30,13 @@ test("a launch date on the tracked deal still counts", () => {
   assert.equal(computeClientStatus([deal("sale", true, "2026-03-01")], { sale: "2026-04-01" }, undefined, 50_000, NOW), "active");
 });
 
-test("a renewal due within 90 days wins over active", () => {
+test("a renewal due within 120 days wins over active", () => {
   const deals = [deal("sale", true, "2025-11-14")]; // renews 2026-11-14, 37 days away
   assert.equal(computeClientStatus(deals, { sale: "2025-11-30" }, undefined, 17_608, NOW), "renewal");
+  const edge = [deal("sale", true, "2026-02-05")]; // renews 2027-02-05, 120 days away
+  assert.equal(computeClientStatus(edge, { sale: "2026-02-20" }, undefined, 17_608, NOW), "renewal");
+  const outside = [deal("sale", true, "2026-02-06")]; // 121 days away
+  assert.equal(computeClientStatus(outside, { sale: "2026-02-20" }, undefined, 17_608, NOW), "active");
 });
 
 test("marking an account churned wins over everything", () => {

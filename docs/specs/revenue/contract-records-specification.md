@@ -80,8 +80,8 @@ fields are covered by `lib/contracts/import.test.ts`.
 ## 4. Status
 
 - Worked out from the records: Onboarding (no launch yet) → Active → **Renewal due**
-  (within 90 days) → **Renewal overdue** (14 days after the renewal date with no renewal
-  or churn recorded) → Churned (a churn record has taken effect).
+  (within 120 days) → **Renewal overdue** (the day after the renewal date, with no renewal
+  or churn recorded). The window was 90 days with a 14-day grace until 2026-10-25. → Churned (a churn record has taken effect).
 - Launch is a fact about the account: a launch date on any record counts.
 - The account's CSM, admins and super admins can set any status by hand, with a
   **required reason**; it expires after **30 days** or at the next renewal or churn.
@@ -196,12 +196,12 @@ read end to end but have no test. Checked by hand on the test database on 2026-1
 1. **Preview banner** — says saves are real and logged, that nothing else in Signal reads
    these records yet, and shows the account's live ARR and status (still from HubSpot
    deals). A **Show amounts in** picker switches the display between USD, BHD and SAR.
-2. **Status from contract records** — Onboarding, Active, Renewal due (within 90 days),
+2. **Status from contract records** — Onboarding, Active, Renewal due (within 120 days),
    Renewal overdue, or Churned, with the sentence that explains it, a timeline, and a
    **See status on** date picker to see what the records give on another day. The rules
    are in `lib/contracts/status.ts` (tested in `status.test.ts`). It is the contract tab's
-   status only: it is not the account's status anywhere else in Signal. "Renewal overdue" follows §4: it shows 14 days
-   after the renewal date; until then the account stays "Renewal due". A status
+   status only: it is not the account's status anywhere else in Signal. "Renewal overdue" follows §4: it shows from the day
+   after the renewal date. A status
    set by hand (below) wins over the records' status while it applies, except Churned.
 3. **Summary** — **ARR from records** with the live ARR beside it when they differ by more
    than 1 US dollar ("Live ARR today is …", otherwise "Same as live ARR today"), licences

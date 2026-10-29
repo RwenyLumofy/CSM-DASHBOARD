@@ -41,10 +41,12 @@
    ========================================================================= */
 
 import type { AccountStatus } from "@/lib/types";
+import { RENEWAL_WINDOW } from "@/lib/contracts/status";
 
 export const STATUS_OVERRIDE_KEY = "__status_override";
 
-const RENEWAL_WINDOW_DAYS = 90;
+// The same window as the contract-records status, so both agree on "renewal due".
+const RENEWAL_WINDOW_DAYS = RENEWAL_WINDOW;
 
 export interface StatusDeal {
   id: string;
