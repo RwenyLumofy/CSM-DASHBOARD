@@ -17,7 +17,7 @@ Contradictions have their own file: [contradictions.md](contradictions.md).
 | **Ten use cases can have no adoption data at all** | GDP, IDPs, PIPs, AI Readiness, 360° Feedback, Career Coaching & Development Conversations, Career Transition Readiness, Employee Engagement & Feedback Measurement, Digital Transformation, and Hiring & Role-Based Assessments are absent from HubSpot's `use_cases` picklist, so no deal can declare them and the backfill has nothing to draw on. They will read "No clients yet" until a CSM records one on an account. This is a gap in the source system, not in the Universe — [`lib/use-cases.ts`](../../lib/use-cases.ts) documents the same drift |
 | **A key removed from a data model is not a compile error** | The taxonomy was once a delta on the code-shipped list, and `overlay.renamed[id]` was how a shipped entry's label, category or summary was overridden. `7f731b7` rewrote the overlay as a flat database and removed `renamed`, so `normalizeOverlay` silently drops it. Everything the Use Case Definition Library had recorded there — 11 renames and category moves, 25 summaries — went with it, and the app fell back to the original shipped wording without anything failing. Repaired by [`scripts/reconcile-taxonomy-with-definition-library.mjs`](../../scripts/reconcile-taxonomy-with-definition-library.mjs). The general risk stands: `workspace_config` values are schemaless JSONB, so a key that stops being read produces stale output rather than an error. Any future change to a normalizer should ask what already-stored data it stops honouring |
 | **`scripts/restore-orphaned-use-cases.mjs` is a one-off repair, not a migration** | It exists to rescue environments damaged by the pre-`7f731b7` orphaning bug. Whether any environment other than the clone still needs it has not been established |
-| **The health-engine schema is tracked but unwired** | `lib/db/health-schema.ts` and the `drizzle/health-*.sql` files were committed in `15329e3`. Nothing shipped writes them. See [health-engine.md](../health-engine.md) |
+| **The health-engine tables are unwritten** | `lib/db/health-schema.ts` and the `drizzle/health-*.sql` files were committed in `15329e3`. The engine runs, but stores its result in `clients.health`; nothing writes these tables. See [health-engine.md](../health-engine.md) |
 
 ## Verified by reading and unit test, never exercised in a browser
 
@@ -45,7 +45,8 @@ What is untested is everything between the button and the pure function.
 |---|---|
 | **Playbooks is non-functional** | `/playbooks` is in the sidebar and permanently empty. `getPlaybooks()` returns `[]`. No trigger is ever evaluated. [Details](../product/playbooks/README.md) |
 | **`timeline_events` is unwritten** | The table exists; `getTimelineForClient()` and `getRecentActivity()` return `[]`. There is no activity timeline |
-| **The health engine does not run** | 13 modules, 19 tables, 25 tests, its own design document — invoked by nothing except CS Pulse capture |
+| **The retired health formula is still in the repo** | `lib/metrics/health.ts` and `workspace_config.client_health_formula` score nothing since 2026-08-03, when the engine in `lib/health/` took over. Easy to read as current. See [health-scoring](../business-rules/health-scoring.md) |
+| **Three health status rules can never fire** | Nothing populates termination notice, imminent churn or days since meaningful activity, so those rules are inert |
 | **Sentiment signals never fire** | `csat` and `nps` are null for every client, so the Action list's sentiment scaffolding is inert while the metrics still hold health weight |
 | **Projects signal (#3) and stakeholder-engagement signal (#6b) are unimplemented** | Project deadlines are computed and passed into the signal engine, and no rule consumes them |
 
@@ -81,7 +82,7 @@ What is untested is everything between the button and the pure function.
 | **Historical churn has no structured reason** | 56 of 76 events carry only free text; 20 carry nothing. The taxonomy only applies going forward |
 | **One churn reason per account** | Real churn usually has several causes. The reason is on the client, not the event, so a re-churned account cannot carry two |
 | **No health history** | `/reports/health` is explicitly "as of today". `health_score_snapshots` exists and is unused |
-| **Health score 0 is ambiguous** | Genuinely bad, or no metrics available at all |
+| **Health score 0 was ambiguous** | Resolved by the engine: an account without enough data is Not Assessed, not 0 |
 | **`clients.properties` is untyped JSONB** | Malformed data is caught only by each module's own normaliser. Not queryable across accounts |
 | **Three task tables, two used** | `today_tasks`, `project_tasks`, and the unwritten `playbook_tasks` |
 | **No timezone model** | Period membership compares `YYYY-MM-DD` prefixes; time of day and timezone are ignored |

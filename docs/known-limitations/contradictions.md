@@ -7,39 +7,15 @@ is preserved for a human to resolve — none has been silently decided here.
 
 ---
 
-## Two health systems
+## Two health systems (resolved)
 
-**Severity:** High — it determines what "health" means in the product.
+**Resolved 2026-08-03 to 2026-08-05** (`9a8ea59`, `1aec1a1`, `31777c2`). The engine in
+`lib/health/` now scores every account, Settings → Client health edits its model, and every
+surface reads its applied status. The old formula in `lib/metrics/health.ts` is leftover
+code that scores nothing. See [health-scoring](../business-rules/health-scoring.md).
 
-| | Live | Engine |
-|---|---|---|
-| Code | `lib/metrics/health.ts` (136 lines) | `lib/health/` (13 files) |
-| Storage | `clients.health`, `clients.properties.cs_health` | 19 tables (`lib/db/health-schema.ts`) |
-| Tests | **None** | **25 passing** (`lib/health/engine.test.ts`) |
-| Runs | Daily via `/api/cron/client-health` | **Nothing invokes it** |
-| Documented | This documentation set | [`docs/health-engine.md`](../health-engine.md) |
-| Users see | Everywhere | **Only CS Pulse capture** |
-
-`docs/health-engine.md` states the engine *"is inert until wired into a job/endpoint — no
-user-facing surface changes on migrate."* Its own "Next increments" list confirms the metric
-data-loaders, calculation service, jobs, REST APIs, admin model editor and audit-log writes
-are all pending.
-
-**The confusing part:** the engine's **CS Pulse** *is* live. `lib/health/pulse.ts` is the
-source of truth for the CSM's qualitative read, and the profile panel, Today's nudge and
-`/reports/pulse` all read it. So one half of `lib/health/` is production and the other half
-is not.
-
-**Practical consequence:** anyone quoting bands "65 → Healthy, 50 → Watch, 25 → At Risk"
-is quoting the *engine's* Version 1.1 seed. The live tiers are admin-defined and may be any
-names and cutoffs.
-
-**Needs a decision from:** Product + Engineering.
-**Question:** Is the engine the intended future of health scoring, or abandoned work? Are
-its 19 tables migrated in production?
-
-**Files:** `lib/metrics/health.ts` · `lib/metrics/health-config.ts` · `lib/health/*` ·
-`lib/db/health-schema.ts` · `docs/health-engine.md`
+**Still open:** delete the leftover formula and its `client_health_formula` config, or keep
+them documented as retired.
 
 ---
 

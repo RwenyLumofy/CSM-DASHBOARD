@@ -1,92 +1,51 @@
 # Health and CS Pulse
 
-**Status:** Contradictory — two health systems exist. Read §1 before anything else.
+**Status:** Verified. One health system scores accounts: the engine in `lib/health/`.
+The full rules are in [health-scoring](../../business-rules/health-scoring.md).
 
-## 1. There are two health systems
-
-| | **Live health** | **Health engine** |
-|---|---|---|
-| Code | `lib/metrics/health.ts` + `health-config.ts` | `lib/health/` (13 files) |
-| Storage | `clients.health`, `clients.properties.cs_health` | 19 tables in `lib/db/health-schema.ts` |
-| Configured by | Settings → Client health (admin picks 8 metrics, weights, tiers) | Model versions: component trees, formulas, bands, rules |
-| Recomputed by | `/api/cron/client-health` daily, and on formula save | **Nothing** |
-| Tests | None | **25 passing** (`lib/health/engine.test.ts`) |
-| Surfaces in the product | Everywhere — profile, Today, Action list, Insights | **Only CS Pulse capture** |
-| Own documentation | This file | [`docs/health-engine.md`](../../health-engine.md) |
-
-`docs/health-engine.md` states it plainly: the engine *"is inert until wired into a
-job/endpoint — no user-facing surface changes on migrate."* Its 19 tables may or may not be
-migrated in production; that is not determinable from the repository.
-
-**The engine's CS Pulse is live** — `lib/health/pulse.ts` is the source of truth for the
-CSM's qualitative read, and the profile's Pulse panel, the Today pulse-due banner and
-`/reports/pulse` all read it. So the boundary is: *pulse capture is real, engine scoring is
-not.*
-
-Do not describe the engine's bands (65/50/25 → Healthy/Watch/At Risk/Critical) as Signal's
-health tiers. Those are the **engine's** Version 1.1 seed. The live tiers are
-admin-defined and may be any names and cutoffs.
-
----
-
-## 2. Live health — the score users actually see
+## 1. Client health
 
 ### Summary
-A 0–100 weighted score over up to eight metrics, resolved to an admin-named tier.
+A 0–100 calculated score over four weighted components, a band, and an **applied
+status** that gates and status rules can hold below the band. The applied status is what
+every surface shows.
 
 ### Purpose
-Gives every account one comparable number, and feeds the at-risk classification, the
-Action list's health signal, and the Insights health-drag panel.
+Gives every account one comparable read that cannot be talked into Healthy by a high
+average alone, and says why when an account sits below its number.
 
-### The formula
+### How it is calculated
 
-`lib/metrics/health.ts` → `computeHealthScore`. Weighted sum of **whichever enabled metrics
-have data for this client**, renormalised over the weights that participated.
+| Component | Weight | Notes |
+|---|---|---|
+| Product Adoption and Value Realization | 50% | Mandatory. Reach, workflow progress, completion, use-case breadth |
+| Customer Success Pulse | 25% | Mandatory. The CSM's ratings; lapses after 30 days |
+| Support and Reliability | 15% | SLA, incidents, aged tickets, ticket CSAT |
+| Client Sentiment | 10% | NPS |
 
-| Metric key | Sub-score (0–100) |
-|---|---|
-| `usage` | `AdoptionScore.score` from Metabase, or null if unavailable/unlinked |
-| `csat` | Intercom conversation ratings, normalised, then linear between `zeroAt` and `fullAt` |
-| `platform_csat` | Outbound survey "% satisfied" (already 0–100), linear between cutoffs |
-| `nps` | Linear between `zeroAt` (default −100) and `fullAt` (default 100) |
-| `sla_breaches` | `100 − (min(breaches, maxBreaches) / maxBreaches) × 100`; null if SLA not evaluated |
-| `onboarding_period` | 100 at/under `targetDays` (default 30), 0 at/over `maxDays` (default 90), linear between |
-| `use_case_set` | Binary: 100 or 0 |
-| `profile_complete` | **Binary**: 100 when severity is `none`, else 0 — deliberately not the 3-tier gradation |
-| `stakeholder_mapping` | Binary: 100 or 0 |
+- Missing optional data is redistributed. Missing Adoption or Pulse, or coverage below 70%,
+  makes the account **Not Assessed**. Onboarding accounts show **Implementation**.
+- Bands: Healthy 65+, Watch 50–64, At Risk 25–49, Critical below 25.
+- Healthy also requires Adoption ≥ 65, Pulse ≥ 75, coverage ≥ 85%, not single-threaded, and
+  a valid Pulse. Status rules can force Critical or cap at At Risk or Watch.
+- The score is never overwritten. `band`, `tier` (applied status) and the `reasons` behind
+  any difference are all stored in `clients.health`.
 
-Two different kinds of exclusion, and the distinction matters:
-
-- **Disabled metric** — excluded from *every* client, unconditionally.
-- **Enabled metric with no data for this client** — excluded *for that client only*, and
-  the remaining weights renormalise.
-
-Neither is faked with a neutral filler value. That is why one universally-empty signal
-(NPS today) does not drag every score down. A client with **zero** available metrics scores
-**0** — not "unknown". That is a real edge case, and it is not distinguished in the UI from
-a genuinely bad account.
-
-### Tiers
-Admin-defined (`HealthTierDef`: id, name, minScore, colour). A score lands in the **highest
-tier whose `minScore` it meets**. The lowest tier should have `minScore: 0` so every score
-has a home; `resolveTier` falls back to `DEFAULT_HEALTH_TIERS` if the config has none.
+### Configuration
+Settings → Client health (Super Admin): component weights, bands, gate and rule
+thresholds and on/off, minimum coverage, CS Pulse dimensions and rating scale. Stored in
+`workspace_config.health_model_overrides`. Formulas and rule conditions stay in code.
 
 ### Refresh
-- Daily, `/api/cron/client-health` at `0 9 * * *` — deliberately after intercom-sync,
-  usage-sync and client-actions so it reads same-day-fresh support and usage data.
-- On demand immediately after a Super Admin saves a new formula in
-  Settings → Automations → Client health.
-- `recomputeAllClientHealth()` in `lib/repo/drizzle.ts` is the entry point.
-
-### Override
-A manual health override is recorded on the account. Per the engine's stated principle
-(and `docs/health-engine.md`), an override changes the **applied** status and never
-destroys the calculated score. **Verify this holds in the live path before relying on it**
-— the live path is separate code from the engine that documents the rule.
+- Daily, `/api/cron/client-health` at `0 9 * * *`, after intercom-sync, usage-sync and
+  client-actions.
+- Every client, immediately after any save on Settings → Client health.
+- One client, from the profile's Recalculate button.
+- Tier moves from the daily run become notifications.
 
 ---
 
-## 3. CS Pulse — the CSM's qualitative read
+## 2. CS Pulse — the CSM's qualitative read
 
 ### Summary
 Rated dimensions with rubrics, plus risk signals, captured by the CSM and stored on the
@@ -123,74 +82,69 @@ Settings.
 
 ---
 
-## 4. Business rules
+## 3. Business rules
 
 - **Health is a current condition.** Not a churn prediction, not a renewal forecast.
 - **Risk signals are evidence**, contributing to the read; they are not a status.
-- **A churned account has no health** and is excluded from health, at-risk and
-  concentration analysis.
-- **Missing data is not bad data** — a metric with no reading is excluded, not zeroed.
-  Except when *every* metric is missing, where the score is 0.
-- **Weights renormalise**, so an admin who enables three metrics still gets a 0–100 score.
+- **Churned, Implementation and Not Assessed are lifecycle states**, not health
+  judgements, and are skipped when counting at-risk accounts.
+- **Missing data is not bad data.** It is redistributed, or the account is Not Assessed.
+  It is never scored as 0.
+- **The applied status can only be at or below the band.**
 
 Cross-product detail: [health-scoring](../../business-rules/health-scoring.md).
 
-## 5. Technical implementation
+## 4. Technical implementation
 
 | Concern | File |
 |---|---|
-| Live formula | [`lib/metrics/health.ts`](../../../lib/metrics/health.ts) |
-| Formula config types | [`lib/metrics/health-config.ts`](../../../lib/metrics/health-config.ts) |
-| Config accessors (server) | `lib/assignment/config.ts` |
-| Recompute | `recomputeAllClientHealth` in `lib/repo/drizzle.ts` |
+| Published model | [`lib/health/model-v1.ts`](../../../lib/health/model-v1.ts) |
+| Engine | `lib/health/engine.ts`, `formula.ts`, `model.ts`, `validate.ts` |
+| Facts from usage, support, Pulse, stakeholders | `lib/health/facts.ts` |
+| Scoring entry point | `scoreAccount` in `lib/health/service.ts` |
+| Stored shape | `lib/health/to-stored.ts` |
+| Admin overrides | `lib/health/model-overrides.ts`, `model-overrides-store.ts` |
+| Recompute | `recomputeClientHealth` / `recomputeAllClientHealth` in `lib/repo/drizzle.ts` |
 | Job | `app/api/cron/client-health/route.ts` |
-| Health drag | `lib/metrics/health-drag.ts` |
+| Action list health signal | `#5 Health` in `lib/actions/signals.ts` |
 | Health page | `app/(app)/reports/health/page.tsx` |
-| CS Pulse model | `lib/health/pulse.ts`, `lib/health/model-v1.ts` |
+| CS Pulse model | `lib/health/pulse.ts` |
 | Pulse queue | `lib/health/pulse-queue.ts` |
 | Pulse UI | `components/clients/CsPulsePanel.tsx`, `PulseDrawer.tsx`, `components/pulse/` |
 | Pulse actions | `app/(app)/clients/pulse-actions.ts` |
-| **Engine (unwired)** | `lib/health/engine.ts`, `formula.ts`, `model.ts`, `validate.ts`, `service.ts` |
-| **Engine tests** | `lib/health/engine.test.ts` — 25 tests |
-| Engine schema | `lib/db/health-schema.ts`, `drizzle/health-tables.sql`, `drizzle/health-analytics-views.sql` |
+| Tests | `lib/health/*.test.ts` (engine, status, overrides, support facts, wording) |
+| Retired formula, unused | `lib/metrics/health.ts`, `health-config.ts`, `health-config-store.ts` |
 
-## 6. Analytics and observability
+## 5. Analytics and observability
 
-`drizzle/health-analytics-views.sql` defines Metabase views over the **engine's** tables
-(`analytics.account_health_*`). They are only useful once the engine runs.
-`health_audit_logs` exists and the live path does not write to it. No product analytics.
+`drizzle/health-analytics-views.sql` defines Metabase views over the engine's `health_*`
+tables. Nothing writes those tables, so the views are empty. `health_audit_logs` is
+likewise unwritten. No product analytics.
 
-## 7. Known limitations
+## 6. Known limitations
 
-1. **The two-system split is the headline limitation.** A well-tested, config-driven,
-   explainable engine sits unused next to an untested weighted average that runs
-   production.
-2. **No health history for the live score.** `/reports/health` is explicitly "as of today"
-   because no history exists. The engine has `health_score_snapshots`; the live path does
-   not use it.
-3. **Score 0 is ambiguous** — genuinely bad, or no data at all.
-4. **The live formula has no tests.**
-5. **NPS and CSAT are null for every client today**, so satisfaction contributes nothing
-   in practice while still occupying weight in the config.
-6. **`drizzle/meta` is stale**, so `db:generate` emits a full-schema baseline rather than
-   an incremental. Health tables must be applied from the reviewed extracted SQL. This is
-   documented in `docs/health-engine.md` and is a live operational hazard.
+1. **No health history.** `/reports/health` is "as of today"; momentum compares against the
+   previous stored score only.
+2. **Three status rules can never fire** (termination notice, imminent churn, no activity
+   for 60 days): nothing populates their facts.
+3. **No audit of Settings changes** to the model, and a save rescores every account.
+4. **The retired formula is still in the repo**, with its `client_health_formula` config,
+   and is easy to mistake for the live one.
+5. **`drizzle/meta` is stale**, so `db:generate` emits a full-schema baseline rather than
+   an incremental. Health tables must be applied from the reviewed extracted SQL.
 
-## 8. Open questions
+## 7. Open questions
 
-- Is the `lib/health/` engine the intended future of health scoring, or abandoned work?
-  This determines whether the live formula should be documented as permanent or transitional.
-- Are the 19 health tables migrated in production?
-- Does the live health path preserve the calculated score under a manual override, as the
-  engine's design requires?
+- Should the retired `lib/metrics/health.ts` formula and its config be deleted?
+- Should the engine write `health_score_snapshots` so health has a history?
 
 ## Source references
 
-`lib/metrics/health.ts` · `lib/metrics/health-config.ts` · `lib/health/*` ·
-`lib/db/health-schema.ts` · `docs/health-engine.md` · `app/api/cron/client-health/route.ts` ·
-`app/(app)/reports/health/page.tsx` · `vercel.json`
+`lib/health/*` · `lib/repo/drizzle.ts` · `app/api/cron/client-health/route.ts` ·
+`lib/actions/signals.ts` · `app/(app)/reports/health/page.tsx` · `docs/health-engine.md` ·
+`vercel.json`
 
 ---
 
-**Documentation status:** Partially verified — engine is tested, live formula is not
-**Last verified:** 2026-07-31 · **Commit:** `4214349` · **Owner:** Unassigned
+**Documentation status:** Verified against code
+**Last verified:** 2026-10-29 · **Commit:** `3b635c3` · **Owner:** Unassigned

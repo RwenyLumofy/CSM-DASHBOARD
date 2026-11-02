@@ -27,7 +27,7 @@ lib/
   db/                               Schema + client
   integrations/                     HubSpot, Intercom, Metabase, Gemini, Storage
   metrics/                          ARR, retention, churn, health, portfolio, exec
-  health/                           The config-driven engine (unwired) + CS Pulse (live)
+  health/                           The health engine (scores every account) + CS Pulse
   today/ actions/ projects/ stakeholders/ usage/ notes/ assignment/ import/
 drizzle/          Migrations + hand-maintained SQL
 scripts/          ~40 one-off maintenance scripts
@@ -216,7 +216,7 @@ never updated.
 5. **`app/scratch-*` prototypes ship** in the production build.
 6. **Auth-disabled mode grants everyone Super Admin.**
 7. **The README is stale** on sample mode, crons, and `recharts`.
-8. **Two health systems** (§ [health](../product/health/README.md)).
+8. **Leftover health formula.** `lib/metrics/health.ts` still exists but scores nothing; the engine in `lib/health/` does (§ [health](../product/health/README.md)).
 
 ## Open questions
 
